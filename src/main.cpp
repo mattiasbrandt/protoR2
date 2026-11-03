@@ -127,8 +127,8 @@ void logBootHealth() {
 // serial-bound line, and its trailing newline is stripped because the ring
 // stores lines, not terminators - the drain and /api/logs both add their own.
 // This runs in the calling task's context, so it costs that task one
-// PA_LOG_SERIAL_LINE_MAX buffer on its stack, the same as any PA_LOG_* call
-// already does (include/logging.h's _PA_LOG_FORMAT).
+// PA_LOG_SERIAL_LINE_MAX buffer on its stack while it runs, the same as a
+// PA_LOG_* line's paLogf() frame (src/logging.cpp).
 //
 // Nothing here may call ESP_LOGx: it is what the logger calls.
 static int paLogIdfVprintf(const char* format, va_list args) {
