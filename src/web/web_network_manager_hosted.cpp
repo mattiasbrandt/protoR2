@@ -493,7 +493,7 @@ static bool hostedLivenessTick() {
 // hold the re-init; an attempt that cannot is counted failed and the ladder's
 // bound decides. Boot is not checked: the heap is fresh there.
 //
-// What the re-init allocates, in order (ESP-Hosted 2.13.0):
+// What the re-init allocates, in order (ESP-Hosted 2.13.1):
 //   1. The channel mempool: add_esp_wifi_remote_channels() ->
 //      transport_drv_add_channel() -> transport_drv_common_mempool_create()
 //      (transport_drv.c:298-313, assert(mempool_common)).
@@ -503,6 +503,14 @@ static bool hostedLivenessTick() {
 //   3. After it: the SDMMC card and bus mutex, a semaphore, the four SDIO
 //      tasks, then rpc_init() under ESP_ERROR_CHECK (mutexes, semaphores,
 //      the serial interface, two queues and the two RPC tasks).
+//   4. Once the C6 talks: the SDIO Rx buffer (sdio_rx_get_buffer(),
+//      sdio_drv.c:976-1001), grown in streaming mode to the largest read the C6
+//      sends, up to its send queue x MAX_SDIO_BUFFER_SIZE. 2.13.0 dropped a read
+//      whose grow failed; 2.13.1 asserts (sdio_read_task(), sdio_drv.c:1322-1330).
+//      A C6 that reports its Tx queue (ESP_PRIV_TX_Q_SIZE) has the vendor
+//      pre-allocate it instead, at the INIT event under ESP_ERROR_CHECK
+//      (transport_drv.c:1011, bus_sdio_set_rx_buffer_size()). The factory C6
+//      (esp-hosted-mcu 83efce6, 2024-10) does not report it, so it grows.
 // Both pools are one contiguous block each, allocated through
 // transport_util_malloc() with HOSTED_MEM_CAP_DMA -> hosted_malloc_align(),
 // which asks internal DMA-capable RAM (port_esp_hosted_host_os.c:130-148)
@@ -515,10 +523,12 @@ static bool hostedLivenessTick() {
 // multi_heap.c:434), and an aligned allocation carries the alignment gap and
 // the poisoning header and tail on top. So, after the deinit, the probe makes
 // the vendor's two pool allocations itself, in its order and with its caps,
-// with the small allocations between them stood in for by one block, then
-// frees them again. TLSF places an identical request sequence on an identical
-// heap identically, so a probe that succeeds is the vendor's placement, two
-// separate holes included. The free total must also cover step 3.
+// with the small allocations between them stood in for by one block, and
+// then the step 4 Rx buffer at its largest, then frees them again. TLSF
+// places an identical request sequence on an identical heap identically, so a
+// probe that succeeds is the vendor's placement, separate holes included. The
+// free total must also cover step 3. Step 4 really comes after step 3; the
+// probe takes it last of its own allocations.
 //
 // This is a snapshot, not a guarantee. It narrows the vendor's assert path to
 // whatever another task allocates between the probe's free and the vendor's
@@ -534,15 +544,22 @@ static bool hostedLivenessTick() {
 // is intended: re-derive the sizes then.
 static_assert(ESP_HOSTED_VERSION_VAL(ESP_HOSTED_VERSION_MAJOR_1, ESP_HOSTED_VERSION_MINOR_1,
                                      ESP_HOSTED_VERSION_PATCH_1) ==
-                  ESP_HOSTED_VERSION_VAL(2, 13, 0),
+                  ESP_HOSTED_VERSION_VAL(2, 13, 1),
               "ESP-Hosted changed: re-read the pool sizes and alignment in sdio_drv.c, "
-              "transport_drv.c, mempool_ll.h and port_esp_hosted_host_os.h, then the re-init "
-              "fit check below");
+              "transport_drv.c, mempool_ll.h and port_esp_hosted_host_os.h, and the Rx buffer "
+              "path in sdio_drv.c, then the re-init fit check below");
 // The pools exist only with the mempool on, and the check reads internal
 // DMA RAM because that is where hosted_malloc_align() puts them without the
 // PSRAM preference. Either setting changing needs the check re-derived.
 #if !CONFIG_ESP_HOSTED_USE_MEMPOOL || CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM
 #error "The hosted re-init fit check assumes ESP-Hosted mempools in internal DMA RAM; re-derive it"
+#endif
+// Step 4 is one streaming-mode Rx buffer. Packet mode takes it from the SDIO
+// pool instead, and double buffering keeps two (platformio.ini [env:firebeetle2]
+// turns it off); either needs step 4 re-derived.
+#if !CONFIG_ESP_HOSTED_SDIO_OPTIMIZATION_RX_STREAMING_MODE || \
+    CONFIG_ESP_HOSTED_SDIO_RX_DOUBLE_BUFFERING
+#error "The hosted re-init fit check assumes one streaming-mode SDIO Rx buffer; re-derive step 4"
 #endif
 
 // The heap hosted_malloc_align() falls back to, and with the PSRAM preference
@@ -605,14 +622,26 @@ static constexpr size_t kHostedReinitBeforeSdioPoolBytes = 4096;
 static constexpr size_t kHostedReinitAfterSdioPoolBytes =
     CONFIG_ESP_HOSTED_DFLT_TASK_STACK + 3 * 5120 + 2 * 5120 + 6 * 512 + 2048;
 
+// Step 4: one read at its largest, the C6's whole send queue of
+// MAX_SDIO_BUFFER_SIZE 1536 B blocks. The depth is the C6's, not a host
+// setting: SDIO_SLAVE_QUEUE_SIZE 20 in the factory image (esp-hosted-mcu
+// 83efce6 slave/main/sdio_slave_api.c:32; the image logs
+// "sending mode: SDIO_SLAVE_SEND_STREAM"). A C6 image with a deeper queue
+// needs this re-read. hosted_malloc_align() rounds the size up to the
+// alignment; 30,720 B already is one.
+static constexpr size_t kHostedC6SendQueueDepth = 20;
+static constexpr size_t kHostedRxBufferBytes = kHostedC6SendQueueDepth * 1536;
+static_assert(kHostedRxBufferBytes % kHostedPoolAlignment == 0,
+              "hosted_malloc_align() would round the Rx buffer up; mirror it");
+
 static constexpr size_t kHostedReinitFreeNeeded =
     kHostedChannelPoolBytes + kHostedReinitBeforeSdioPoolBytes + kHostedSdioPoolBytes +
-    kHostedReinitAfterSdioPoolBytes;
+    kHostedReinitAfterSdioPoolBytes + kHostedRxBufferBytes;
 
 struct HostedReinitFit {
     size_t largestBlock = 0;  // for the log only; the probe decides placement
     size_t freeBytes = 0;
-    // Which probe allocation failed, or nullptr when all three fitted (or the
+    // Which probe allocation failed, or nullptr when all four fitted (or the
     // free total was already short, so none was tried).
     const char* failedProbe = nullptr;
 
@@ -621,7 +650,8 @@ struct HostedReinitFit {
     }
 };
 
-// The probe: the vendor's allocation sequence up to the SDIO pool, made with
+// The probe: the vendor's allocation sequence up to the SDIO pool, then the
+// Rx buffer, made with
 // hosted_malloc_align()'s own call (heap_caps_aligned_alloc(alignment, size,
 // caps)),
 // then freed in reverse order. A failure returns NULL rather than aborting:
@@ -643,10 +673,18 @@ static const char* hostedProbeReinitPools() {
     }
     void* sdioPool =
         heap_caps_aligned_alloc(kHostedPoolAlignment, kHostedSdioPoolBytes, kHostedReinitHeapCaps);
-    const char* failed = sdioPool == nullptr ? "SDIO pool" : nullptr;
-    if (sdioPool != nullptr) {
-        heap_caps_free(sdioPool);
+    if (sdioPool == nullptr) {
+        heap_caps_free(smallAllocations);
+        heap_caps_free(channelPool);
+        return "SDIO pool";
     }
+    void* rxBuffer =
+        heap_caps_aligned_alloc(kHostedPoolAlignment, kHostedRxBufferBytes, kHostedReinitHeapCaps);
+    const char* failed = rxBuffer == nullptr ? "Rx buffer" : nullptr;
+    if (rxBuffer != nullptr) {
+        heap_caps_free(rxBuffer);
+    }
+    heap_caps_free(sdioPool);
     heap_caps_free(smallAllocations);
     heap_caps_free(channelPool);
     return failed;
@@ -704,14 +742,23 @@ static void hostedRunRecoveryLadder() {
                         "Hosted link recovery attempt %u/%u: re-init refused, it would not fit "
                         "the internal DMA heap: %s%s; largest free block %u B; free %u B, needs "
                         "%u B (channel pool %u + small allocations %u + SDIO pool %u + %u after "
-                        "it). Attempt counted failed",
+                        "it + Rx buffer %u). Attempt counted failed",
                         attemptsThisRun + 1, kHostedLinkRecoveryMaxAttempts,
                         fit.failedProbe != nullptr ? "probe failed at the " : "free total short",
                         fit.failedProbe != nullptr ? fit.failedProbe : "",
                         (unsigned)fit.largestBlock, (unsigned)fit.freeBytes,
                         (unsigned)kHostedReinitFreeNeeded, (unsigned)kHostedChannelPoolBytes,
                         (unsigned)kHostedReinitBeforeSdioPoolBytes, (unsigned)kHostedSdioPoolBytes,
-                        (unsigned)kHostedReinitAfterSdioPoolBytes);
+                        (unsigned)kHostedReinitAfterSdioPoolBytes, (unsigned)kHostedRxBufferBytes);
+        } else {
+            // The margin a passed check had, so a bench run shows how close
+            // the re-init came (#497).
+            PA_LOG_INFO(TAG,
+                        "Hosted link recovery attempt %u/%u: re-init fits the internal DMA heap: "
+                        "free %u B, needs %u B; largest free block %u B",
+                        attemptsThisRun + 1, kHostedLinkRecoveryMaxAttempts,
+                        (unsigned)fit.freeBytes, (unsigned)kHostedReinitFreeNeeded,
+                        (unsigned)fit.largestBlock);
         }
         const bool initOk = initTried && hostedInitWiFi();
         // Device-truthful outcome, never WiFi.status() -- a dead transport
