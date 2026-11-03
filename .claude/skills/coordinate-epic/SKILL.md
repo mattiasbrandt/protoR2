@@ -132,22 +132,28 @@ from the epic's coordination section rather than from memory.
 - One sub-issue per worker. A worker operates ONLY inside its own worktree;
   any out-of-tree edit, checkout, stash, restore, or clean is an automatic
   reject. This repo has lost work to exactly that.
-- **One command each, so the next session does not re-read `--help`.**
-  `herdr tab create --workspace <name> --cwd <path> --label <label> --focus`.
-  `python3 tools/herdr_capped_agent.py --pane <id> --name <agent> --brief <brief-file> [-- --resume <session-id>]`
-  (exit 0 means Herdr saw the agent go `working` on the brief; on a stall it prints the pane and
-  does not re-send - read it first, the prompt may have landed).
-  A worker's own transcript, when it is idle: `herdr agent read <agent> --source recent-unwrapped --lines 200`
-  (Herdr scrolls a full-screen agent's history for that read; `pane read` without `--lines` shows one screen).
+- **One command each, so the next session does not re-read `--help`.** Herdr is two
+  products (AGENTS.md "Flashing and Monitoring" says how to tell which one you are in).
+  In the Herdr TUI (`HERDR_ENV=1`):
+  `herdr tab create --workspace <name> --cwd <path> --label <label> --focus`, then
+  `python3 tools/herdr_capped_agent.py --pane <id> --name <agent> --brief <brief-file> [-- --resume <session-id>]`.
+  In the Herdr app (`HC_TERMINAL_ID`), with no pane to make first:
+  `python3 tools/herdr_capped_agent.py --name <agent> --cwd <worktree> --brief <brief-file> [-- --resume <session-id>]`
+  (a new tab; `--place right` puts it beside you; the worker outlives you).
+  Exit 0 means Herdr saw the agent go `working` on the brief. On a stall it prints the agent's
+  screen and does not re-send: read it first, the prompt may have landed.
+  A worker's own transcript, when it is idle: TUI `herdr agent read <agent> --source recent-unwrapped --lines 200`
+  (Herdr scrolls a full-screen agent's history for that read; `pane read` without `--lines` shows one screen);
+  app `hc read <agent> --lines 200`.
   `python3 tools/make_brief.py --issue <n> --slug <s> --worktree <path> --base <base>`.
   `python3 tools/pane_run.py /tmp/gate-<s>.log --cwd <path> -- python3 tools/slice_verify.py --base <base> --json /tmp/slice-<s>.json`
   (a pane, `tools/gate_in_pane.sh`, the wait for `GATE_EXIT=` and the tail, in one call).
   `python3 tools/accept_slice.py --json /tmp/slice-<s>.json --worktree <path> --base <base> [--allow-gate-edit]`.
   The JSON field is `ok`. Do not pass `--mutations` (#464). Do not pipe the gate through `tee`.
 - **Start every worker memory-capped** with the `herdr_capped_agent.py` line above, never a bare
-  `herdr agent start`. It puts the pane's shell in its own systemd scope
-  (MemoryMax 10G, no swap, OOMPolicy=continue) and refuses to start the agent
-  if the cap is not in place. **Why:** on 2026-09-29 one worker's test grew
+  `herdr agent start` or `hc run claude`. It puts the agent in its own systemd scope
+  (MemoryMax 10G, no swap, OOMPolicy=continue): the pane's shell in the TUI, the agent
+  itself in the app. It refuses to start the agent, or kills it, if the cap is not in place. **Why:** on 2026-09-29 one worker's test grew
   memory at about 1 GB/s with nothing bounding it; systemd-oomd killed the
   terminal's whole cgroup - the Herdr server and every agent - twice. Capped,
   the same runaway kills one `node` process and nothing else (measured).
