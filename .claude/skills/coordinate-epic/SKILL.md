@@ -143,7 +143,7 @@ from the epic's coordination section rather than from memory.
   `python3 tools/pane_run.py /tmp/gate-<s>.log --cwd <path> -- python3 tools/slice_verify.py --base <base> --json /tmp/slice-<s>.json`
   (a pane, `tools/gate_in_pane.sh`, the wait for `GATE_EXIT=` and the tail, in one call).
   `python3 tools/accept_slice.py --json /tmp/slice-<s>.json --worktree <path> --base <base> [--allow-gate-edit]`.
-  The JSON field is `ok`. During the pause do not pass `--mutations`. Do not pipe the gate through `tee`.
+  The JSON field is `ok`. Do not pass `--mutations` (#464). Do not pipe the gate through `tee`.
 - **Start every worker memory-capped** with the `herdr_capped_agent.py` line above, never a bare
   `herdr agent start`. It puts the pane's shell in its own systemd scope
   (MemoryMax 10G, no swap, OOMPolicy=continue) and refuses to start the agent
@@ -164,9 +164,9 @@ from the epic's coordination section rather than from memory.
   prompt - the brief's first step sends the worker to the issue body and the
   pinned coordinator comment.
 - Fence files mechanically, not just in prose: put `--fenced <pathspecs>` in
-  the ticket's pinned comment when a slice must not touch a path. Through
-  2026-10-31 (#464) do not put a `--mutations` expectation in the brief and
-  do not grant a waiver so the worker can write a test. A flat test total is
+  the ticket's pinned comment when a slice must not touch a path. Per-slice
+  suites are off (#464): do not put a `--mutations` expectation in the brief
+  and do not grant a waiver so the worker can write a test. A flat test total is
   the normal result. The gate's suite rows skip themselves.
 
 ## Pins
@@ -179,7 +179,7 @@ A date-limited caveat names the command whose output retires it. "Comment PATCH 
 
 ## Critic protocol (before accepting any slice - no exceptions)
 
-**Through 2026-10-31 (#464) the suite is not the acceptance.** Do not require a pasted suite block, a mutation table, a red run, or a per-wave re-run of `slice_verify` for the suites. Step 0 below is the acceptance. A worker who added tests or mutation patches the ticket did not name goes back to delete them. A missing `make test` is not a reject. The build still matters when the diff compiles. On 2026-11-01 this paragraph stops, and "From 2026-11-01" below is the rule. Until then, do not follow that section.
+**The suite is not the acceptance (#464).** The operator ran this as an experiment from 2026-10-02 through 2026-10-31 and kept it on 2026-11-03: the suites found no product defect in that window, and the reviews found the defects. Do not require a pasted suite block, a mutation table, a red run, or a per-wave re-run of `slice_verify` for the suites. Step 0 below is the acceptance. A worker who added tests or mutation patches the ticket did not name goes back to delete them. A missing `make test` is not a reject. The build still matters when the diff compiles. CI runs the native and web suites on the pull request into `main`.
 
 Worker summaries are claims, not evidence; this repo has caught agents
 reporting passes that never ran. In the worker's worktree, personally:
@@ -200,107 +200,29 @@ reporting passes that never ran. In the worker's worktree, personally:
    through an epic that claimed to consolidate polling. Both were invisible
    to a green gate.
 
-### From 2026-11-01
-
-The suite pause has ended. Steps 1 and 2 below are the acceptance again. Until that date, skip this section: step 0, a clean tree, and a build when the diff compiles are the acceptance, and a worker does not pass `--mutations`.
-
-1. **Check the block's provenance against the branch - do not re-run the gate
-   behind every slice.** Read the worker's pasted block and verify, in its
-   worktree, that it is a block *of this branch*, with one command on the
-   block's JSON:
+1. **Check the gate block belongs to this branch.** Every slice runs the gate
+   last (build, drift checks, tooling self-tests). In its worktree, one
+   command on the block's JSON:
 
    ```
    python3 tools/accept_slice.py --json /tmp/slice-<s>.json --worktree <path> --base <base>
    ```
 
-   It prints a PASS/FAIL row each, and a FAIL row says what to do next: `ok`
-   true and not dirty; the block's head is the worktree's `HEAD`; the block's
-   merge-base is `git rev-parse <base>`; the verifier hashes equal those files
-   at the base tip; the worktree is clean but for `data/fs-version.json` and
-   `data/fw-version.json`. Exit 0 only when every row passes. The brief told
-   the worker to write the block to `/tmp/slice-<s>.json` (`<s>` is the
-   dispatch slug). For a slice you granted `--expect-gate-edit`, add
-   `--allow-gate-edit` so the verifiers it edits are held to its HEAD; you
-   pass it, never the worker, and the block's own waiver flag is not the grant.
-
-   **The merge-base row compares to `rev-parse <base>`, not `merge-base <base>
-   HEAD`, and the difference is the whole check.** A slice whose base moved
-   under it still has an internally consistent block: its own `merge-base` and
-   the one you compute both name the OLD tip, so they agree and the slice
-   passes while being verified against a tree that no longer exists. Compare
-   the block's merge-base to the base's CURRENT tip. This is not hypothetical -
-   it happened three times on #175 in one evening, and one of those slices was
-   repairing a defect introduced by the very merge it did not have.
-
-   When they differ, **what it costs depends on what landed in between**, and
-   you decide that rather than reflexively sending the slice back. The command
-   lists the files changed both on `<base>` since the block's merge-base and on
-   the branch:
-
-   - **No overlap** (the row passes with a note) - merge it, and let the
-     per-wave gate run on the merged tree be its proof. The slice's own block
-     is honest about the tree it was built on, and its test-total arithmetic
-     against the older base still shows the tests it added.
-   - **Overlap (the row fails), or the merged work is the subject of this
-     slice** (the command cannot see that; you judge it) - the worker
-     merges `<base>` and re-runs the gate, and that block is the one you accept.
-     #346's reopen is the case in point: it branched before a merge whose change
-     *was* its own third finding, so no file-level overlap would have saved it.
-
-   A blanket re-gate on every moved tip buys back the duplicate cost this
-   protocol just removed, once per merge - and serial integration moves the tip
-   by definition.
-
-   Then read the block itself: every changed web production JS file appears in
-   the mutation table, every row KILLED, and **no waiver ACK you did not grant**
-   (`--expect-gate-edit`, `--expect-no-new-tests`, `--expect-no-mutations`,
-   `--expect-test-shrink`, `--expect-heap-growth` - an unsanctioned ACK is an
-   automatic reject; under a granted `--expect-test-shrink`, read the deleted
-   files the ACK names against the list you granted, and under a granted
-   `--expect-heap-growth`, the bytes the ACK names against the spend the ticket
-   decided). Any of those disagreeing is the
-   trigger to re-run the full gate on that one slice, with the worker's exact
-   invocation, and compare character for character.
-
-   **The gate itself you run ONCE PER WAVE, on the merged tree**, with the
-   union of the wave's fences - the run Integration already requires, because
-   line numbers and stragglers move on merge. That run is the anti-fabrication
-   net for every slice in the wave.
-
-   **Why, so nobody restores the duplicate.** Measured on #175, 2026-09-17: the
-   coordinator re-ran the full gate behind **18** accepted slices and found **0**
-   divergences. Each re-run was a second copy of the most expensive thing in the
-   repo - the mutation stage ran the whole web suite once per patch (until
-   #405), 28 times on a slice like #346 - serialised behind a machine-wide
-   build lock, while every rejection that epic produced came from step 0, which costs nothing.
-   Spend the iteration on the production diff, not on a second identical block.
-   Then every remaining acceptance check.
-2. For new or changed tests, demand the prove-it-can-fail evidence: red
-   against the pre-fix commit for bug fixes. Mutation coverage is proven by
-   the gate re-run in step 1 - the mutation row passes only when every patch
-   is KILLED by assertion and every changed web production JS file is hit by
-   at least one patch; a SURVIVED, KILLED-BY-HANG, uncovered file, or any
-   mutation table pasted outside a gate block is a reject. Web tests are
-   held to `test/test_web/README.md`. A green suite without that
-   demonstration is a claim.
-
-   The gate is a mechanical floor, and it is automated - running it costs no
-   iterations. **Do not spend rejection cycles on top of it arguing test
-   design.** Never reject a slice for test naming, structure or tidiness,
-   or for the number of real invariants it covers. Test quality is
-   minor next to source quality - if a rejection is about the tests rather
-   than the code, it had better be because the tests prove nothing, not
-   because they could be prettier. Iteration spent on test design is
-   iteration not spent on the change itself.
-
-   **Ticket receipts are the exception, and they are a reject** (#406,
-   `test/test_web/README.md` "What earns a test here"): web tests that
-   transcribe the acceptance list - copy, heading words, chip order, timing
-   constants, visual anatomy - a `test_*_<ticket>.js` as the slice's only
-   coverage, or a mutation patch per checkbox. Ask for the one invariant
-   (safety, a shipped defect, harness-only) in the surface's file with one
-   kill, and for the rest to be deleted, not tidied. An ugly name on a real
-   invariant still passes.
+   Exit 0 only when every row passes; a FAIL row says what to do next. For a
+   slice you granted `--expect-gate-edit`, add `--allow-gate-edit`; you pass
+   it, never the worker. An ACK in the block for a waiver you did not grant is
+   a reject. The merge-base row compares to the base's CURRENT tip
+   (`rev-parse <base>`), so a slice whose base moved under it fails there. Then
+   the command lists the files changed both on `<base>` and on the branch: no
+   overlap, merge it; overlap, or the merged work is this slice's subject, the
+   worker merges `<base>` and re-runs the gate. Do not re-gate on every moved
+   tip.
+2. **Tests the slice did add.** Never reject for test naming, structure or
+   tidiness. Ticket receipts are a reject (#406, `test/test_web/README.md`
+   "What earns a test here"): web tests that transcribe the acceptance list -
+   copy, heading words, chip order, timing constants, visual anatomy - or a
+   `test_*_<ticket>.js` as the slice's only coverage. Ask for them to be
+   deleted. A test the ticket named runs alone, its summary line in the report.
 3. The reviewer subagent reads the full diff (`git diff <base>...HEAD`): scope creep,
    shortcuts, behaviour change in tickets that promise none, comment
    degradation, core guardrails (no heap alloc or blocking on Core 1 paths,
@@ -352,8 +274,8 @@ The suite pause has ended. Steps 1 and 2 below are the acceptance again. Until t
 
 Merge reviewed branches into `<base>` one at a time, oldest-reviewed
 first; later conflicting branches rebase onto the updated base before their
-review completes. After the final merge, through 2026-10-31 (#464), do not re-run the slice
-gate for its suites. The production diffs were the acceptance. The native
+review completes. After the final merge, do not re-run the slice gate for its
+suites (#464). The production diffs were the acceptance. The native
 and web suites run when the epic's pull request into `main` opens.
 
 **Measure the filesystem image in the same pass**, with `make

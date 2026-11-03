@@ -280,7 +280,7 @@ persistence, or JSON/API contracts are touched (see `AGENTS.md`
 "Verification and Reporting" for the full rule)
 - [ ] `make test` (native), `make test-web` (web behaviour) and `make test-tools`
   (tooling) pass. There is no on-device suite.
-- [ ] Through 2026-10-31 the local native and web suites are paused (#464,
+- [ ] The local native and web suites do not run per change (#464,
   `tools/suite_pause.py`): `make test` and `make test-web` return at once, a
   second reviewer's read of the diff stands in for them. On a pull request
   into `main`, CI runs the web and tooling tests every time, and the native

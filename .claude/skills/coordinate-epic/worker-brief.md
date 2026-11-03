@@ -24,7 +24,7 @@ approaches are out of scope: do not attempt a variation of a rejected
 category.
 
 Then these sections of AGENTS.md, not the whole file: Architecture
-Guardrails, The build lock, Suite pause, Verification Scale, Web/UI Copy
+Guardrails, The build lock, Per-slice suites are off, Verification Scale, Web/UI Copy
 Rules when the slice touches `data/`, Change Hygiene (Commit scope format
 and Incremental slice workflow), and the shell paragraph under Project
 Context. Safety-critical rules are the short list in `.claude/CLAUDE.md`.
@@ -38,8 +38,8 @@ that a route installed after mount needs `page.reload()` because
 `test/playwright/README.md` under "Run offline". A shared CSS class is
 `python3 tools/css_where.py <selector>`.
 
-SUITES PAUSED THROUGH 2026-10-31 (#464)
-This overrides every later line that tells you to run `make test`, `make test-web`, `pio test`, `node --test`, `tools/mutation_verify.py`, or to add a test or a mutation patch. Do not run them. Do not write them. `make test` and `make test-web` return immediately and that is correct. A slice is accepted when a second agent has read the production diff. One `make build` when something compiles. The existing tests stay in the tree and run in CI when a pull request into main opens. Do not set `PROTOR2_SUITES=1`. On 2026-11-01 the pause ends by itself.
+PER-SLICE SUITES ARE OFF (#464)
+This overrides every later line that tells you to run `make test`, `make test-web`, `pio test`, `node --test`, `tools/mutation_verify.py`, or to add a test or a mutation patch. Do not run them. Do not write them. `make test` and `make test-web` return immediately and that is correct. A slice is accepted when a second agent has read the production diff. One `make build` when something compiles. The existing tests stay in the tree and run in CI when a pull request into main opens. Do not set `PROTOR2_SUITES=1`.
 Two checks still run, and for them this paragraph overrides the lines above. The gate, once, as your last step: its self-tests row runs `make test-tools` and its drift row the action-registry check. And the one suite of a test file your slice edits: `python3 tools/pio_lock.py pio test -e native -f test_native/<suite>` or `node --test --test-timeout=10000 test/test_web/<file>.js`. Paste that suite's summary line in your report.
 
 THE TICKET IS YOUR SOURCE
@@ -96,15 +96,9 @@ rules it replaces actually deleted, did you miss call sites, is the result
 simpler to read than what was there. A module added beside the thing it was
 meant to replace is not the ticket, however well tested it is.
 
-From 2026-11-01, when the suite pause has ended: write focused tests, not
-exhaustive suites, and do not polish them. You will not be rejected for test
-naming or structure, and you will be rejected for production code that does
-not do the job. One mutation per changed rule, proved able to fail, is the
-gate's expectation again. Until that date the next paragraph is the rule,
-and this one is not.
-
-DO NOT ADD A TEST OR A MUTATION PATCH. The suite pause above is the rule
-through 2026-10-31. A test the ticket already names in one sentence may stay
+DO NOT ADD A TEST OR A MUTATION PATCH. The banner above is the rule. You
+will not be rejected for test naming or structure, and you will be rejected
+for production code that does not do the job. A test the ticket already names in one sentence may stay
 in the diff; you do not invent one, and the one suite of that file (the
 banner) is its only run.
 Copy, heading words, chip order, timing constants and visual anatomy stay on
@@ -263,7 +257,7 @@ SLICE WORKFLOW (AGENTS.md, binding)
 
 VERIFICATION (software-verified cap)
 - One PlatformIO build runs on this machine at a time, and the tooling takes
-  the lock for you: run `make build` plainly. `make test` is paused (#464)
+  the lock for you: run `make build` plainly. `make test` is off (#464)
   and returns without running; do not follow it with `pio test`.
   A build that exits 5 is the toolchain, not your code: the lock found a
   PlatformIO penv past 6.1.19 and printed one fix line
@@ -281,14 +275,14 @@ VERIFICATION (software-verified cap)
   until a number looks right; the coordinator owns the repair. Chase a number
   that disagrees with your brief instead of taking whichever reads better -
   three of this epic's most valuable findings came from exactly that.
-- Per-commit verification during the pause is the build, when you changed
+- Per-commit verification is the build, when you changed
   something that compiles. Do not run the existing tests "to be sure"; the
   one suite of a test file you edit is the only exception (the banner).
 - Run the gate once, as your last step, on every slice, docs and CI-only
   slices included:
   `python3 tools/slice_verify.py --base {BASE} --json {GATE_JSON}`. Its
   self-tests row runs `make test-tools`, which nothing else here runs. The
-  native, web, and mutation rows skip themselves through 2026-10-31 and that
+  native, web, and mutation rows skip themselves (#464) and that
   skip is a pass of the gate, not of the suite. The coordinator accepts the
   slice by checking {GATE_JSON} against your worktree with `tools/accept_slice.py`,
   so: write the JSON to exactly that path; commit everything before the run
@@ -304,7 +298,7 @@ VERIFICATION (software-verified cap)
 REPORT
 Final status comment: slices with SHAs, the build result when you built, and
 anything you could not prove with the reason. There is no suite block and no
-red-run block during the pause, only the one summary line the banner asks for. Keep the comment to the frontier, under about
+red-run block, only the one summary line the banner asks for. Keep the comment to the frontier, under about
 20 KB. When it would pass that, post the current text as a new history comment
 and reset the marked one.
 

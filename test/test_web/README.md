@@ -1,6 +1,6 @@
 # Behavioral tests for shipped web modules
 
-**Paused through 2026-10-31 (#464).** Do not add a web test or a mutation patch in this window, and do not run this suite per slice. The rules below still describe what a test is when one is earned. CI runs the existing files on a pull request into `main`. The pause ends on 2026-11-01.
+**Not run per slice (#464).** Do not add a web test or a mutation patch a ticket did not name, and do not run this suite per slice. The rules below still describe what a test is when one is earned. CI runs the existing files on a pull request into `main`.
 
 Two defects (#148, #149) shipped behind green suites, and two rework attempts
 were rejected with green suites over unchanged behavior. The recurring failure

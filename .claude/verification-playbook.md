@@ -26,8 +26,7 @@ Automated tests are evidence, not the goal. Choose checks based on the risk touc
 - Firmware behavior change: start with `make build BUILD_ENV=<affected-env>`
   (for example, `artoo_esp32` or `firebeetle2`).
 - Safety invariants, protocol parsing, shared state transitions, config persistence,
-  JSON/API contracts, or prior regression paths: through 2026-10-31 (#464) do not
-  add `make test`. The production diff is the check. CI runs the suite on the
+  JSON/API contracts, or prior regression paths: do not add `make test` (#464). The production diff is the check. CI runs the suite on the
   pull request into `main`.
 - Action registry, RC tokens, or `ACTION_REGISTRY[]`: add `make check-action-drift`.
 - Static-analysis investigation: add `make check`; do not run it by default.
