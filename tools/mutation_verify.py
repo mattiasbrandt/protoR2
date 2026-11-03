@@ -333,7 +333,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # #464: a direct authoring run is the loop the pause exists to stop.
+    # #464: a direct authoring run is the loop the skip exists to stop.
     import suite_pause
     if suite_pause.paused():
         print(suite_pause.BANNER)

@@ -640,10 +640,10 @@ def skipped(label: str) -> CheckResult:
 
 
 def paused_skip(label: str) -> CheckResult:
-    """Product suite row skipped for the #464 experiment. A pass of this row
-    is not a pass of the suite."""
+    """Product suite row skipped under #464 (CI runs it on the pull request
+    into main). A pass of this row is not a pass of the suite."""
     return CheckResult(
-        label, "SKIP (suites paused until 2026-11-01, #464)", True,
+        label, "SKIP (per-slice suites off, CI runs them, #464)", True,
         [suite_pause.BANNER], skipped=True,
     )
 
@@ -1386,7 +1386,7 @@ def main() -> int:
             info(f"{name} {elapsed:.1f}s")
 
     # #464: do not pay for base suites while the product suites themselves are
-    # skipped. The date check lives in tools/suite_pause.py.
+    # skipped. The switch lives in tools/suite_pause.py.
     product_suites_paused = suite_pause.paused()
     if product_suites_paused:
         info(suite_pause.BANNER)

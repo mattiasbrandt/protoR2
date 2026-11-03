@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
@@ -24,21 +23,22 @@ import suite_pause  # noqa: E402
 
 
 class SuitePause(unittest.TestCase):
-    """#464: the per-slice product suites stop on their own on 2026-11-01."""
+    """#464: the per-slice product suites stay off locally; the override runs them."""
 
-    def test_pause_holds_through_october(self):
-        self.assertTrue(suite_pause.paused(date(2026, 10, 2)))
-        self.assertTrue(suite_pause.paused(date(2026, 10, 31)))
+    def setUp(self):
+        self._saved = os.environ.pop("PROTOR2_SUITES", None)
 
-    def test_pause_ends_on_the_resume_date(self):
-        self.assertFalse(suite_pause.paused(date(2026, 11, 1)))
+    def tearDown(self):
+        os.environ.pop("PROTOR2_SUITES", None)
+        if self._saved is not None:
+            os.environ["PROTOR2_SUITES"] = self._saved
+
+    def test_suites_are_skipped_with_no_end_date(self):
+        self.assertTrue(suite_pause.paused())
 
     def test_override_runs_the_suites(self):
         os.environ["PROTOR2_SUITES"] = "1"
-        try:
-            self.assertFalse(suite_pause.paused(date(2026, 10, 2)))
-        finally:
-            del os.environ["PROTOR2_SUITES"]
+        self.assertFalse(suite_pause.paused())
 
 
 class TapCountParsing(unittest.TestCase):

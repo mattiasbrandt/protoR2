@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Per-slice product suites are paused through 2026-10-31 (#464).
+"""Per-slice product suites do not run locally (#464).
 
-The operator is checking whether a second agent's read of the diff carries
-the quality these runs were being repeated to buy. The tests stay in the
-tree. CI still runs the native suite and the web suite on a pull request
-into main when its files reach them (.github/workflows/verification.yml
-classifies the pull request's whole range; the epic's closure pull request
-reaches both). This pause covers local
-`make test`, `make test-web`, the native, web, and mutation stages of
-slice_verify, and a direct `tools/mutation_verify.py` run.
+A second agent's read of the production diff accepts a slice. The operator
+ran that as an experiment from 2026-10-02 through 2026-10-31 and decided on
+2026-11-03 to keep it: in that window the suites found no product defect,
+and the reviews found the defects (#464 has the evidence). The tests stay in
+the tree. CI runs the native suite and the web suite on a pull request into
+main when its files reach them (.github/workflows/verification.yml
+classifies the pull request's whole range; an epic's closure pull request
+reaches both).
 
-On 2026-11-01 the skip ends by itself. PROTOR2_SUITES=1 runs them now.
+This skip covers local `make test`, `make test-web`, the native, web, and
+mutation stages of slice_verify, and a direct `tools/mutation_verify.py`
+run. It has no end date. PROTOR2_SUITES=1 runs them.
 
-`--check` exits 0 when the pause is active and 1 when the suites should run,
+`--check` exits 0 when the suites are skipped and 1 when they should run,
 so the Makefile can fall through.
 """
 
@@ -20,26 +22,17 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import date
-
-# First day the suites run again. The pause covers 2026-10-02 through 2026-10-31.
-SUITES_RESUME_ON = date(2026, 11, 1)
 
 BANNER = (
-    "SUITES PAUSED until 2026-11-01 (#464). "
-    "Native tests, web tests, and mutation checks are not run per slice. "
-    "A pull request into main still runs the native and web suites in CI "
-    "when its files reach them. "
-    "PROTOR2_SUITES=1 runs them now."
+    "Per-slice product suites do not run locally (#464). "
+    "Native tests, web tests, and mutation checks run in CI "
+    "on a pull request into main when its files reach them. "
+    "PROTOR2_SUITES=1 runs them here."
 )
 
 
-def paused(today: date | None = None) -> bool:
-    if os.environ.get("PROTOR2_SUITES") == "1":
-        return False
-    if today is None:
-        today = date.today()
-    return today < SUITES_RESUME_ON
+def paused() -> bool:
+    return os.environ.get("PROTOR2_SUITES") != "1"
 
 
 def main(argv: list[str]) -> int:
@@ -48,7 +41,7 @@ def main(argv: list[str]) -> int:
         if active:
             print(BANNER)
         return 0 if active else 1
-    print(BANNER if active else "suites are not paused")
+    print(BANNER if active else "suites run (PROTOR2_SUITES=1)")
     return 0 if active else 1
 
 
