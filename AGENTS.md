@@ -417,8 +417,10 @@ Six rules the Makefile cannot enforce for you:
   that had been built against the placeholder SSID. Copy it in when you create a
   worktree, and never commit it.
 - **Device and build work runs where the operator can watch it**, wherever a pane
-  multiplexer is available (this bench uses Herdr; you are inside it when
-  `HERDR_ENV=1`). Flashing, bench-sheet replays, long builds and anything that
+  multiplexer is available. This bench uses Herdr, which is two products: you are
+  inside the Herdr TUI (`herdr`) when `HERDR_ENV=1`, and inside the Herdr app
+  (`herdr-app` and `hc`) when `HC_TERMINAL_ID` is set. Check both before saying
+  neither is there. Flashing, bench-sheet replays, long builds and anything that
   touches a board go in a visible pane, not a backgrounded call whose output you
   summarise afterwards. Two reasons, and the second is not a preference: the
   operator is the second pair of eyes on a board that can be mis-flashed - a

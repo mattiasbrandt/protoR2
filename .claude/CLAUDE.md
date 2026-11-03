@@ -134,15 +134,23 @@ none.
 The shell is zsh. Quote a glob (`--include='*.cpp'`). An unquoted `$var` does not word-split. `=word` is equals-expansion (`echo '======'`). `git rev-parse --short` takes one revision.
 
 - **Run device and build work in a Herdr pane, not headless** — the mechanics for
-  AGENTS.md "Flashing and Monitoring", which carries the rule and the *why*. You are
-  inside Herdr when `HERDR_ENV=1`; `$HERDR_PANE_ID` is your own pane. One call does
-  the whole sequence: `python3 tools/pane_run.py /tmp/<name>.log [--grep <re>] -- <cmd>`
-  splits a sibling pane, runs `<cmd>` there under `tools/gate_in_pane.sh`, waits for
-  `GATE_EXIT=`, prints the log's tail, closes the pane it made and exits with the
-  command's status. An upload goes in a file (the upload guard matches its text in a
-  Bash command): `--script /tmp/<name>.sh`. By hand, the steps it replaces are
+  AGENTS.md "Flashing and Monitoring", which carries the rule and the *why*. Herdr is
+  two products, so check both:
+  - **Herdr TUI** (`herdr`): `HERDR_ENV=1` is set, and `$HERDR_PANE_ID` is your own pane.
+  - **Herdr app** (`herdr-app` window, herdr-core `hc`): `HC_TERMINAL_ID` is your own
+    terminal; `hc --skill` is its manual.
+
+  One call does the whole sequence under either:
+  `python3 tools/pane_run.py /tmp/<name>.log [--grep <re>] -- <cmd>`. It opens a pane
+  beside yours: a split in the TUI; in the app, an `hc` terminal it gives a pane. It
+  runs `<cmd>` there under `tools/gate_in_pane.sh`, waits for `GATE_EXIT=`, prints the
+  log's tail, closes what it made and exits with the command's status. An upload goes
+  in a file (the upload guard matches its text in a Bash command):
+  `--script /tmp/<name>.sh`. By hand, the TUI steps it replaces are
   `herdr pane split --current --direction right --cwd "$PWD" --no-focus` (id at
   `.result.pane.pane_id`), then `herdr pane run <id> "tools/gate_in_pane.sh /tmp/<name>.log -- <cmd>"`.
+  The app steps are `hc run --bg --json --no-notify --name <n> --cwd "$PWD" -- tools/gate_in_pane.sh /tmp/<name>.log -- <cmd>`,
+  then `herdr-app do terminal.keep --terminal <address> --place right`.
   The log's last line is `GATE_EXIT=<n>`, the command's own status, and the script
   restores `data/fw-version.json` and `data/fs-version.json`. A pipe through `tee`
   records tee's status instead. Two things measured 2026-09-06: `herdr pane read` can return nothing while a command
@@ -150,7 +158,7 @@ The shell is zsh. Quote a glob (`--include='*.cpp'`). An unquoted `$var` does no
   operator to watch, the log is what you verify against; and poll the log for
   `GATE_EXIT=` rather than guessing when a long build finished. Close panes you
   created; never close one you did not, another session may be in a neighbouring
-  workspace. Where Herdr is unavailable, say so before starting a device session.
+  workspace. Where neither Herdr is available, say so before starting a device session.
 
 - [tools/console_client.py](../tools/console_client.py) is the Console Client, not only a
   capture tool: boot-log capture (`make monitor`), an interactive Controller Console session
