@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Start an agent in a Herdr pane, inside its own memory-capped systemd scope.
 
+Herdr is two products, and this runs under either: the Herdr TUI (`herdr`,
+HERDR_ENV=1) into a pane you name with --pane, or the Herdr app (`hc`,
+HC_TERMINAL_ID) into an `hc` terminal it starts and gives a pane (a new tab
+by default, --place right|down beside you). The cap and its check are the
+same in both.
+
 Why this exists (2026-09-29): a worker ran one web test whose failing
 assertion printed an entire mini_dom page, growing memory at about 1 GB/s.
 Nothing bounded it, so the machine swapped until systemd-oomd killed the
@@ -27,11 +33,22 @@ What it does, in order:
      seconds of the submission - the miss that, on 2026-09-13, left a worker
      idle with an empty input line after an exit-0 prompt.
 
+In the Herdr app the order is different, because hc starts the program
+itself: `hc run --bg` runs `systemd-run --user --scope ... <kind> [args]
+[first prompt]` in a new terminal, so the agent is born inside the scope and
+the brief is its first argument (hc's manual: a send to a booting agent can
+be dropped, so the first task goes in the run). The scope check then runs on
+the live terminal and kills it if the cap is not in place. The wait is for
+hc's status.state to read working or blocked. The terminal outlives the
+caller (--outlive-parent): a worker must not end with its coordinator.
+
 Usage:
   python3 tools/herdr_capped_agent.py --pane w8:p82 --name w411w --brief /tmp/brief-411.md
   python3 tools/herdr_capped_agent.py --pane w8:p82 --name w411w -- --resume <id>
+  python3 tools/herdr_capped_agent.py --name w411w --cwd ../wt-411 --brief /tmp/brief-411.md   # Herdr app
 
-The pane must be at an interactive shell prompt. Nothing here edits a file.
+In the TUI the pane must be at an interactive shell prompt. Nothing here
+edits a file.
 """
 
 from __future__ import annotations
@@ -42,6 +59,10 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pane_run import which_herdr  # noqa: E402
 
 PROMPT_MARK = "❯"  # the zsh prompt glyph this machine's shells print
 
@@ -106,10 +127,83 @@ def to_bytes(size: str) -> int:
     return int(float(size[:-1]) * units[size[-1].upper()]) if size[-1].upper() in units else int(size)
 
 
+def scope_ok(unit: str, mem: str) -> dict[str, str] | None:
+    """The scope's properties when it is active with MemoryMax=mem, else None."""
+    props = scope_props(unit)
+    if props.get("ActiveState") != "active" or props.get("MemoryMax") != str(to_bytes(mem)):
+        return None
+    return props
+
+
+def capped_argv(unit: str, mem: str, program: list[str]) -> list[str]:
+    return ["systemd-run", "--user", "--scope", "--quiet", f"--unit={unit}",
+            "-p", f"MemoryMax={mem}", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue",
+            *program]
+
+
+def app_status(address: str) -> str | None:
+    status = json.loads(run(["hc", "get", address, "--json"])).get("status")
+    return status.get("state") if isinstance(status, dict) else status
+
+
+def start_in_app(args: argparse.Namespace, unit: str, prompt: str | None) -> int:
+    program = [args.kind, *args.agent_args, *([prompt] if prompt else [])]
+    started = json.loads(run(["hc", "run", "--bg", "--json", "--outlive-parent", "--name", args.name,
+                              "--cwd", os.path.abspath(args.cwd), "--",
+                              *capped_argv(unit, args.mem, program)]))
+    address = started["address"]
+
+    # systemd-run makes the scope before it execs the agent; give it a moment.
+    deadline = time.monotonic() + 10
+    props = scope_ok(unit, args.mem)
+    while props is None and time.monotonic() < deadline:
+        time.sleep(0.25)
+        props = scope_ok(unit, args.mem)
+    if props is None:
+        subprocess.run(["hc", "kill", address], capture_output=True)
+        raise SystemExit(f"[capped-agent] scope {unit} is not active with MemoryMax={args.mem}: "
+                         f"{scope_props(unit)}. Killed {address} rather than leave it uncapped.")
+    print(f"[capped-agent] {unit}: MemoryMax={props['MemoryMax']} MemorySwapMax={props.get('MemorySwapMax')}")
+
+    keep = ["herdr-app", "do", "terminal.keep", "--terminal", address]
+    if args.place:
+        keep += ["--place", args.place]
+    # The window learns of a new terminal a moment after hc starts it.
+    for attempt in range(20):
+        if subprocess.run(keep, capture_output=True).returncode == 0:
+            break
+        if attempt == 19:
+            print(f"[capped-agent] {address} runs without a pane (is the Herdr app window open?)",
+                  file=sys.stderr)
+        time.sleep(0.25)
+    print(f"[capped-agent] {args.name} started as {address}")
+
+    if prompt is None:
+        return 0
+    deadline = time.monotonic() + args.prompt_timeout_ms / 1000
+    state = app_status(address)
+    while state not in ("working", "blocked") and time.monotonic() < deadline:
+        time.sleep(0.5)
+        state = app_status(address)
+    if state in ("working", "blocked"):
+        print(f"[capped-agent] {args.name} took the prompt: {state}")
+        return 0
+    print(f"[capped-agent] {args.name} did not show working within "
+          f"{args.prompt_timeout_ms} ms (status {state!r}).", file=sys.stderr)
+    print("[capped-agent] Read it before re-sending; the prompt was its first argument:",
+          file=sys.stderr)
+    print(run(["hc", "read", address, "--lines", "30"]), file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--pane", required=True, help="Herdr pane id, exactly as printed (ids can end in a letter)")
-    parser.add_argument("--name", required=True, help="agent name for herdr, also names the scope")
+    parser.add_argument("--pane", help="Herdr TUI pane id, exactly as printed (ids can end in a letter); "
+                        "required in the TUI, unused in the Herdr app")
+    parser.add_argument("--name", required=True, help="agent name for herdr or hc, also names the scope")
+    parser.add_argument("--cwd", default=".", help="Herdr app: the agent's working directory (default: here)")
+    parser.add_argument("--place", choices=("right", "down"),
+                        help="Herdr app: a pane beside yours instead of a new tab")
     parser.add_argument("--kind", default="claude")
     parser.add_argument("--mem", default="10G", help="MemoryMax for the agent and everything it runs (default 10G)")
     parser.add_argument("--brief", help="prompt the agent to read this file and carry it out; confirm it started")
@@ -124,7 +218,15 @@ def main(argv: list[str]) -> int:
             raise SystemExit(f"[capped-agent] no brief at {brief}, or it is empty")
         prompt = f"Read {brief} in full, then carry it out end to end."
 
+    kind = which_herdr(dict(os.environ))
+    if kind is None:
+        raise SystemExit("[capped-agent] not inside Herdr (no HERDR_ENV=1 from the Herdr TUI, "
+                         "no HC_TERMINAL_ID from the Herdr app)")
     unit = f"pa-agent-{args.name}-{int(time.time())}.scope"
+    if kind == "app":
+        return start_in_app(args, unit, prompt)
+    if not args.pane:
+        raise SystemExit("[capped-agent] --pane is required in the Herdr TUI")
     wait_for_prompt(args.pane, 30)
     # `exec`: herdr starts an agent only in the pane's own shell process, and
     # a nested shell is "not an available shell" (measured 2026-09-29). If
@@ -136,8 +238,9 @@ def main(argv: list[str]) -> int:
     time.sleep(1.5)
     wait_for_prompt(args.pane, 30)
 
-    props = scope_props(unit)
-    if props.get("ActiveState") != "active" or props.get("MemoryMax") != str(to_bytes(args.mem)):
+    props = scope_ok(unit, args.mem)
+    if props is None:
+        props = scope_props(unit)
         raise SystemExit(f"[capped-agent] scope {unit} is not active with MemoryMax={args.mem}: {props}. "
                          "Not starting the agent uncapped.")
     print(f"[capped-agent] {unit}: MemoryMax={props['MemoryMax']} MemorySwapMax={props.get('MemorySwapMax')}")
