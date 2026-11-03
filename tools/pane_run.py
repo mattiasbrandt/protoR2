@@ -54,7 +54,8 @@ closed with the program.
 
 Exit codes: the command's own; 2 for usage or a log another run owns; 3 when
 neither Herdr is available; 124 when --timeout passes (the pane is left
-running and named).
+running and named); 125 when a Herdr app terminal ends without writing
+GATE_EXIT (killed, say: its pane closed).
 """
 
 from __future__ import annotations
@@ -77,6 +78,7 @@ RUN_ID_PREFIX = "PANE_RUN_ID="
 EXIT_USAGE = 2
 EXIT_NO_HERDR = 3
 EXIT_TIMEOUT = 124
+EXIT_DIED = 125
 APP_RETRIES = 20
 APP_RETRY_S = 0.25
 
@@ -179,6 +181,24 @@ def start_app_terminal(argv: list[str], cwd: Path, direction: str, run_id: str) 
     return address
 
 
+def app_terminal_ended(address: str) -> str | None:
+    """How an app terminal ended (`killed, signal 1`), or None while it runs.
+
+    On 2026-11-03 a terminal was killed by SIGHUP 23 s into a build. The log
+    never got its GATE_EXIT, and the wait polled on toward its two-hour
+    timeout.
+    """
+    try:
+        info = run_json("hc", "get", address, "--json")
+    except (RuntimeError, ValueError):
+        return "gone from hc"
+    if info.get("state") != "finished":
+        return None
+    reason = info.get("reason") or "finished"
+    signal = info.get("signal")
+    return f"{reason}, signal {signal}" if signal else reason
+
+
 def remove_app_terminal(address: str) -> None:
     """`hc rm` once the program has exited: GATE_EXIT lands just before it does."""
     for _ in range(APP_RETRIES):
@@ -275,6 +295,20 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_TIMEOUT
         time.sleep(args.interval)
         code = gate_exit(log, run_id)
+        if code is None and kind == "app":
+            ended = app_terminal_ended(pane)
+            if ended is not None:
+                # A GATE_EXIT can land in the same instant; read once more.
+                code = gate_exit(log, run_id)
+                if code is None:
+                    note(f"terminal {pane} ended with no GATE_EXIT ({ended}); "
+                         f"the command did not finish. Log: {log}")
+                    if not args.keep:
+                        try:
+                            run_json("hc", "rm", pane)
+                        except (RuntimeError, ValueError) as err:
+                            note(f"could not remove {pane}: {err}")
+                    return EXIT_DIED
 
     for line in summary(log, args.tail, args.grep):
         print(line)

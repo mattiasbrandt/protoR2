@@ -89,6 +89,15 @@ class Arguments(unittest.TestCase):
         self.assertIn("gate_in_pane.sh /tmp/x.log -- sh -c", line)
         self.assertTrue(line.endswith("id1 make build 'BUILD_ENV=a b'"))
 
+    def test_an_app_terminal_killed_mid_run_ends_the_wait(self):
+        killed = {"state": "finished", "reason": "killed", "signal": 1}
+        with mock.patch.object(pane_run, "run_json", return_value=killed):
+            self.assertEqual(pane_run.app_terminal_ended("t14"), "killed, signal 1")
+        with mock.patch.object(pane_run, "run_json", return_value={"state": "live"}):
+            self.assertIsNone(pane_run.app_terminal_ended("t14"))
+        with mock.patch.object(pane_run, "run_json", side_effect=RuntimeError("no terminal")):
+            self.assertEqual(pane_run.app_terminal_ended("t14"), "gone from hc")
+
 
 if __name__ == "__main__":
     unittest.main()
