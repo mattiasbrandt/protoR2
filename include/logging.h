@@ -56,43 +56,39 @@ inline uint8_t paCurrentLogLevel() {
     return configCurrentLogLevel();
 }
 
-#define _PA_LOG_FORMAT(level, tag, fmt, ...)                                      \
-    do {                                                                          \
-        char _pa_log_buf[PA_LOG_SERIAL_LINE_MAX];                                 \
-        /* Lines are bounded here; the ring continues a longer one across slots. */ \
-        _Pragma("GCC diagnostic push")                                            \
-        _Pragma("GCC diagnostic ignored \"-Wformat-truncation\"")                 \
-        snprintf(_pa_log_buf, sizeof(_pa_log_buf), "[%lu][" level "][%s] " fmt,               \
-                 (unsigned long)millis(), tag, ##__VA_ARGS__);                                \
-        _Pragma("GCC diagnostic pop")                                             \
-        paLogLine(_pa_log_buf);                                                   \
-    } while (0)
+// Format and record one line: "[millis][L][tag] " and the message, cut at
+// PA_LOG_SERIAL_LINE_MAX - 1 characters, then paLogLine(). Defined out of
+// line (src/logging.cpp) so its 256 B buffer lives in its own frame, only
+// while a line is written, and never in the frame of the function that logs
+// (#491). The format attribute keeps -Wformat checking every call site's
+// arguments, as the inline snprintf did.
+void paLogf(char level, const char* tag, const char* fmt, ...) __attribute__((format(printf, 3, 4)));
 
 // Tag-based logging macros with runtime level check
 #define PA_LOG_ERROR(tag, fmt, ...)                                         \
     do {                                                                    \
         if (paCurrentLogLevel() >= PA_LOG_LEVEL_ERROR) {                    \
-            _PA_LOG_FORMAT("E", tag, fmt, ##__VA_ARGS__);                   \
+            paLogf('E', tag, fmt, ##__VA_ARGS__);                           \
         }                                                                   \
     } while (0)
 
 #define PA_LOG_WARN(tag, fmt, ...)                                          \
     do {                                                                    \
         if (paCurrentLogLevel() >= PA_LOG_LEVEL_WARN) {                     \
-            _PA_LOG_FORMAT("W", tag, fmt, ##__VA_ARGS__);                   \
+            paLogf('W', tag, fmt, ##__VA_ARGS__);                           \
         }                                                                   \
     } while (0)
 
 #define PA_LOG_INFO(tag, fmt, ...)                                          \
     do {                                                                    \
         if (paCurrentLogLevel() >= PA_LOG_LEVEL_INFO) {                     \
-            _PA_LOG_FORMAT("I", tag, fmt, ##__VA_ARGS__);                   \
+            paLogf('I', tag, fmt, ##__VA_ARGS__);                           \
         }                                                                   \
     } while (0)
 
 #define PA_LOG_DEBUG(tag, fmt, ...)                                         \
     do {                                                                    \
         if (paCurrentLogLevel() >= PA_LOG_LEVEL_DEBUG) {                    \
-            _PA_LOG_FORMAT("D", tag, fmt, ##__VA_ARGS__);                   \
+            paLogf('D', tag, fmt, ##__VA_ARGS__);                           \
         }                                                                   \
     } while (0)
