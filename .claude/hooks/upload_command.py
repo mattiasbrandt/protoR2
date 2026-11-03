@@ -159,6 +159,8 @@ def _env_is_ota(words: list[str]) -> bool:
 # Options of flock(1) that take the next word as their value (`flock --help`).
 _FLOCK_OPTS_WITH_VALUE = {"-w", "--timeout", "--wait", "-E", "--conflict-exit-code",
                           "--start", "--length"}
+# Options of `hc run` / `hc exec` that take the next word as their value.
+_HC_OPTS_WITH_VALUE = {"--name", "--cwd", "--on", "--label", "--parent", "--timeout"}
 _SHELLS = {"sh", "bash", "zsh"}
 _PYTHONS = {"python", "python3"}
 
@@ -169,9 +171,12 @@ def _wrapped(words: list[str]) -> list[str] | str | None:
     This is a list of programs whose argument IS a command, kept explicit and
     short on purpose. Everything else that takes text - a commit message, a
     `python3 -c` string, a `grep` pattern, and `herdr agent prompt`, whose
-    argument is text sent to an agent - stays data. The Herdr form matters
+    argument is text sent to an agent - stays data. The Herdr forms matter
     most: `.claude/CLAUDE.md` runs device work as
-    `herdr pane run <pane> "tools/gate_in_pane.sh <log> -- <cmd>"` (#459).
+    `herdr pane run <pane> "tools/gate_in_pane.sh <log> -- <cmd>"` (#459) in
+    the Herdr TUI, and as `hc run [options] [--] <cmd...>` in the Herdr app.
+    `hc run <template> "<task>"` passes its task to an agent; that stays data,
+    because the template name is not a program this guard knows.
     """
     program = _program(words[0])
     # `python3 tools/pio_lock.py ...` and `sh tools/gate_in_pane.sh ...`: the
@@ -182,6 +187,19 @@ def _wrapped(words: list[str]) -> list[str] | str | None:
         program = _program(words[0])
     if program == "herdr" and words[1:3] == ["pane", "run"] and len(words) > 4:
         return " ".join(words[4:])  # herdr pane run <pane> <cmd>
+    if program == "hc" and words[1:2] in (["run"], ["exec"]):
+        # hc run|exec [options] [--] <argv...>; one word is a shell command
+        # (`hc run --help`, hc 0.1.17).
+        index = 2
+        while index < len(words) and words[index].startswith("-"):
+            if words[index] == "--":
+                index += 1
+                break
+            index += 2 if words[index] in _HC_OPTS_WITH_VALUE else 1
+        rest = words[index:]
+        if not rest:
+            return None
+        return rest[0] if len(rest) == 1 else rest
     if program == "gate_in_pane.sh" and "--" in words:
         return words[words.index("--") + 1:]  # gate_in_pane.sh <log> -- <cmd...>
     if program == "pio_lock.py":

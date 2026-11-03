@@ -23,6 +23,9 @@ ASKS = [
     'herdr pane run w8:p1 "tools/gate_in_pane.sh /tmp/x.log -- make flash"',
     'herdr pane run w8:p1 "tools/gate_in_pane.sh /tmp/x.log -- pio run -e artoo_esp32 -t upload"',
     'bash -c "make ota"',
+    "hc run --bg --name fl --cwd /x -- tools/gate_in_pane.sh /tmp/x.log -- make flash",
+    'hc run "cd wt && make ota"',
+    "hc exec --on vps make flash",
 ]
 
 DOES_NOT_ASK = [
@@ -31,6 +34,8 @@ DOES_NOT_ASK = [
     'grep -- "-t upload" tools/pio_lock.py',
     "python3 -c \"print('make flash; pio run -t upload')\"",
     'herdr agent prompt w8:p1 "run make flash later"',
+    'hc run --bg --name rv reviewer "check that make flash still asks"',
+    'hc send t3 "run make flash later"',
 ]
 
 

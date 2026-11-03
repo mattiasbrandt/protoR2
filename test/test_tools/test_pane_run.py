@@ -68,8 +68,21 @@ class Arguments(unittest.TestCase):
         self.assertEqual(pane_run.main(["/tmp/x.log"]), 2)
 
     def test_outside_herdr_it_says_so_instead_of_running_headless(self):
-        with mock.patch.dict("os.environ", {"HERDR_ENV": "0"}):
+        env = {k: v for k, v in os.environ.items() if k not in ("HERDR_ENV", "HC_TERMINAL_ID")}
+        with mock.patch.dict("os.environ", env, clear=True):
             self.assertEqual(pane_run.main(["/tmp/x.log", "--", "true"]), pane_run.EXIT_NO_HERDR)
+
+    def test_either_herdr_is_found_and_the_tui_wins_when_both_are_set(self):
+        self.assertEqual(pane_run.which_herdr({"HERDR_ENV": "1"}), "tui")
+        self.assertEqual(pane_run.which_herdr({"HC_TERMINAL_ID": "t2"}), "app")
+        self.assertEqual(pane_run.which_herdr({"HERDR_ENV": "1", "HC_TERMINAL_ID": "t2"}), "tui")
+        self.assertIsNone(pane_run.which_herdr({"HERDR_ENV": "0", "HC_TERMINAL_ID": ""}))
+
+    def test_the_app_terminal_gets_the_same_argv_the_tui_pane_runs(self):
+        argv = pane_run.pane_argv(Path("/tmp/x.log"), ["make", "build"], "id1")
+        self.assertEqual(argv[1:3], ["/tmp/x.log", "--"])
+        self.assertEqual(pane_run.pane_command(Path("/tmp/x.log"), ["make", "build"], "id1"),
+                         pane_run.shlex.join(argv))
 
     def test_the_pane_runs_the_command_under_gate_in_pane(self):
         line = pane_run.pane_command(Path("/tmp/x.log"), ["make", "build", "BUILD_ENV=a b"], "id1")
