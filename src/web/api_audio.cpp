@@ -80,13 +80,6 @@ constexpr size_t kChirpBindingCount =
 constexpr size_t kChirpCategoryBindingCount =
     sizeof(CHIRP_CATEGORY_BINDING_KEYS) / sizeof(CHIRP_CATEGORY_BINDING_KEYS[0]);
 
-bool isSleepModeActive() {
-    taskENTER_CRITICAL(&robotStateMux);
-    bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    return sleeping;
-}
-
 bool audioCatalogSupported() {
     return (audioGetCapabilities() & AudioDriver::AUDIO_CAP_CATALOG) != 0;
 }
@@ -903,15 +896,87 @@ void handleAudioCategoryRangePost(WebRequest& req) {
 }
 
 // -----------------------------------------------------------------------------
+// Dispatch Cores: see include/api_audio.h
+// -----------------------------------------------------------------------------
+
+namespace {
+
+// Sleep Mode first, then sound off for this boot. Queued means neither holds it.
+SoundActOutcome soundActHeld() {
+    if (sleepModeActive()) {
+        return SoundActOutcome::Asleep;
+    }
+    return audioSoundOn() ? SoundActOutcome::Queued : SoundActOutcome::SoundOff;
+}
+
+// Answers a refused act and returns true; leaves a queued one to its route.
+bool refusedSoundAct(WebRequest& req, SoundActOutcome outcome) {
+    switch (outcome) {
+        case SoundActOutcome::Queued:
+            return false;
+        case SoundActOutcome::Asleep:
+            webSendJsonError(req, 423, "sleeping", "POST /api/wake");
+            return true;
+        case SoundActOutcome::SoundOff:
+            webSendJsonError(req, 409, AUDIO_SOUND_OFF_REASON);
+            return true;
+        case SoundActOutcome::CatalogUnsupported:
+            webSendJsonError(req, 404, "catalog unsupported by active backend");
+            return true;
+        case SoundActOutcome::QueueFull:
+            webSendJsonError(req, 503, "audio command queue full");
+            return true;
+    }
+    return true;
+}
+
+}  // namespace
+
+SoundActOutcome soundPlayTrackRequest(uint16_t track, CommandSource source) {
+    const SoundActOutcome held = soundActHeld();
+    if (held != SoundActOutcome::Queued) {
+        return held;
+    }
+    return audioQueuePlayTrack(track, source) ? SoundActOutcome::Queued : SoundActOutcome::QueueFull;
+}
+
+SoundActOutcome soundDollarRequest(const char* cmd, CommandSource source) {
+    const SoundActOutcome held = soundActHeld();
+    if (held != SoundActOutcome::Queued) {
+        return held;
+    }
+    return audioQueueDollar(cmd, source) ? SoundActOutcome::Queued : SoundActOutcome::QueueFull;
+}
+
+SoundActOutcome soundPlayBankedRequest(uint16_t index, uint8_t bank, char page,
+                                       CommandSource source) {
+    if (sleepModeActive()) {
+        return SoundActOutcome::Asleep;
+    }
+    if (!audioCatalogSupported()) {
+        return SoundActOutcome::CatalogUnsupported;
+    }
+    if (!audioSoundOn()) {
+        return SoundActOutcome::SoundOff;
+    }
+    return audioQueuePlayTrackBanked(index, bank, page, source) ? SoundActOutcome::Queued
+                                                                : SoundActOutcome::QueueFull;
+}
+
+MoodOutcome moodRequest(uint8_t mood) {
+    if (sleepModeActive()) {
+        return MoodOutcome::Asleep;
+    }
+    applyMood(mood);
+    requestStatusBroadcastNow();
+    return MoodOutcome::Applied;
+}
+
+// -----------------------------------------------------------------------------
 // Mood presets (dual-path: audio + dome TX)
 // -----------------------------------------------------------------------------
 
 void handleMoodPost(WebRequest& req) {
-    if (isSleepModeActive()) {
-        webSendJsonError(req, 423, "sleeping", "POST /api/wake");
-        return;
-    }
-
     // Wider than the longest valid value, so an over-long input reaches the
     // whitelist below as the invalid value it is rather than as a truncation
     // that happens to match (web_request.h).
@@ -931,8 +996,10 @@ void handleMoodPost(WebRequest& req) {
         return;
     }
 
-    applyMood((uint8_t)mood);
-    requestStatusBroadcastNow();
+    if (moodRequest((uint8_t)mood) == MoodOutcome::Asleep) {
+        webSendJsonError(req, 423, "sleeping", "POST /api/wake");
+        return;
+    }
     PA_LOG_INFO(TAG, "[MOOD] POST /api/mood mood=%d", (int)mood);
     req.send(200, "application/json", "{\"ok\":true}");
 }
@@ -1119,15 +1186,6 @@ void handleAudioCatalogRefreshPost(WebRequest& req) {
 
 // Play a CHIRP entry by bank/page/index for quick validation from Sound UI.
 void handleAudioPlayBankedPost(WebRequest& req) {
-    if (isSleepModeActive()) {
-        webSendJsonError(req, 423, "sleeping", "POST /api/wake");
-        return;
-    }
-    if (!audioCatalogSupported()) {
-        webSendJsonError(req, 404, "catalog unsupported by active backend");
-        return;
-    }
-
     // All three buffers are wider than the longest valid value, so an over-long
     // input reaches its parser as an over-long string (web_request.h).
     char indexRaw[16] = {};
@@ -1157,11 +1215,8 @@ void handleAudioPlayBankedPost(WebRequest& req) {
         return;
     }
 
-    if (refusedWhileSoundOff(req)) {
-        return;
-    }
-    if (!audioQueuePlayTrackBanked((uint16_t)indexValue, (uint8_t)bankValue, page, SRC_WEB_API)) {
-        webSendJsonError(req, 503, "audio command queue full");
+    if (refusedSoundAct(req, soundPlayBankedRequest((uint16_t)indexValue, (uint8_t)bankValue, page,
+                                                    SRC_WEB_API))) {
         return;
     }
 
@@ -1237,10 +1292,6 @@ void handleAudioPost(WebRequest& req) {
 
     // ---- play ----
     if (strcmp(action, "play") == 0) {
-        if (isSleepModeActive()) {
-            webSendJsonError(req, 423, "sleeping", "POST /api/wake");
-            return;
-        }
         char trackRaw[16] = {};
         if (!req.param("track", trackRaw, sizeof(trackRaw))) {
             webSendJsonError(req, 400, "play requires track parameter");
@@ -1251,11 +1302,7 @@ void handleAudioPost(WebRequest& req) {
             webSendJsonError(req, 400, "track must be 1-65535");
             return;
         }
-        if (refusedWhileSoundOff(req)) {
-            return;
-        }
-        if (!audioQueuePlayTrack((uint16_t)track, SRC_WEB_API)) {
-            webSendJsonError(req, 503, "audio command queue full");
+        if (refusedSoundAct(req, soundPlayTrackRequest((uint16_t)track, SRC_WEB_API))) {
             return;
         }
         PA_LOG_INFO(TAG, "[AUDIO] POST /api/audio play track=%d", (int)track);
@@ -1324,10 +1371,6 @@ void handleAudioPost(WebRequest& req) {
 
     // ---- dollar (raw $ command) ----
     if (strcmp(action, "dollar") == 0) {
-        if (isSleepModeActive()) {
-            webSendJsonError(req, 423, "sleeping", "POST /api/wake");
-            return;
-        }
         // Wider than the 9-character ceiling below, so an over-long command is
         // still over-long after the copy and gets the length answer rather than
         // being truncated into an accepted one.
@@ -1341,11 +1384,7 @@ void handleAudioPost(WebRequest& req) {
             webSendJsonError(req, 400, "cmd too long (max 9 chars)");
             return;
         }
-        if (refusedWhileSoundOff(req)) {
-            return;
-        }
-        if (!audioQueueDollar(cmd, SRC_WEB_API)) {
-            webSendJsonError(req, 503, "audio command queue full");
+        if (refusedSoundAct(req, soundDollarRequest(cmd, SRC_WEB_API))) {
             return;
         }
         PA_LOG_INFO(TAG, "[AUDIO] POST /api/audio dollar cmd=%s", cmd);

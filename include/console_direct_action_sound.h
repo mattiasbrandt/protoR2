@@ -54,11 +54,8 @@
 // same sentence POST /api/audio answers with (include/audio_sound_member.h),
 // carried as a field beside COMPONENT_DISABLED - the owning toggle is off -
 // because the reason token alone cannot say where to switch it on.
-static bool consoleRefusedWhileSoundOff(uint32_t requestId, const char* operationName,
-                                        const ConsoleRecordSink* sink) {
-    if (audioSoundOn()) {
-        return false;
-    }
+static void consoleAnswerSoundOff(uint32_t requestId, const char* operationName,
+                                  const ConsoleRecordSink* sink) {
     if (sink->onRecordBegin) {
         sink->onRecordBegin(requestId, operationName);
     }
@@ -69,19 +66,52 @@ static bool consoleRefusedWhileSoundOff(uint32_t requestId, const char* operatio
         sink->onRecordEnd(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_UNAVAILABLE,
                           CONSOLE_REASON_COMPONENT_DISABLED);
     }
+}
+
+static bool consoleRefusedWhileSoundOff(uint32_t requestId, const char* operationName,
+                                        const ConsoleRecordSink* sink) {
+    if (audioSoundOn()) {
+        return false;
+    }
+    consoleAnswerSoundOff(requestId, operationName, sink);
     return true;
 }
 
-// sound.action.play-track: track=<1..999> - the same audioQueuePlayTrack()
-// call handleAudioPost()'s action=play branch makes (src/web/api_audio.cpp);
-// no persist step exists to extract, so this calls the queue function
-// directly, matching #222's "reuse the existing shared function verbatim"
-// shape rather than #226's Commit-Step-extraction shape. Its own sleep gate
-// is reproduced verbatim - robotState.sleepMode read directly under critical
-// section, the same field isSleepModeActive() (private to api_audio.cpp's
-// anonymous namespace) reads, matching the drive.action.move precedent
-// (include/console_direct_action_drive.h) of reading RobotState directly
-// rather than exporting a REST-private helper.
+static void consoleAnswerCatalogUnsupported(uint32_t requestId, const ConsoleRecordSink* sink);
+
+// Words the outcome of a sound Dispatch Core (include/api_audio.h).
+static void consoleAnswerSoundAct(uint32_t requestId, const char* operationName,
+                                  SoundActOutcome outcome, const ConsoleRecordSink* sink) {
+    switch (outcome) {
+        case SoundActOutcome::Asleep:
+            if (sink->onRecordResult) {
+                sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                    CONSOLE_REASON_BLOCKED_BY_STATE);
+            }
+            return;
+        case SoundActOutcome::SoundOff:
+            consoleAnswerSoundOff(requestId, operationName, sink);
+            return;
+        case SoundActOutcome::CatalogUnsupported:
+            consoleAnswerCatalogUnsupported(requestId, sink);
+            return;
+        case SoundActOutcome::QueueFull:
+            if (sink->onRecordResult) {
+                sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
+                                    CONSOLE_REASON_QUEUE_FULL);
+            }
+            return;
+        case SoundActOutcome::Queued:
+            break;
+    }
+    if (sink->onRecordResult) {
+        sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_QUEUED, CONSOLE_REASON_NONE);
+    }
+}
+
+// sound.action.play-track: track=<1..999>. The guards and the send are
+// soundPlayTrackRequest() (include/api_audio.h), the same Dispatch Core
+// handleAudioPost()'s action=play branch calls.
 static void consoleExecuteSoundPlayTrack(uint32_t requestId, const char* operationName,
                                          const ConsoleArgs& args, ConsoleCommandSource source,
                                          const ConsoleRecordSink* sink) {
@@ -99,17 +129,6 @@ static void consoleExecuteSoundPlayTrack(uint32_t requestId, const char* operati
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleeping) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_TEMPORARILY_UNAVAILABLE);
-        }
-        return;
-    }
-
     char* end = nullptr;
     long track = strtol(consoleArgsFind(args, "track"), &end, 10);
     if (*end != '\0' || track < 1 || track > 999) {
@@ -117,20 +136,9 @@ static void consoleExecuteSoundPlayTrack(uint32_t requestId, const char* operati
         return;
     }
 
-    if (consoleRefusedWhileSoundOff(requestId, operationName, sink)) {
-        return;
-    }
-    if (!audioQueuePlayTrack((uint16_t)track, consoleCommandSourceFor(source))) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
-                                CONSOLE_REASON_QUEUE_FULL);
-        }
-        return;
-    }
-
-    if (sink->onRecordResult) {
-        sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_QUEUED, CONSOLE_REASON_NONE);
-    }
+    consoleAnswerSoundAct(requestId, operationName,
+                          soundPlayTrackRequest((uint16_t)track, consoleCommandSourceFor(source)),
+                          sink);
 }
 
 // sound.action.set-volume: volume=<0..30> - the same audioQueueSetVolume() +
@@ -201,21 +209,14 @@ static void consoleExecuteSoundSetVolume(uint32_t requestId, const char* operati
 // this one now is one. The bodies below still see it by ordinary
 // same-translation-unit visibility.
 
-// Shared body for every zero-argument $-letter dollar shortcut this file
-// wires (named-track plays, quiet, random-on/off, volume shortcuts): the
-// same audioQueueDollar() call handleAudioPost()'s action=dollar branch
-// makes (src/web/api_audio.cpp) for the identical literal command, including
-// its sleep gate. AudioTask's own step core (src/tasks/audio_task_step.cpp,
-// case AUDIO_CMD_DOLLAR) silently ignores a dollar command received while
-// asleep regardless of caller, but handleAudioPost()'s "dollar" branch
-// additionally pre-checks robotState.sleepMode so the caller sees an
-// explicit refusal instead of a silently-dropped command - reproduced here
-// the same way, matching consoleExecuteSoundPlayTrack()'s own sleep-gate
-// precedent above. Every registry row this serves declares zero params
-// (docs/action-registry.yaml), so the schema check below - reused unchanged
-// from consoleExecuteSoundPlayTrack()/consoleExecuteSoundSetVolume() above -
-// already does the right thing: an empty schema means any supplied argument
-// is unknown, which is correct since none of these operations take one.
+// Shared body for every zero-argument $-letter dollar shortcut this file wires
+// (named-track plays, quiet, random-on/off, volume shortcuts), through
+// soundDollarRequest() (include/api_audio.h). Every registry row this serves
+// declares zero params (docs/action-registry.yaml), so the schema check below -
+// reused unchanged from consoleExecuteSoundPlayTrack() and
+// consoleExecuteSoundSetVolume() above - already does the right thing: an empty
+// schema means any supplied argument is unknown, which is correct since none of
+// these operations take one.
 static void consoleExecuteSoundDollarShortcut(uint32_t requestId, const char* operationName,
                                               const ConsoleArgs& args, ConsoleCommandSource source,
                                               const ConsoleRecordSink* sink, const char* dollarCmd) {
@@ -233,31 +234,8 @@ static void consoleExecuteSoundDollarShortcut(uint32_t requestId, const char* op
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleeping) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_TEMPORARILY_UNAVAILABLE);
-        }
-        return;
-    }
-
-    if (consoleRefusedWhileSoundOff(requestId, operationName, sink)) {
-        return;
-    }
-    if (!audioQueueDollar(dollarCmd, consoleCommandSourceFor(source))) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
-                                CONSOLE_REASON_QUEUE_FULL);
-        }
-        return;
-    }
-
-    if (sink->onRecordResult) {
-        sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_QUEUED, CONSOLE_REASON_NONE);
-    }
+    consoleAnswerSoundAct(requestId, operationName,
+                          soundDollarRequest(dollarCmd, consoleCommandSourceFor(source)), sink);
 }
 
 // The ten named-track $-letter shortcuts (docs/action-registry.yaml's own
@@ -341,8 +319,8 @@ static void consoleExecuteSoundQuiet(uint32_t requestId, const char* operationNa
 // dome_link.cpp's own direct audioQueueDollar("$R"/"$O", SRC_INTERNAL) calls
 // send for its internal dome-cue-driven random-mode toggling - reused here
 // for the operator-facing Console row via the shared dollar-shortcut path
-// above (which additionally applies the sleep gate those internal calls,
-// not being operator-initiated, do not need).
+// above (whose core applies the sleep gate those internal calls, not being
+// operator-initiated, do not need).
 static void consoleExecuteSoundRandomOn(uint32_t requestId, const char* operationName,
                                         const ConsoleArgs& args, ConsoleCommandSource source,
                                         const ConsoleRecordSink* sink) {
@@ -359,11 +337,9 @@ static void consoleExecuteSoundRandomOff(uint32_t requestId, const char* operati
 // parser.h). Distinct from sound.action.set-volume above, which sets an
 // absolute level through AUDIO_CMD_SET_VOLUME directly and is NOT sleep-
 // gated (handleAudioPost()'s action=volume branch has no sleep check); these
-// five instead go through the SAME dollar-command path as the named-track
-// shortcuts above, so they inherit that path's sleep gate too - reproducing
-// handleAudioPost()'s action=dollar branch faithfully rather than picking
-// the more permissive gate because it seems more sensible for a volume
-// change.
+// five instead go through the SAME dollar-command core as the named-track
+// shortcuts above, so they inherit its sleep gate too, as handleAudioPost()'s
+// action=dollar branch does.
 static void consoleExecuteSoundVolumeUp(uint32_t requestId, const char* operationName,
                                         const ConsoleArgs& args, ConsoleCommandSource source,
                                         const ConsoleRecordSink* sink) {
@@ -391,10 +367,9 @@ static void consoleExecuteSoundVolumePresetMin(uint32_t requestId, const char* o
 }
 
 // sound.action.dollar-command: cmd=<$-prefixed string> - the same
-// audioQueueDollar() call handleAudioPost()'s action=dollar branch makes
-// (src/web/api_audio.cpp), including its "must start with '$'"/"<=9 chars"
-// validation (audioCmdQueue's dollar[10] union member ceiling, include/
-// audio_task.h) and sleep gate. The registry declares no params schema for
+// soundDollarRequest() core handleAudioPost()'s action=dollar branch calls
+// (src/web/api_audio.cpp), with its "must start with '$'"/"<=9 chars" validation
+// (audioCmdQueue's dollar[10] union member ceiling, include/audio_task.h). The registry declares no params schema for
 // this row (docs/action-registry.yaml), so this hand-validates the single
 // "cmd" key the same way rc.action.test-bindable's "token" and
 // rc.action.toggle-debug's "enabled" already do (include/console_direct_
@@ -431,31 +406,8 @@ static void consoleExecuteSoundDollarCommand(uint32_t requestId, const char* ope
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleeping) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_TEMPORARILY_UNAVAILABLE);
-        }
-        return;
-    }
-
-    if (consoleRefusedWhileSoundOff(requestId, operationName, sink)) {
-        return;
-    }
-    if (!audioQueueDollar(cmd, consoleCommandSourceFor(source))) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
-                                CONSOLE_REASON_QUEUE_FULL);
-        }
-        return;
-    }
-
-    if (sink->onRecordResult) {
-        sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_QUEUED, CONSOLE_REASON_NONE);
-    }
+    consoleAnswerSoundAct(requestId, operationName,
+                          soundDollarRequest(cmd, consoleCommandSourceFor(source)), sink);
 }
 
 // sound.action.track-stop: the same audioQueueTrackStop() call
@@ -718,9 +670,7 @@ static void consoleExecuteSoundRefreshCatalog(uint32_t requestId, const char* op
 
 // sound.api.play-banked: bank=<1..6> page=<A..Z> index=<1..65535>, the three
 // form fields handleAudioPlayBankedPost() (POST /api/audio/play-banked,
-// src/web/api_audio.cpp) reads, in that handler's own gate order - sleep
-// first, then catalog support, then the values - reaching the same
-// audioQueuePlayTrackBanked() queue call.
+// src/web/api_audio.cpp) reads, reaching the same soundPlayBankedRequest() core.
 //
 // One deliberate NARROWING, recorded rather than hidden: the REST route's
 // parseChirpPage() (src/web/api_audio.cpp:136, file-static) upper-cases a
@@ -748,22 +698,6 @@ static void consoleExecuteSoundPlayBanked(uint32_t requestId, const char* operat
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleeping) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_TEMPORARILY_UNAVAILABLE);
-        }
-        return;
-    }
-
-    if (!consoleAudioCatalogSupported()) {
-        consoleAnswerCatalogUnsupported(requestId, sink);
-        return;
-    }
-
     // Schema already confirmed bank/index parse and sit in range and that page
     // is one of the published letters - reparsed with the SAME parser the
     // schema check used (consoleParamParseNumeric(), include/console_args.h),
@@ -775,20 +709,10 @@ static void consoleExecuteSoundPlayBanked(uint32_t requestId, const char* operat
     consoleParamParseNumeric(CONSOLE_PARAM_TYPE_UINT16, consoleArgsFind(args, "index"), &index);
     const char page = consoleArgsFind(args, "page")[0];
 
-    if (consoleRefusedWhileSoundOff(requestId, operationName, sink)) {
-        return;
-    }
-    if (!audioQueuePlayTrackBanked((uint16_t)index, (uint8_t)bank, page,
-                                   consoleCommandSourceFor(source))) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
-                                CONSOLE_REASON_QUEUE_FULL);
-        }
-        return;
-    }
-    if (sink->onRecordResult) {
-        sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_QUEUED, CONSOLE_REASON_NONE);
-    }
+    consoleAnswerSoundAct(requestId, operationName,
+                          soundPlayBankedRequest((uint16_t)index, (uint8_t)bank, page,
+                                                 consoleCommandSourceFor(source)),
+                          sink);
 }
 
 static const ConsoleDirectActionExecutorEntry g_soundDirectActionExecutors[] = {

@@ -48,10 +48,10 @@
 #include "web_server.h"                   // requestStatusBroadcastNow()
 #include "failsafe_gate.h"                // failsafeClearEstop() - the single
                                           // explicit-intent ESTOP release path
-#include "mood.h"                         // applyMood()
 #include "config_cache.h"                 // ConfigSnapshot
 #include "api_helpers.h"                  // normalizeDroidName(), parseBoolValue()
 #include "api_identity.h"                 // identitySetWriteWindow(), IdentitySetCommitOutcome
+#include "api_audio.h"                    // moodRequest()
 #include "api_drive.h"                    // saveCommandedMode() - the mode save's Write Window
 #include "config.h"                       // DROID_NAME_MAX_LEN
 #include "api_profiler.h"                 // profilerTraceStart()/profilerTraceStop() and
@@ -205,15 +205,11 @@ static void consoleExecuteDirectDisableWebControl(uint32_t requestId, const char
     consoleExecuteDirectWebControl(requestId, operationName, false, args, source, sink);
 }
 
-// system.action.set-mood: mood=<10|11|13|14> - the same applyMood() core
-// system.config.mood already calls (consoleExecuteMoodConfig(),
-// src/console/console_module.cpp; both rows model the identical active-mood
-// mechanism) but reproducing handleMoodPost()'s OWN gate too (src/web/
-// api_audio.cpp): sleep blocks it, unlike system.config.mood's write path,
-// which carries no such gate today (a pre-existing discrepancy between the
-// two rows, not introduced or fixed here - reported on the ticket, not
-// silently closed by loosening this new row to match). requestStatusBroadcastNow()
-// is reproduced too, the same broadcast handleMoodPost() makes after applying.
+// system.action.set-mood: mood=<10|11|13|14>. The sleep gate, applyMood() and the
+// broadcast are moodRequest() (include/api_audio.h), the same Dispatch Core
+// handleMoodPost() calls. system.config.mood (consoleExecuteMoodConfig(),
+// src/console/console_module.cpp) applies the same mood with no sleep gate: a
+// pre-existing discrepancy between the two rows, not closed here.
 static void consoleExecuteDirectSetMood(uint32_t requestId, const char* operationName,
                                         const ConsoleArgs& args, ConsoleCommandSource source,
                                         const ConsoleRecordSink* sink) {
@@ -232,17 +228,6 @@ static void consoleExecuteDirectSetMood(uint32_t requestId, const char* operatio
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleeping) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_TEMPORARILY_UNAVAILABLE);
-        }
-        return;
-    }
-
     // Schema already confirmed "mood" is one of the catalog's own enum
     // strings ("10"/"11"/"13"/"14"); consoleMoodIdValid() (src/console/
     // console_module.cpp, system.config.mood's own validator) is reused
@@ -255,8 +240,13 @@ static void consoleExecuteDirectSetMood(uint32_t requestId, const char* operatio
         return;
     }
 
-    applyMood((uint8_t)mood);
-    requestStatusBroadcastNow();
+    if (moodRequest((uint8_t)mood) == MoodOutcome::Asleep) {
+        if (sink->onRecordResult) {
+            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                CONSOLE_REASON_BLOCKED_BY_STATE);
+        }
+        return;
+    }
 
     if (sink->onRecordResult) {
         sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_APPLIED, CONSOLE_REASON_NONE);

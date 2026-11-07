@@ -1628,7 +1628,7 @@ void test_sound_play_banked_is_blocked_while_sleeping() {
     runQuery("sound.api.play-banked bank=3 page=C index=42");
 
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_TEMPORARILY_UNAVAILABLE, g_cap.reason);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
     TEST_ASSERT_EQUAL_UINT(0u, g_test_audio_play_banked_calls);
 }
 
@@ -3710,7 +3710,7 @@ void test_direct_set_mood_blocked_while_sleeping() {
 
     TEST_ASSERT_EQUAL(CONSOLE_STATUS_ERR, g_cap.status);
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_TEMPORARILY_UNAVAILABLE, g_cap.reason);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
     TEST_ASSERT_EQUAL_UINT(0, g_test_applied_mood);
 }
 
@@ -3872,7 +3872,7 @@ void test_sound_play_track_blocked_while_sleeping() {
     runQuery("sound.action.play-track track=1");
 
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_TEMPORARILY_UNAVAILABLE, g_cap.reason);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
     TEST_ASSERT_EQUAL_UINT(0u, g_test_audio_play_track_calls);
 }
 
@@ -4054,7 +4054,7 @@ void test_sound_named_track_shortcut_blocked_while_sleeping() {
     runQuery("sound.action.play-track-scream");
 
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_TEMPORARILY_UNAVAILABLE, g_cap.reason);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
     TEST_ASSERT_EQUAL_UINT(0u, g_test_audio_dollar_calls);
 }
 
@@ -4125,19 +4125,6 @@ void test_sound_volume_shortcuts_send_the_right_dollar_command() {
     }
 }
 
-// Unlike sound.action.set-volume (no sleep gate), the dollar-routed volume
-// shortcuts inherit the dollar path's sleep gate - the behavior difference
-// this file's own header comment on consoleExecuteSoundVolumeUp() etc. calls
-// out explicitly.
-void test_sound_volume_shortcut_blocked_while_sleeping() {
-    robotState.sleepMode = true;
-
-    runQuery("sound.action.volume-up");
-
-    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_TEMPORARILY_UNAVAILABLE, g_cap.reason);
-}
-
 void test_sound_dollar_command_sends_the_supplied_cmd() {
     runQuery("sound.action.dollar-command cmd=$007");
 
@@ -4183,7 +4170,7 @@ void test_sound_dollar_command_blocked_while_sleeping() {
     runQuery("sound.action.dollar-command cmd=$R");
 
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_TEMPORARILY_UNAVAILABLE, g_cap.reason);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
     TEST_ASSERT_EQUAL_UINT(0u, g_test_audio_dollar_calls);
 }
 
@@ -5907,7 +5894,6 @@ int main(int, char**) {
     RUN_TEST(test_sound_quiet_sends_dollar_s);
     RUN_TEST(test_sound_random_on_off_send_the_right_dollar_command);
     RUN_TEST(test_sound_volume_shortcuts_send_the_right_dollar_command);
-    RUN_TEST(test_sound_volume_shortcut_blocked_while_sleeping);
     RUN_TEST(test_sound_dollar_command_sends_the_supplied_cmd);
     RUN_TEST(test_sound_dollar_command_rejects_missing_dollar_prefix);
     RUN_TEST(test_sound_dollar_command_rejects_a_too_long_command);

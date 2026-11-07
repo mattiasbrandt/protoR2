@@ -9,7 +9,11 @@
 
 #include <freertos/queue.h>
 
+#include "api_audio.h"
 #include "api_drive.h"
+#include "audio_driver.h"
+#include "audio_test_hooks.h"
+#include "commanded_modes_test_hooks.h"  // g_test_applied_mood, g_test_status_broadcast_count
 #include "config_cache.h"
 #include "drive_arbiter.h"
 #include "drive_arbiter_test_hooks.h"  // driveArbiterReset()
@@ -17,6 +21,8 @@
 #include "config_write_window_test_hooks.h"  // ConfigWriteWindowForTest
 
 extern unsigned long g_test_millis;
+extern uint8_t g_test_audio_capabilities;
+extern unsigned g_test_audio_play_banked_calls;
 
 namespace {
 
@@ -49,6 +55,14 @@ void setUp() {
     setSavedConfig(300, true);
     configCacheSetActiveDomeEnabled(true);
     testQueueSendResult() = pdTRUE;
+    configCacheSetActiveAudioEnabled(true);
+    g_test_audio_capabilities = AudioDriver::AUDIO_CAP_CATALOG;
+    g_test_audio_queue_ok = true;
+    g_test_audio_play_track_calls = 0;
+    g_test_audio_dollar_calls = 0;
+    g_test_audio_play_banked_calls = 0;
+    g_test_applied_mood = 0;
+    g_test_status_broadcast_count = 0;
 }
 
 void tearDown() {
@@ -153,6 +167,83 @@ void test_manual_command_awake_is_not_held() {
     TEST_ASSERT_NOT_EQUAL(ManualCommandResult::Asleep, executeManualCommand("*ST00"));
 }
 
+// --- the sound cores -----------------------------------------------------------
+
+namespace {
+
+void setSoundState(bool asleep, bool soundOn, bool queueOk) {
+    robotState.sleepMode = asleep;
+    configCacheSetActiveAudioEnabled(soundOn);
+    g_test_audio_queue_ok = queueOk;
+}
+
+SoundActOutcome expectedSoundAct(bool asleep, bool soundOn, bool queueOk) {
+    if (asleep) {
+        return SoundActOutcome::Asleep;
+    }
+    if (!soundOn) {
+        return SoundActOutcome::SoundOff;
+    }
+    return queueOk ? SoundActOutcome::Queued : SoundActOutcome::QueueFull;
+}
+
+}  // namespace
+
+void test_play_track_over_every_state() {
+    for (int bits = 0; bits < 8; ++bits) {
+        const bool asleep = bits & 1, soundOn = bits & 2, queueOk = bits & 4;
+        setSoundState(asleep, soundOn, queueOk);
+        g_test_audio_play_track_calls = 0;
+
+        TEST_ASSERT_EQUAL(expectedSoundAct(asleep, soundOn, queueOk),
+                          soundPlayTrackRequest(7, SRC_WEB_API));
+        TEST_ASSERT_EQUAL_UINT((!asleep && soundOn && queueOk) ? 1u : 0u, g_test_audio_play_track_calls);
+    }
+}
+
+void test_dollar_over_every_state() {
+    for (int bits = 0; bits < 8; ++bits) {
+        const bool asleep = bits & 1, soundOn = bits & 2, queueOk = bits & 4;
+        setSoundState(asleep, soundOn, queueOk);
+        g_test_audio_dollar_calls = 0;
+
+        TEST_ASSERT_EQUAL(expectedSoundAct(asleep, soundOn, queueOk),
+                          soundDollarRequest("$R", SRC_WEB_API));
+        TEST_ASSERT_EQUAL_UINT((!asleep && soundOn && queueOk) ? 1u : 0u, g_test_audio_dollar_calls);
+    }
+}
+
+// Sleep Mode, then the catalog, then sound off.
+void test_play_banked_over_every_state() {
+    for (int bits = 0; bits < 16; ++bits) {
+        const bool asleep = bits & 1, soundOn = bits & 2, queueOk = bits & 4, catalog = bits & 8;
+        setSoundState(asleep, soundOn, queueOk);
+        g_test_audio_capabilities = catalog ? AudioDriver::AUDIO_CAP_CATALOG : 0;
+        g_test_audio_play_banked_calls = 0;
+
+        const SoundActOutcome expected = (!asleep && !catalog)
+                                             ? SoundActOutcome::CatalogUnsupported
+                                             : expectedSoundAct(asleep, soundOn, queueOk);
+        TEST_ASSERT_EQUAL(expected, soundPlayBankedRequest(1, 1, 'A', SRC_WEB_API));
+        TEST_ASSERT_EQUAL_UINT((!asleep && catalog && soundOn && queueOk) ? 1u : 0u,
+                               g_test_audio_play_banked_calls);
+    }
+}
+
+void test_mood_applies_and_broadcasts_awake() {
+    TEST_ASSERT_EQUAL(MoodOutcome::Applied, moodRequest(13));
+    TEST_ASSERT_EQUAL_UINT(13, g_test_applied_mood);
+    TEST_ASSERT_EQUAL_UINT(1, g_test_status_broadcast_count);
+}
+
+void test_mood_is_refused_asleep() {
+    robotState.sleepMode = true;
+
+    TEST_ASSERT_EQUAL(MoodOutcome::Asleep, moodRequest(13));
+    TEST_ASSERT_EQUAL_UINT(0, g_test_applied_mood);
+    TEST_ASSERT_EQUAL_UINT(0, g_test_status_broadcast_count);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_drive_gate_over_every_state);
@@ -165,5 +256,10 @@ int main() {
     RUN_TEST(test_manual_command_sleep_holds_every_held_prefix);
     RUN_TEST(test_manual_command_sleep_does_not_hold_a_keyword);
     RUN_TEST(test_manual_command_awake_is_not_held);
+    RUN_TEST(test_play_track_over_every_state);
+    RUN_TEST(test_dollar_over_every_state);
+    RUN_TEST(test_play_banked_over_every_state);
+    RUN_TEST(test_mood_applies_and_broadcasts_awake);
+    RUN_TEST(test_mood_is_refused_asleep);
     return UNITY_END();
 }
