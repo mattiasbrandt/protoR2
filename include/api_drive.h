@@ -36,6 +36,22 @@ void handleDomeSpeedPost(WebRequest& req);
 void handleDomeFrontPost(WebRequest& req);
 void handleDomeHomePost(WebRequest& req);
 
+// Dispatch Cores (ADR 0036): the guards and the send of an action Operation, for
+// the web routes above and the Console's actions alike. Each adapter parses its
+// own arguments first, then words the outcome; neither carries the rule.
+
+// A drive move: refused under estop, Stationary Mode, or an unhealthy RC link
+// without Non-RC Control, and otherwise clamped to speedLimitMax and submitted to
+// the arbiter. DriveTask still enforces the speed cap itself.
+enum class DriveMoveOutcome : uint8_t { Submitted, Blocked };
+DriveMoveOutcome driveMoveRequest(int16_t speed, int16_t steer);
+
+// A dome move asked for by `source`: refused in Sleep Mode, and when the Dome ESC
+// is off for this boot, which is the boot's answer and not the saved switch (ADR
+// 0027). Otherwise sent without waiting. QueueFull has already been logged.
+enum class DomeMoveOutcome : uint8_t { Queued, Asleep, DomeOff, QueueFull };
+DomeMoveOutcome domeMoveRequest(float speed, CommandSource source);
+
 // Front is here or go home, asked for by `source` (#445): the one way either
 // press reaches DomeTask, for the web routes above and the Console's two
 // actions alike. Decides with domeBearingActRefusal()

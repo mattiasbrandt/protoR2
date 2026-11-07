@@ -92,13 +92,7 @@ void setDriveConfig(int16_t speedLimitMax) {
 }
 
 void setDomeEnabled(bool enabled) {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = enabled;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(enabled);
 }
 
 // Unity has no enum-class comparison, and a bare 0/1/2 in a failure line says
@@ -363,38 +357,6 @@ void test_drive_oversized_speed_is_rejected() {
     TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, "speed and steer must be integers"));
 }
 
-void test_drive_is_rejected_while_sbus_lost_and_web_control_disabled() {
-    robotState.webControlEnabled = false;
-    robotState.sbusSignalLost = true;
-
-    const WebRequestTestParam params[] = {{"speed", "100"}, {"steer", "0"}};
-    WebRequestTestBackend backend;
-    backend.params = params;
-    backend.paramCount = 2;
-    WebRequest req(&backend);
-
-    handleDrivePost(req);
-
-    TEST_ASSERT_EQUAL_INT(409, backend.sentCode);
-    TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, "drive blocked by safety state"));
-}
-
-void test_drive_is_allowed_while_sbus_lost_but_web_control_enabled() {
-    robotState.webControlEnabled = true;
-    robotState.sbusSignalLost = true;
-
-    const WebRequestTestParam params[] = {{"speed", "100"}, {"steer", "0"}};
-    WebRequestTestBackend backend;
-    backend.params = params;
-    backend.paramCount = 2;
-    WebRequest req(&backend);
-
-    handleDrivePost(req);
-
-    // Should succeed when web control is explicitly enabled despite SBUS loss
-    TEST_ASSERT_EQUAL_INT(200, backend.sentCode);
-}
-
 // -----------------------------------------------------------------------------
 // Drive
 // -----------------------------------------------------------------------------
@@ -431,21 +393,6 @@ void test_drive_is_rejected_while_estopped() {
 
     TEST_ASSERT_EQUAL_INT(409, backend.sentCode);
     TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, "drive blocked by safety state"));
-}
-
-void test_drive_is_rejected_when_stationary() {
-    robotState.webControlEnabled = true;
-    robotState.stationary = true;
-
-    const WebRequestTestParam params[] = {{"speed", "100"}, {"steer", "0"}};
-    WebRequestTestBackend backend;
-    backend.params = params;
-    backend.paramCount = 2;
-    WebRequest req(&backend);
-
-    handleDrivePost(req);
-
-    TEST_ASSERT_EQUAL_INT(409, backend.sentCode);
 }
 
 void test_drive_rejects_non_integer_values() {
@@ -967,6 +914,35 @@ void test_dome_speed_is_refused_when_dome_output_is_disabled() {
 
     TEST_ASSERT_EQUAL_INT(409, backend.sentCode);
     TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, "dome output is disabled"));
+}
+
+void test_dome_speed_answers_a_full_queue() {
+    testQueueSendResult() = pdFALSE;
+    const WebRequestTestParam params[] = {{"speed", "0.5"}};
+    WebRequestTestBackend backend;
+    backend.params = params;
+    backend.paramCount = 1;
+    WebRequest req(&backend);
+
+    handleDomeSpeedPost(req);
+
+    testQueueSendResult() = pdTRUE;
+    TEST_ASSERT_EQUAL_INT(503, backend.sentCode);
+    TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, "dome command queue full"));
+}
+
+// The adapter parses before the core judges, so a bad value hears why (#500).
+void test_dome_speed_malformed_while_sleeping_answers_the_value() {
+    robotState.sleepMode = true;
+    const WebRequestTestParam params[] = {{"speed", "2.5"}};
+    WebRequestTestBackend backend;
+    backend.params = params;
+    backend.paramCount = 1;
+    WebRequest req(&backend);
+
+    handleDomeSpeedPost(req);
+
+    TEST_ASSERT_EQUAL_INT(400, backend.sentCode);
 }
 
 void test_dome_cmd_rejects_an_overlong_command() {
@@ -1770,12 +1746,9 @@ int main(int, char**) {
 
     RUN_TEST(test_drive_clamps_to_the_configured_speed_cap);
     RUN_TEST(test_drive_is_rejected_while_estopped);
-    RUN_TEST(test_drive_is_rejected_when_stationary);
     RUN_TEST(test_drive_rejects_non_integer_values);
     RUN_TEST(test_drive_without_parameters_is_rejected);
     RUN_TEST(test_drive_oversized_speed_is_rejected);
-    RUN_TEST(test_drive_is_rejected_while_sbus_lost_and_web_control_disabled);
-    RUN_TEST(test_drive_is_allowed_while_sbus_lost_but_web_control_enabled);
     RUN_TEST(test_mode_post_sets_stationary_and_broadcasts);
     RUN_TEST(test_mode_post_rejects_an_unknown_mode);
     RUN_TEST(test_mode_post_reports_a_stationary_save_that_did_not_reach_flash);
@@ -1806,6 +1779,8 @@ int main(int, char**) {
 
     RUN_TEST(test_dome_speed_rejects_out_of_range);
     RUN_TEST(test_dome_speed_is_refused_while_sleeping);
+    RUN_TEST(test_dome_speed_answers_a_full_queue);
+    RUN_TEST(test_dome_speed_malformed_while_sleeping_answers_the_value);
     RUN_TEST(test_dome_speed_is_refused_when_dome_output_is_disabled);
     RUN_TEST(test_dome_cmd_rejects_an_overlong_command);
     RUN_TEST(test_dome_cmd_without_a_command_is_rejected);

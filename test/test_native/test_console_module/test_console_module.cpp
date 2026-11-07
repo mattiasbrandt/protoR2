@@ -2173,13 +2173,7 @@ void test_action_dome_move_out_of_range_speed_is_rejected() {
 }
 
 void test_action_dome_move_is_blocked_while_sleeping() {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = true;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(true);
     robotState.sleepMode = true;
 
     runQuery("dome.action.move speed=0.5");
@@ -2189,13 +2183,7 @@ void test_action_dome_move_is_blocked_while_sleeping() {
 }
 
 void test_action_dome_move_is_refused_when_dome_output_is_disabled() {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = false;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(false);
 
     runQuery("dome.action.move speed=0.5");
 
@@ -2204,18 +2192,23 @@ void test_action_dome_move_is_refused_when_dome_output_is_disabled() {
 }
 
 void test_action_dome_move_queues_when_enabled() {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = true;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(true);
 
     runQuery("dome.action.move speed=0.5");
 
     TEST_ASSERT_EQUAL(CONSOLE_STATUS_OK, g_cap.status);
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_QUEUED, g_cap.outcome);
+}
+
+void test_action_dome_move_reports_a_full_queue() {
+    configCacheSetActiveDomeEnabled(true);
+    testQueueSendResult() = pdFALSE;
+
+    runQuery("dome.action.move speed=0.5");
+
+    testQueueSendResult() = pdTRUE;
+    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_QUEUE_FULL, g_cap.outcome);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_QUEUE_FULL, g_cap.reason);
 }
 
 // dome.action.delete-sequence (#259): name=<string>, the same lookup-then-
@@ -3446,15 +3439,8 @@ void test_commanded_mode_set_mode_never_reaches_the_queued_dispatch() {
 // =============================================================================
 // Drive motion actions (#222): drive.action.move
 //
-// Consent matrix proven against the exact rule handleDrivePost() applies
-// (src/web/api_drive.cpp): blocked = estop || stationary ||
-// (!sbusHealthy && !webControlEnabled). Every case here has a REST-side
-// twin in test_api_motion_routes.cpp (test_drive_is_rejected_while_estopped,
-// test_drive_is_rejected_when_stationary, test_drive_is_rejected_while_sbus_
-// lost_and_web_control_disabled, test_drive_is_allowed_while_sbus_lost_but_
-// web_control_enabled, test_drive_clamps_to_the_configured_speed_cap) - same
-// RobotState inputs, same driveArbiterResolve() evidence, different entry
-// point (consoleExecuteCommand() instead of handleDrivePost()).
+// The consent matrix is proved on driveMoveRequest()
+// (test/test_native/test_dispatch_cores). These word its outcomes.
 // =============================================================================
 
 void test_drive_move_blocked_while_estopped() {
@@ -3467,43 +3453,6 @@ void test_drive_move_blocked_while_estopped() {
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
     TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
     TEST_ASSERT_EQUAL_INT16(0, resolvedDriveOutput().speed);
-}
-
-void test_drive_move_blocked_while_stationary() {
-    robotState.webControlEnabled = true;
-    robotState.stationary = true;
-
-    runQuery("drive.action.move speed=100 steer=0");
-
-    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
-    TEST_ASSERT_EQUAL_INT16(0, resolvedDriveOutput().speed);
-}
-
-// Non-RC control gate (ADR 0027): a non-RC source commanding motion while
-// the RC link is unhealthy is exactly what this Commanded Mode consents to -
-// and only this. webControlEnabled=false with SBUS lost blocks; the same
-// state with webControlEnabled=true (below) does not.
-void test_drive_move_blocked_while_sbus_lost_and_web_control_disabled() {
-    robotState.webControlEnabled = false;
-    robotState.sbusSignalLost = true;
-
-    runQuery("drive.action.move speed=100 steer=0");
-
-    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
-    TEST_ASSERT_EQUAL_INT16(0, resolvedDriveOutput().speed);
-}
-
-void test_drive_move_allowed_while_sbus_lost_but_web_control_enabled() {
-    robotState.webControlEnabled = true;
-    robotState.sbusSignalLost = true;
-
-    runQuery("drive.action.move speed=100 steer=0");
-
-    TEST_ASSERT_EQUAL(CONSOLE_STATUS_OK, g_cap.status);
-    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_APPLIED, g_cap.outcome);
-    TEST_ASSERT_EQUAL_INT16(100, resolvedDriveOutput().speed);
 }
 
 // SBUS healthy and web control not enabled: consent is not needed because
@@ -3519,18 +3468,6 @@ void test_drive_move_allowed_when_sbus_is_healthy_without_web_control() {
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_APPLIED, g_cap.outcome);
     TEST_ASSERT_EQUAL_INT16(50, resolvedDriveOutput().speed);
     TEST_ASSERT_EQUAL_INT16(-25, resolvedDriveOutput().steer);
-}
-
-// A hardware SBUS failsafe is the same "RC link unhealthy" condition as a
-// lost signal (handleDrivePost()'s own sbusHealthy computation ORs both).
-void test_drive_move_blocked_while_sbus_hw_failsafe_and_web_control_disabled() {
-    robotState.webControlEnabled = false;
-    robotState.sbusHwFailsafe = true;
-
-    runQuery("drive.action.move speed=100 steer=0");
-
-    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome);
-    TEST_ASSERT_EQUAL(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason);
 }
 
 // driveArbiterResolve() applies its OWN clamp to cfg.speedLimitMax
@@ -5095,13 +5032,7 @@ void test_reason_matrix_not_in_this_build() {
 // dome hardware is not addressed at all here - the executor reads the config
 // cache the toggle writes.
 void test_reason_matrix_component_disabled_from_a_component_toggle_off() {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = false;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(false);
 
     runQuery("dome.action.move speed=0.5");
 
@@ -5123,13 +5054,7 @@ void test_reason_matrix_blocked_by_state_from_estop() {
 
 // 3/5 again, the other state rule the criterion names: sleep.
 void test_reason_matrix_blocked_by_state_from_sleep() {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = true;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(true);
     robotState.sleepMode = true;
 
     runQuery("dome.action.move speed=0.5");
@@ -5202,13 +5127,7 @@ void test_reason_matrix_not_on_this_board() {
 // `operations` lists the row as available, then the Component Toggle goes off,
 // then the SAME operation refuses. Discovery is not consulted at execution.
 void test_a_component_toggle_flipped_after_discovery_changes_the_execution_answer() {
-    ConfigSnapshot snap = {};
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = true;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    configCacheSetActiveDomeEnabled(true);
 
     runOperationsListing();
     const char* listed = listedOperationItem("dome.action.move");
@@ -5219,18 +5138,13 @@ void test_a_component_toggle_flipped_after_discovery_changes_the_execution_answe
     runQuery("dome.action.move speed=0.5");
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_QUEUED, g_cap.outcome);
 
-    // The operator turns the Dome ESC off after listing the catalog.
-    configCacheRead(&snap);
-    snap.system.enable_dome_esc = false;
-    {
-        const ConfigWriteWindowForTest seed;
-        configCacheReplace(snap);
-    }
+    // The Dome ESC goes off for this boot after listing the catalog.
+    configCacheSetActiveDomeEnabled(false);
 
     runQuery("dome.action.move speed=0.5");
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_UNAVAILABLE, g_cap.outcome);
     TEST_ASSERT_EQUAL_MESSAGE(CONSOLE_REASON_COMPONENT_DISABLED, g_cap.reason,
-                              "execution must read the toggle now, not when the catalog was listed");
+                              "execution must read the boot's answer now, not when the catalog was listed");
 }
 
 // The same guarantee for a safety state: the identical command answers
@@ -5840,6 +5754,7 @@ int main(int, char**) {
     RUN_TEST(test_action_dome_move_is_blocked_while_sleeping);
     RUN_TEST(test_action_dome_move_is_refused_when_dome_output_is_disabled);
     RUN_TEST(test_action_dome_move_queues_when_enabled);
+    RUN_TEST(test_action_dome_move_reports_a_full_queue);
     RUN_TEST(test_action_delete_sequence_unknown_argument_is_rejected);
     RUN_TEST(test_action_delete_sequence_missing_name_answers_missing_argument);
     RUN_TEST(test_action_delete_sequence_unknown_name_answers_out_of_range);
@@ -5938,11 +5853,7 @@ int main(int, char**) {
     RUN_TEST(test_commanded_mode_set_mode_never_reaches_the_queued_dispatch);
 
     RUN_TEST(test_drive_move_blocked_while_estopped);
-    RUN_TEST(test_drive_move_blocked_while_stationary);
-    RUN_TEST(test_drive_move_blocked_while_sbus_lost_and_web_control_disabled);
-    RUN_TEST(test_drive_move_allowed_while_sbus_lost_but_web_control_enabled);
     RUN_TEST(test_drive_move_allowed_when_sbus_is_healthy_without_web_control);
-    RUN_TEST(test_drive_move_blocked_while_sbus_hw_failsafe_and_web_control_disabled);
     RUN_TEST(test_drive_move_clamps_to_the_configured_speed_cap);
     RUN_TEST(test_drive_move_rejects_a_missing_argument);
     RUN_TEST(test_drive_move_rejects_an_out_of_range_argument);

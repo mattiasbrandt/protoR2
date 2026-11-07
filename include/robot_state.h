@@ -546,6 +546,14 @@ inline ServoCommandedPosition servoCommandedOf(ServoOutputAddress output) {
     return commanded;
 }
 
+// Whether the droid is in Sleep Mode right now. The one read a Dispatch Core asks.
+inline bool sleepModeActive() {
+    taskENTER_CRITICAL(&robotStateMux);
+    const bool sleeping = robotState.sleepMode;
+    taskEXIT_CRITICAL(&robotStateMux);
+    return sleeping;
+}
+
 // -----------------------------------------------------------------------------
 // domeBearingRead()
 // The Dome Bearing, read under robotStateMux: believed with its number, or

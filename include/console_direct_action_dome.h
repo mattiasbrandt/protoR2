@@ -73,7 +73,7 @@
 #include "console_module.h"               // ConsoleCommandSource, ConsoleRecordSink
 #include "console_args.h"                 // ConsoleArgs, consoleArgsFind(), schema validation
 #include "console_catalog.h"              // ConsoleCatalogEntry, consoleCatalogFindByName()
-#include "robot_state.h"                  // robotState, robotStateMux, DomeCommand, domeCmdQueue
+#include "robot_state.h"                  // robotState, robotStateMux
 #include "config_cache.h"                 // ConfigSnapshot, configCacheRead()
 #include "dome_link.h"                    // domeQueueTx(), DomeTxCmd sizing (dome_link.h)
 #include "sequence_dispatcher.h"          // sequenceStart(), sequencePoseRequest()
@@ -332,23 +332,9 @@ static void consoleExecuteDomeSequenceStop(uint32_t requestId, const char* opera
 }
 
 // dome.action.move: speed=<-1.0..1.0>, the same single argument POST /api/dome
-// (handleDomeSpeedPost(), src/web/api_drive.cpp) reads. Consent is reproduced
-// verbatim from that handler: sleeping (isSleepModeActive(), private to that
-// file - read directly from RobotState here instead, the drive.action.move
-// precedent for a REST-private helper, include/console_direct_action_drive.h)
-// blocks it, then the enable_dome_esc Component Toggle gate
-// (system.config.enable_dome_esc, the same field aux.action.led-color's own
-// CONSOLE_REASON_COMPONENT_DISABLED precedent answers for, include/
-// console_direct_action_aux_rc.h), then the queue send. Schema validation
-// runs FIRST here rather than between the two REST gates (handleDomeSpeedPost()
-// checks sleep before re-validating the parsed value) - every other direct
-// executor in this module validates its schema before any state guard, and
-// following that one established order here keeps this file's guard shape
-// consistent with the rest of the module rather than reproducing one REST
-// handler's specific two-step check order; the only case this changes is
-// what a SIMULTANEOUSLY-sleeping-and-malformed request answers, and that
-// combination has no operator-visible consequence beyond which single
-// `reason=` comes back.
+// (handleDomeSpeedPost(), src/web/api_drive.cpp) reads. The guards and the send
+// are domeMoveRequest() (include/api_drive.h), the same Dispatch Core that handler
+// calls; this executor validates its schema and words the outcome.
 static void consoleExecuteDomeMove(uint32_t requestId, const char* operationName,
                                    const ConsoleArgs& args, ConsoleCommandSource source,
                                    const ConsoleRecordSink* sink) {
@@ -366,27 +352,6 @@ static void consoleExecuteDomeMove(uint32_t requestId, const char* operationName
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleeping) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_BLOCKED_BY_STATE);
-        }
-        return;
-    }
-
-    ConfigSnapshot cfg = {};
-    configCacheRead(&cfg);
-    if (!cfg.system.enable_dome_esc) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_UNAVAILABLE,
-                                CONSOLE_REASON_COMPONENT_DISABLED);
-        }
-        return;
-    }
-
     // Schema already confirmed "speed" parses as float in -1.0..1.0 - reparse
     // with the SAME parser the schema check itself used
     // (consoleParamParseNumeric(), include/console_args.h) rather than a
@@ -395,16 +360,27 @@ static void consoleExecuteDomeMove(uint32_t requestId, const char* operationName
     double parsed = 0.0;
     consoleParamParseNumeric(CONSOLE_PARAM_TYPE_FLOAT, consoleArgsFind(args, "speed"), &parsed);
 
-    DomeCommand cmd = {};
-    cmd.speed = constrain((float)parsed, -1.0f, 1.0f);
-    cmd.source = consoleCommandSourceFor(source);
-    cmd.timestampMs = millis();
-    if (xQueueSend(domeCmdQueue, &cmd, 0) != pdTRUE) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
-                                CONSOLE_REASON_QUEUE_FULL);
-        }
-        return;
+    switch (domeMoveRequest((float)parsed, consoleCommandSourceFor(source))) {
+        case DomeMoveOutcome::Asleep:
+            if (sink->onRecordResult) {
+                sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                    CONSOLE_REASON_BLOCKED_BY_STATE);
+            }
+            return;
+        case DomeMoveOutcome::DomeOff:
+            if (sink->onRecordResult) {
+                sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_UNAVAILABLE,
+                                    CONSOLE_REASON_COMPONENT_DISABLED);
+            }
+            return;
+        case DomeMoveOutcome::QueueFull:
+            if (sink->onRecordResult) {
+                sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
+                                    CONSOLE_REASON_QUEUE_FULL);
+            }
+            return;
+        case DomeMoveOutcome::Queued:
+            break;
     }
     if (sink->onRecordResult) {
         sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_QUEUED, CONSOLE_REASON_NONE);

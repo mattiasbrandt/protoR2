@@ -52,13 +52,6 @@
 
 static const char* TAG = "WebServer";
 
-static bool isSleepModeActive() {
-    taskENTER_CRITICAL(&robotStateMux);
-    bool sleeping = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    return sleeping;
-}
-
 namespace {
 
 // ManualCommand - recognized command tokens for POST /api/manual-command.
@@ -474,6 +467,29 @@ void handleWebControlDisablePost(WebRequest& req) {
     req.send(200, "application/json", "{\"ok\":true}");
 }
 
+DriveMoveOutcome driveMoveRequest(int16_t speed, int16_t steer) {
+    ConfigSnapshot cfg = {};
+    configCacheRead(&cfg);
+    taskENTER_CRITICAL(&robotStateMux);
+    const bool sbusHealthy = !robotState.sbusSignalLost && !robotState.sbusHwFailsafe;
+    const bool blocked = robotState.estop || robotState.stationary ||
+                         (!sbusHealthy && !robotState.webControlEnabled);
+    taskEXIT_CRITICAL(&robotStateMux);
+    if (blocked) {
+        return DriveMoveOutcome::Blocked;
+    }
+
+    // Widened to int on all three arguments: Arduino's constrain() is a macro
+    // on the device but a same-type template on the host, and the clamp has to
+    // be the identical arithmetic in both builds for the host test to mean
+    // anything about the device.
+    const int16_t maxOut = cfg.drive.speedLimitMax;
+    const int16_t clampedSpeed = (int16_t)constrain((int)speed, (int)-maxOut, (int)maxOut);
+    const int16_t clampedSteer = (int16_t)constrain((int)steer, (int)-maxOut, (int)maxOut);
+    driveArbiterSubmit(DriveSource::WEB_API, clampedSpeed, clampedSteer, millis());
+    return DriveMoveOutcome::Submitted;
+}
+
 void handleDrivePost(WebRequest& req) {
     // Wider than any valid signed 16-bit decimal, so an over-long value is
     // rejected by parseDriveValue() rather than truncated into a valid one.
@@ -492,28 +508,11 @@ void handleDrivePost(WebRequest& req) {
         return;
     }
 
-    ConfigSnapshot cfg = {};
-    configCacheRead(&cfg);
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sbusHealthy = !robotState.sbusSignalLost && !robotState.sbusHwFailsafe;
-    const bool blocked = robotState.estop || robotState.stationary ||
-                         (!sbusHealthy && !robotState.webControlEnabled);
-    taskEXIT_CRITICAL(&robotStateMux);
-    const int16_t maxOut = cfg.drive.speedLimitMax;
-
-    if (blocked) {
+    if (driveMoveRequest(speed, steer) == DriveMoveOutcome::Blocked) {
         PA_LOG_WARN(TAG, "[WEB] POST /api/drive - rejected: blocked by safety state");
         webSendJsonError(req, 409, "drive blocked by safety state");
         return;
     }
-
-    // Widened to int on all three arguments: Arduino's constrain() is a macro
-    // on the device but a same-type template on the host, and the clamp has to
-    // be the identical arithmetic in both builds for the host test to mean
-    // anything about the device.
-    const int16_t clampedSpeed = (int16_t)constrain((int)speed, (int)-maxOut, (int)maxOut);
-    const int16_t clampedSteer = (int16_t)constrain((int)steer, (int)-maxOut, (int)maxOut);
-    driveArbiterSubmit(DriveSource::WEB_API, clampedSpeed, clampedSteer, millis());
 
     req.send(200, "application/json", "{\"ok\":true}");
 }
@@ -555,6 +554,29 @@ void handleDomeCmdPost(WebRequest& req) {
     req.send(200, "application/json", "{\"ok\":true}");
 }
 
+DomeMoveOutcome domeMoveRequest(float speed, CommandSource source) {
+    if (sleepModeActive()) {
+        return DomeMoveOutcome::Asleep;
+    }
+    // The Dome ESC as this boot runs it, not as saved: a switch saved since is
+    // staged until the restart (ADR 0027), and DomeTask runs or not by the
+    // boot's answer. With no DomeTask nothing reads the queue, so a send here
+    // would answer "queued" for a move that never happens.
+    if (!configCacheReadActiveDomeEnabled()) {
+        return DomeMoveOutcome::DomeOff;
+    }
+
+    DomeCommand cmd = {};
+    cmd.speed = constrain(speed, -1.0f, 1.0f);
+    cmd.source = source;
+    cmd.timestampMs = millis();
+    if (xQueueSend(domeCmdQueue, &cmd, 0) != pdTRUE) {
+        logQueueDrop(QUEUE_DOME_CMD, "dome move");
+        return DomeMoveOutcome::QueueFull;
+    }
+    return DomeMoveOutcome::Queued;
+}
+
 void handleDomeSpeedPost(WebRequest& req) {
     // Wider than any valid -1.0..1.0 literal, so an over-long value reaches
     // parseDomeSpeedValue() and is rejected instead of being truncated.
@@ -564,35 +586,27 @@ void handleDomeSpeedPost(WebRequest& req) {
         return;
     }
 
-    if (isSleepModeActive()) {
-        webSendJsonError(req, 423, "sleeping", "POST /api/wake");
-        return;
-    }
-
     float speed = 0.0f;
     if (!parseDomeSpeedValue(speedRaw, &speed)) {
         webSendJsonError(req, 400, "speed must be a float in range -1.0..1.0");
         return;
     }
 
-    ConfigSnapshot cfg = {};
-    configCacheRead(&cfg);
-    if (!cfg.system.enable_dome_esc) {
-        webSendJsonError(req, 409, "dome output is disabled");
-        return;
+    switch (domeMoveRequest(speed, SRC_WEB_API)) {
+        case DomeMoveOutcome::Asleep:
+            webSendJsonError(req, 423, "sleeping", "POST /api/wake");
+            return;
+        case DomeMoveOutcome::DomeOff:
+            webSendJsonError(req, 409, "dome output is disabled");
+            return;
+        case DomeMoveOutcome::QueueFull:
+            webSendJsonError(req, 503, "dome command queue full");
+            return;
+        case DomeMoveOutcome::Queued:
+            break;
     }
 
-    DomeCommand cmd = {};
-    cmd.speed = constrain(speed, -1.0f, 1.0f);
-    cmd.source = SRC_WEB_API;
-    cmd.timestampMs = millis();
-    if (xQueueSend(domeCmdQueue, &cmd, 0) != pdTRUE) {
-        logQueueDrop(QUEUE_DOME_CMD, "POST /api/dome");
-        webSendJsonError(req, 503, "dome command queue full");
-        return;
-    }
-
-    PA_LOG_INFO(TAG, "[WEB] POST /api/dome speed=%.2f", (double)cmd.speed);
+    PA_LOG_INFO(TAG, "[WEB] POST /api/dome speed=%.2f", (double)speed);
     req.send(200, "application/json", "{\"ok\":true}");
 }
 

@@ -20,9 +20,14 @@ typedef uint32_t UBaseType_t;
 inline QueueHandle_t xQueueCreate(UBaseType_t /*len*/, UBaseType_t /*itemSize*/) {
     return (void*)1;
 }
+// What xQueueSend() answers: a test sets pdFALSE to stand for a full queue.
+inline BaseType_t& testQueueSendResult() {
+    static BaseType_t result = pdTRUE;
+    return result;
+}
 inline BaseType_t xQueueSend(QueueHandle_t /*q*/, const void* /*item*/,
                               uint32_t /*ticksToWait*/) {
-    return pdTRUE;
+    return testQueueSendResult();
 }
 inline BaseType_t xQueueReceive(QueueHandle_t /*q*/, void* /*buf*/,
                                  uint32_t /*ticksToWait*/) {
