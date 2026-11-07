@@ -273,6 +273,14 @@ ManualCommandResult executeManualCommand(const char* raw) {
     // lowercasing, and we defer that copy until we actually need it.
     const char prefix = raw[0];
 
+    // Sleep Mode holds what would reach AudioTask, the body's Marcduino, the dome
+    // or a mood. The keyword commands (estop, reboot, ...) are not held.
+    if ((prefix == '$' || prefix == ':' || prefix == '#' || prefix == '*' || prefix == '@' ||
+         prefix == '%' || prefix == '&' || prefix == '!') &&
+        sleepModeActive()) {
+        return ManualCommandResult::Asleep;
+    }
+
     // $ - audio commands: route to AudioTask
     if (prefix == '$') {
         // $8nn is bank 8, sound nn. Where the module has no bank 8 it is refused

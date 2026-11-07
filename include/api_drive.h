@@ -119,6 +119,8 @@ enum class ManualCommandResult : uint8_t {
     SoundCatalogBusy,     // "$8nn" while a catalog refresh holds the bank table
     LineTooLong,          // longer than the dome TX buffer holds (DOME_TX_LINE_MAX):
                           // refused before any of it ran, never forwarded cut short
+    Asleep,               // Sleep Mode holds a '$', ':', '#', '*', '@', '%', '&' or '!' line;
+                          // the keyword commands (estop, reboot, ...) still run
 };
 
 // Execute one manual command: a Marcduino line, or one of the keyword commands
@@ -133,9 +135,11 @@ enum class ManualCommandResult : uint8_t {
 // "#st"/"#sm" look like keywords but are refused ahead of all of it --
 // ShadowedModeKeyword, nothing executed.
 //
-// Takes a plain C string rather than an Arduino String so the one cross-file
-// caller (POST /api/manual-command, api_system.cpp) can hand over a borrowed
-// seam parameter without a copy.
+// This is a Dispatch Core: the sleep hold is here, so neither caller carries it.
+//
+// Takes a plain C string rather than an Arduino String so POST
+// /api/manual-command (api_system.cpp) can hand over a borrowed seam parameter
+// without a copy.
 ManualCommandResult executeManualCommand(const char* raw);
 
 // The mode save's Write Window (ADR 0011, amended 2026-09-24): store the

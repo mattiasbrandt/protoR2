@@ -109,30 +109,18 @@ void handleManualCommandPost(WebRequest& req) {
     }
     lastManualCmdMs = now;
 
-    // Borrowed, not copied: a Marcduino command is short, but the value has to
-    // outlive the guard checks below and reach executeManualCommand() intact.
+    // Borrowed, not copied: the value reaches executeManualCommand() intact.
     const char* rawCommand = req.paramRef("command");
     if (rawCommand == nullptr) {
         webSendJsonError(req, 400, "missing command");
         return;
     }
 
-    taskENTER_CRITICAL(&robotStateMux);
-    bool sleepMode = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-
-    if (sleepMode && rawCommand[0] != '\0') {
-        const char prefix = rawCommand[0];
-        bool blockedBySleep = prefix == '$' || prefix == ':' || prefix == '#' ||
-                              prefix == '*' || prefix == '@' || prefix == '%' ||
-                              prefix == '&' || prefix == '!';
-        if (blockedBySleep) {
-            webSendJsonError(req, 423, "sleeping", "POST /api/wake");
-            return;
-        }
-    }
-
     const ManualCommandResult result = executeManualCommand(rawCommand);
+    if (result == ManualCommandResult::Asleep) {
+        webSendJsonError(req, 423, "sleeping", "POST /api/wake");
+        return;
+    }
     if (result == ManualCommandResult::Unsupported) {
         webSendJsonError(req, 400, "unsupported command");
         return;

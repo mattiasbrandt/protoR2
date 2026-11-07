@@ -2049,9 +2049,7 @@ void test_action_send_command_shadowed_mode_keyword_is_refused() {
                               "a refused line must not command a mode");
 }
 
-// The sleep-mode prefix block, reproduced verbatim from
-// handleManualCommandPost(): a dome-forwarding prefix ('*'/'@'/'%'/'&'/'!')
-// is held while sleeping - blocked-by-state, not dispatched.
+// executeManualCommand() answers Asleep: blocked-by-state, not dispatched.
 void test_action_send_command_dome_forward_prefix_is_blocked_while_sleeping() {
     robotState.sleepMode = true;
 
@@ -2097,7 +2095,7 @@ void test_action_marcduino_command_refused_by_estop_answers_blocked() {
 }
 
 // The keyword commands (estop, reboot, enable/disable_web_control, ...) are
-// NOT in handleManualCommandPost()'s blockedBySleep prefix set - sleeping
+// NOT among the prefixes executeManualCommand() holds - sleeping
 // does not hold them, matching the REST source exactly.
 void test_action_send_command_keyword_is_not_blocked_by_sleep() {
     robotState.sleepMode = true;

@@ -133,6 +133,26 @@ void test_dome_move_says_when_the_queue_is_full() {
     TEST_ASSERT_EQUAL(DomeMoveOutcome::QueueFull, domeMoveRequest(0.5f, SRC_WEB_API));
 }
 
+// --- executeManualCommand ------------------------------------------------------
+
+void test_manual_command_sleep_holds_every_held_prefix() {
+    const char* const held[] = {"$001", ":SE01", "#xx", "*ST00", "@1T1", "%T", "&1", "!x"};
+    robotState.sleepMode = true;
+    for (const char* line : held) {
+        TEST_ASSERT_EQUAL_MESSAGE(ManualCommandResult::Asleep, executeManualCommand(line), line);
+    }
+}
+
+void test_manual_command_sleep_does_not_hold_a_keyword() {
+    robotState.sleepMode = true;
+    TEST_ASSERT_EQUAL(ManualCommandResult::Unsupported, executeManualCommand("not_a_keyword"));
+    TEST_ASSERT_EQUAL(ManualCommandResult::Applied, executeManualCommand("disable_web_control"));
+}
+
+void test_manual_command_awake_is_not_held() {
+    TEST_ASSERT_NOT_EQUAL(ManualCommandResult::Asleep, executeManualCommand("*ST00"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_drive_gate_over_every_state);
@@ -142,5 +162,8 @@ int main() {
     RUN_TEST(test_dome_move_is_refused_when_off_this_boot_though_saved_on);
     RUN_TEST(test_dome_move_queues_when_on_this_boot_though_saved_off);
     RUN_TEST(test_dome_move_says_when_the_queue_is_full);
+    RUN_TEST(test_manual_command_sleep_holds_every_held_prefix);
+    RUN_TEST(test_manual_command_sleep_does_not_hold_a_keyword);
+    RUN_TEST(test_manual_command_awake_is_not_held);
     return UNITY_END();
 }

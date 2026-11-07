@@ -94,8 +94,8 @@
 // guard, not one of this ticket's five safety guards (estop, stationary/
 // sleep, component availability, queue limits, validation) and no other
 // direct executor in this module reproduces a REST endpoint's rate limit
-// either - not reproduced here. The sleep-mode prefix block IS one of the
-// five (blocked-by-state) and is reproduced verbatim below.
+// either - not reproduced here. The sleep hold is one of the five, and
+// executeManualCommand() answers it (blocked-by-state).
 static void consoleExecuteDomeSendCommand(uint32_t requestId, const char* operationName,
                                           const ConsoleArgs& args, ConsoleCommandSource source,
                                           const ConsoleRecordSink* sink) {
@@ -118,27 +118,14 @@ static void consoleExecuteDomeSendCommand(uint32_t requestId, const char* operat
         return;
     }
 
-    // Sleep-mode prefix block, read verbatim from handleManualCommandPost():
-    // only the prefixes that reach AudioTask/body Marcduino/dome-forward/mood
-    // are held; the keyword commands (estop, reboot, ...) are not.
-    taskENTER_CRITICAL(&robotStateMux);
-    bool sleepMode = robotState.sleepMode;
-    taskEXIT_CRITICAL(&robotStateMux);
-    if (sleepMode) {
-        const char prefix = command[0];
-        bool blockedBySleep = prefix == '$' || prefix == ':' || prefix == '#' ||
-                              prefix == '*' || prefix == '@' || prefix == '%' ||
-                              prefix == '&' || prefix == '!';
-        if (blockedBySleep) {
-            if (sink->onRecordResult) {
-                sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                    CONSOLE_REASON_BLOCKED_BY_STATE);
-            }
-            return;
-        }
-    }
-
     const ManualCommandResult result = executeManualCommand(command);
+    if (result == ManualCommandResult::Asleep) {
+        if (sink->onRecordResult) {
+            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                CONSOLE_REASON_BLOCKED_BY_STATE);
+        }
+        return;
+    }
     if (result == ManualCommandResult::Unsupported) {
         // Matches handleManualCommandPost()'s own single failure shape
         // (400 "unsupported command") - executeManualCommand() answers
