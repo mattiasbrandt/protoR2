@@ -1017,7 +1017,7 @@ entries:
   executor: seqStoreDelete
 - name: dome.action.test-sequence
   display_name: Test Sequence
-  description: Play a sequence by name, Learned or Factory.
+  description: Play a sequence by name, Learned or Factory. Refused while the estop is latched or the droid is asleep.
   domain: dome
   type: action
   marcduino_cmd: null

@@ -544,6 +544,12 @@ void handleDomeCmdPost(WebRequest& req) {
         return;
     }
     if (strncmp(raw, "DM:", 3) == 0) {
+        // A body-owned run is refused under either halt, as POST /api/seq/test
+        // refuses it (#502); a name the dome runs goes on as before.
+        if (const char* refusal = sequenceRunRefusalNow(raw)) {
+            webSendJsonError(req, 409, refusal);
+            return;
+        }
         if (!sequenceStart(raw, SRC_WEB_API)) {
             webSendJsonError(req, 503, "sequence queue full");
             return;

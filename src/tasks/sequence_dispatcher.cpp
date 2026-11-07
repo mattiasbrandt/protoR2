@@ -18,8 +18,15 @@
 // and command format. The task adapter executes those decisions. The pure
 // functions (sequenceStart, sequenceLookup, sequenceActionToDomeCommand) are
 // testable in the native environment without FreeRTOS/Arduino dependencies.
-// The task adapter (dispatchAction, sequenceDispatcherTask) compiles with
-// native test stubs for FreeRTOS, allowing full system behavior verification.
+// The task adapter compiles with native test stubs for FreeRTOS. The task
+// waits on its queue and calls sequenceDispatcherTick() once per wake; a
+// native test calls the same tick with the request in hand, because the
+// stubbed queue never delivers one (include/sequence_dispatcher_test_hooks.h).
+//
+// What each event ends - a later run, a pose, back to centre, Stop, the
+// halts, a dome reconnect, the estop clearing and waking - is the Run
+// Takeover's one table (include/sequence_run_takeover.h), applied by
+// runTakeover() below.
 // =============================================================================
 
 #include <Arduino.h>
@@ -42,8 +49,10 @@
 #include "sequence_engine.h"
 #include "sequence_flutter.h"
 #include "sequence_gesture.h"
+#include "sequence_dispatcher_test_hooks.h"  // sequenceDispatcherBegin()/Tick(), the task's two halves
 #include "sequence_pose.h"
 #include "sequence_run_evidence.h"
+#include "sequence_run_takeover.h"  // the Run Takeover: what each event ends
 #include "servo_motion_ramp.h"  // servoMotionArrivalMs() - how long a flutter's leg takes
 #include "servo_task.h"  // servoTaskDrivesOutput() - an undriven Output is passed over (#364)
 #include "take_replay.h"  // a run's takes, played beside its steps (#442)
@@ -297,7 +306,8 @@ static bool __attribute__((noinline)) dispatchBackgroundTrackStart(const SeqActi
 // The cursor is what says whether the turn is over: every path that dealt with
 // the row advances it, and the one path that could not - a full servoCmdQueue -
 // leaves it alone, so the same row comes round again on the next tick, exactly
-// as the staged ring close above holds its index. A row with nothing to centre,
+// as the staged ring close holds its index (sequenceDispatcherTick()). A row
+// with nothing to centre,
 // a limp row on the boot pass, or one this image cannot drive, is counted and
 // passed over.
 // -----------------------------------------------------------------------------
@@ -1113,6 +1123,18 @@ bool sequenceStart(const char* name, CommandSource src) {
     }
 }
 
+const char* sequenceRunRefusalNow(const char* name) {
+    const SequenceLookupKind kind = sequenceLookup(name).kind;
+    if (kind != SEQ_CATALOG && kind != SEQ_RUNTIME) {
+        return nullptr;
+    }
+    taskENTER_CRITICAL(&robotStateMux);
+    const bool estopLatched = robotState.estop;
+    const bool sleepMode = robotState.sleepMode;
+    taskEXIT_CRITICAL(&robotStateMux);
+    return sequenceRunRefusal(estopLatched, sleepMode);
+}
+
 // =============================================================================
 // sequencePoseRequest  --  the pose press's way in (#440).
 //
@@ -1322,582 +1344,600 @@ static void clearSuppression() {
     taskEXIT_CRITICAL(&robotStateMux);
 }
 
-void sequenceDispatcherTask(void* /*pvParameters*/) {
-    esp_task_wdt_add(NULL);
+// =============================================================================
+// The Coordinator's state across ticks. File-static, as the engine's cursor
+// always was: none of it sits on this task's measured stack chain (ADR 0040),
+// and sequenceDispatcherBegin() puts all of it back to power-up, so a native
+// test starts every case from the droid as it boots.
+// =============================================================================
 
-    static SeqEngineState engine;  // static: keep the cursor state off the task stack
+static SeqEngineState engine;
+static SequenceEntry runtimeEntry;  // storage for a loaded Learned Sequence
+
+// The halts and the dome link as the last tick saw them: an edge is a change.
+static bool prevEstop = false;
+static bool prevSleep = false;
+static bool prevDomeConn = false;
+// Sleep Mode ended a sequence: waking closes what it left (RUN_TAKEOVER_WAKING).
+static bool sleepEndedRun = false;
+static bool retryLogged = false;
+static char activeName[24] = "";
+
+// Staged ring-only resync close (estop-clear / dome-reconnect / waking): emit
+// one individual ring close per kResyncCloseSpacingMs so single-servo inrush
+// never overlaps. A group :CL15 closes every ring servo at once and browns out
+// the dome from a loaded ring (2026-06-17 hardware finding), so resync must
+// never send it. resyncCloseIdx == SEQ_RESYNC_CLOSE_NONE means no staged close
+// pending. A resync and a pose never share the dome (include/sequence_pose.h).
+// It holds through a halt (include/sequence_run_takeover.h).
+static constexpr uint32_t kResyncCloseSpacingMs = 500;
+static uint8_t resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;
+static uint32_t resyncCloseDueMs = 0;
+
+// The bulk centre sweep an operator starts from the output-first table
+// (#318, #365), and the boot pass on the same cursor (#414).
+static SeqBulkCentreRun centreRun;
+
+// The pose press's run (#440), over the static posePlan.
+static SeqPoseRun poseRun;
+
+// The pose request as taken from RobotState: its name and instant live across
+// the whole intake, and on this task's stack they pushed the measured chain
+// past its figure.
+static struct {
+    CommandSource src;
+    uint32_t atMs;
+    char name[sizeof(robotState.poseRequestName)];
+} poseAsk;
+
+// -----------------------------------------------------------------------------
+// The Run Takeover (include/sequence_run_takeover.h): the one way anything
+// the Coordinator is doing ends.
+// -----------------------------------------------------------------------------
+
+// The one way a running sequence ends short of its own end step: the engine
+// aborts, its cleanup is drained best-effort (dome and audio resets, never a
+// body move), the run is recorded with the row's outcome and reason, a Learned
+// run's buffers are freed, and the suppression window and the run's name go.
+static void endSequence(const RunTakeoverRow& row, uint32_t now) {
+    PA_LOG_INFO(TAG, "abort %s (%s)", activeName, row.why);
+    seqEngineAbort(engine);
+    drainBestEffort(engine, now);
+    seqEvidenceEnd(row.outcome, row.why, now, bodyQueueFullCount());
+    seqStoreReleaseRun();
+    clearSuppression();
+    activeName[0] = '\0';
+}
+
+static __attribute__((noinline)) void logRunClosesDropped(uint8_t dropped, const char* why) {
+    if (dropped != 0) {
+        PA_LOG_INFO(TAG, "%u ring close(s) of the ended run dropped (%s)", (unsigned)dropped, why);
+    }
+}
+
+// What `event` ends, from its row, in one fixed order: the sequence first,
+// so nothing its cleanup drain hands over outlives it; then the Gestures,
+// flutters and takes, the pose, the sweep, a staged ring close; and last the
+// ring close the row stages. Nothing is commanded on the way out (ADR 0043)
+// but the sequence's own cleanup and the staged close.
+static void runTakeover(RunTakeoverEvent event, uint32_t now) {
+    const RunTakeoverRow& row = runTakeoverRow(event);
+    if ((row.ends & RUN_TAKEOVER_SEQUENCE) != 0 && seqEngineActive(engine)) {
+        endSequence(row, now);
+    }
+    // A halt drops the ring closes the ended run's cleanup still has to send:
+    // nothing closes under the halt, and its end stages one paced close.
+    if (row.dropsRunCloses && seqEngineActive(engine)) {
+        logRunClosesDropped(seqEngineDropStaggeredCloses(engine), row.why);
+    }
+    if ((row.ends & RUN_TAKEOVER_GENERATED) != 0) {
+        generatedEnd(row.why);
+    }
+    if ((row.ends & RUN_TAKEOVER_POSE) != 0 && poseRun.active) {
+        PA_LOG_INFO(TAG, "pose ended (%s) after %u sent, %u skipped", row.why, (unsigned)poseRun.sent,
+                    (unsigned)poseRun.skipped);
+        sequencePoseEnd(&poseRun);
+    }
+    if ((row.ends & RUN_TAKEOVER_CENTRE) != 0 && centreRun.active) {
+        PA_LOG_INFO(TAG, "%s ended (%s) after %u centred, %u skipped", bulkCentreName(centreRun), row.why,
+                    (unsigned)centreRun.centred, (unsigned)centreRun.skipped);
+        sequenceBulkCentreEnd(&centreRun);
+    }
+    if ((row.ends & RUN_TAKEOVER_RING_CLOSE) != 0) {
+        resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;
+    }
+    if (row.stagesRingClose) {
+        // An individual ring-only close, drained by the tick, never a group
+        // :CL15/:CL00: a group close drives every ring servo at once and
+        // browns out the dome from a loaded ring (issue #2 hardware finding).
+        // Pies are never auto-closed on resync. The logic, PSI and holo
+        // resets move no servo, so they go at once.
+        sequenceResyncCloseStage(&poseRun, &resyncCloseIdx, &resyncCloseDueMs, now);
+        resyncDomeVisuals();
+        seqEngineClearLatches(engine);
+        sleepEndedRun = false;  // what Sleep Mode left is being closed now
+    }
+}
+
+static __attribute__((noinline)) void logRunRefused(CommandSource src, const char* name,
+                                                    const char* refusal) {
+    PA_LOG_WARN(TAG, "[%s] %s refused - %s", commandSourceToString(src), name, refusal);
+}
+
+void sequenceDispatcherBegin() {
     seqEngineInit(engine);
-
-    bool prevEstop = false;
-    bool prevDomeConn = false;
-    bool retryLogged = false;
-    char activeName[24] = "";
-    static SequenceEntry runtimeEntry;  // storage for a loaded Learned Sequence
-
-    // Staged ring-only resync close (estop-clear / dome-reconnect): emit one
-    // individual ring close per kResyncCloseSpacingMs so single-servo inrush
-    // never overlaps. A group :CL15 closes every ring servo at once and browns
-    // out the dome from a loaded ring (2026-06-17 hardware finding), so resync
-    // must never send it. resyncCloseIdx == SEQ_RESYNC_CLOSE_NONE means no staged
-    // close pending. A resync and a pose never share the dome (include/sequence_pose.h).
-    const uint32_t kResyncCloseSpacingMs = 500;
-    uint8_t        resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;
-    uint32_t       resyncCloseDueMs = 0;
-    uint32_t       waitMs = 10;  // task wake timeout; computed at end of each iteration
-
-    // The bulk centre sweep an operator starts from the output-first table
-    // (#318, #365), and the boot pass on the same cursor (#414). Static for the
-    // same reason the engine above is: the cursor stays off this task's
-    // measured stack chain (ADR 0040).
-    static SeqBulkCentreRun centreRun;
+    prevEstop = false;
+    prevSleep = false;
+    prevDomeConn = false;
+    sleepEndedRun = false;
+    retryLogged = false;
+    activeName[0] = '\0';
+    resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;
+    resyncCloseDueMs = 0;
     centreRun = SeqBulkCentreRun{};
     centreRun.awaitOutput = SERVO_OUTPUT_NONE;
-
-    // The pose press's run (#440), over the static posePlan. Static for the
-    // same reason as the sweep's.
-    static SeqPoseRun poseRun;
     poseRun = SeqPoseRun{};
     poseRun.awaitOutput = SERVO_OUTPUT_NONE;
     gestureRun = SeqGestureRun{};
     gestureRun.awaitOutput = SERVO_OUTPUT_NONE;
     flutterRun = SeqFlutterRun{};
     flutterRun.lastLeg = SEQ_FLUTTER_NONE;
-    // The pose request as taken from RobotState, static like the run: its name
-    // and instant live across the whole intake below, and on this task's stack
-    // they pushed the measured chain past its figure.
-    static struct {
-        CommandSource src;
-        uint32_t atMs;
-        char name[sizeof(robotState.poseRequestName)];
-    } poseAsk;
+    takesEnd("begin");
 
     // Power-up: each body Output does what its boot behaviour says (ADR 0052),
     // paced by the Cadence Floor like any sweep this task generates. The estop
     // a TWDT reset latched in setup() is already set by now, and under it - or
     // under Sleep Mode - the pass is refused outright, never held for later.
-    {
-        bool bootEstop = false;
-        bool bootSleep = false;
-        taskENTER_CRITICAL(&robotStateMux);
-        bootEstop = robotState.estop;
-        bootSleep = robotState.sleepMode;
-        taskEXIT_CRITICAL(&robotStateMux);
-        if (sequenceBootPassStart(&centreRun, millis(), bootEstop, bootSleep)) {
-            PA_LOG_INFO(TAG, "boot pass - %u rows, at least %u ms apart",
-                        (unsigned)configCacheServoOutputCount(), (unsigned)configCacheCadenceFloorMs());
-        } else {
-            PA_LOG_WARN(TAG, "boot pass skipped - %s, every Output stays limp",
-                        bootEstop ? "estop latched" : "sleep mode active");
-        }
+    bool bootEstop = false;
+    bool bootSleep = false;
+    taskENTER_CRITICAL(&robotStateMux);
+    bootEstop = robotState.estop;
+    bootSleep = robotState.sleepMode;
+    taskEXIT_CRITICAL(&robotStateMux);
+    if (sequenceBootPassStart(&centreRun, millis(), bootEstop, bootSleep)) {
+        PA_LOG_INFO(TAG, "boot pass - %u rows, at least %u ms apart",
+                    (unsigned)configCacheServoOutputCount(), (unsigned)configCacheCadenceFloorMs());
+    } else {
+        PA_LOG_WARN(TAG, "boot pass skipped - %s, every Output stays limp",
+                    bootEstop ? "estop latched" : "sleep mode active");
     }
+}
 
+void sequenceDispatcherTask(void* /*pvParameters*/) {
+    esp_task_wdt_add(NULL);
+    sequenceDispatcherBegin();
+    uint32_t waitMs = 10;  // the wake timeout the last tick asked for
     while (true) {
         esp_task_wdt_reset();
         SequenceRequest req = {};
         const bool haveReq = xQueueReceive(sequenceQueue, &req, pdMS_TO_TICKS(waitMs)) == pdTRUE;
-        const uint32_t now = millis();
+        waitMs = sequenceDispatcherTick(haveReq ? &req : nullptr, millis());
+    }
+}
 
-        // A pose press: send the droid to one instant of a sequence (#440,
-        // include/sequence_pose.h). Refused outright under either halt; the
-        // route asked the same rule to answer the press, and it is asked again
-        // here because a halt can land in between. Otherwise it is the
-        // operator's latest word, like back to centre: a running sequence and a
-        // sweep end, and the pose is worked out once, from the stored steps.
-        //
-        // The request is a transient the route sets and this clears, the shape
-        // back to centre uses (robotState.poseRequest); the name is copied out
-        // under the lock into a static buffer, off this task's stack.
-        //
-        // It is taken only on a tick with no run request, and waits for the
-        // next tick otherwise. That keeps the pose intake and the run intake
-        // the two arms of one if/else, which is what lets the compiler lay
-        // their staging results in the same stack slot: as two separate ifs
-        // the root frame outgrew its measured chain (ADR 0040). Deferring is
-        // also the right order: sequenceStart() and sequenceStopRequest()
-        // cancel a pending pose, so a pose still waiting on a tick that
-        // received a run was pressed after that run, and is the later word.
-        poseAsk.src = SRC_NONE;
-        taskENTER_CRITICAL(&robotStateMux);
-        if (!haveReq && robotState.poseRequest != SRC_NONE) {
-            poseAsk.src = robotState.poseRequest;
-            poseAsk.atMs = robotState.poseRequestAtMs;
-            memcpy(poseAsk.name, robotState.poseRequestName, sizeof(poseAsk.name));
-            robotState.poseRequest = SRC_NONE;
+// One tick of the Coordinator: the request the task received, if any, and the
+// time. Returns how long the task may wait for the next request.
+uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
+    const bool haveReq = request != nullptr;
+
+    // A pose press: send the droid to one instant of a sequence (#440,
+    // include/sequence_pose.h). Refused outright under either halt; the
+    // route asked the same rule to answer the press, and it is asked again
+    // here because a halt can land in between. Otherwise it is the
+    // operator's latest word, like back to centre: a running sequence and a
+    // sweep end, and the pose is worked out once, from the stored steps.
+    //
+    // The request is a transient the route sets and this clears, the shape
+    // back to centre uses (robotState.poseRequest); the name is copied out
+    // under the lock into a static buffer, off this task's stack.
+    //
+    // It is taken only on a tick with no run request, and waits for the
+    // next tick otherwise. That keeps the pose intake and the run intake
+    // the two arms of one if/else, which is what lets the compiler lay
+    // their staging results in the same stack slot: as two separate ifs
+    // the root frame outgrew its measured chain (ADR 0040). Deferring is
+    // also the right order: sequenceStart() and sequenceStopRequest()
+    // cancel a pending pose, so a pose still waiting on a tick that
+    // received a run was pressed after that run, and is the later word.
+    //
+    // Both intakes are refused under either halt, read here once for both.
+    // The halts are read again below, after the intake, so one that lands
+    // while a run loads still ends it before its first step is sent.
+    poseAsk.src = SRC_NONE;
+    bool intakeEstop = false;
+    bool intakeSleep = false;
+    taskENTER_CRITICAL(&robotStateMux);
+    if (!haveReq && robotState.poseRequest != SRC_NONE) {
+        poseAsk.src = robotState.poseRequest;
+        poseAsk.atMs = robotState.poseRequestAtMs;
+        memcpy(poseAsk.name, robotState.poseRequestName, sizeof(poseAsk.name));
+        robotState.poseRequest = SRC_NONE;
+    }
+    intakeEstop = robotState.estop;
+    intakeSleep = robotState.sleepMode;
+    taskEXIT_CRITICAL(&robotStateMux);
+    if (poseAsk.src != SRC_NONE) {
+        const char* refusal = sequencePoseRefusal(intakeEstop, intakeSleep);
+        const bool isRuntime = (sequenceLookup(poseAsk.name).kind == SEQ_RUNTIME);
+        const SequenceEntry* catalogEntry = isRuntime ? nullptr : sequenceCatalogFind(poseAsk.name);
+        bool staged = !isRuntime && catalogEntry != nullptr;
+        if (refusal != nullptr) {
+            PA_LOG_WARN(TAG, "[%s] pose %s refused - %s", commandSourceToString(poseAsk.src), poseAsk.name,
+                        refusal);
+            staged = false;
+        } else if (isRuntime) {
+            // Staged before the engine is touched, as a run is, so a load
+            // that fails never costs what is running.
+            const ProtocolCheckResult lr = seqStorePrepare(poseAsk.name);
+            staged = lr.ok;
+            if (!lr.ok) {
+                PA_LOG_WARN(TAG, "[%s] pose load failed %s: %s (%s)",
+                            commandSourceToString(poseAsk.src), poseAsk.name, lr.message, lr.field);
+            }
+        } else if (catalogEntry == nullptr) {
+            PA_LOG_WARN(TAG, "pose request not in catalog: %s", poseAsk.name);
         }
-        taskEXIT_CRITICAL(&robotStateMux);
-        if (poseAsk.src != SRC_NONE) {
-            bool poseEstop = false;
-            bool poseSleep = false;
-            taskENTER_CRITICAL(&robotStateMux);
-            poseEstop = robotState.estop;
-            poseSleep = robotState.sleepMode;
-            taskEXIT_CRITICAL(&robotStateMux);
-            const char* refusal = sequencePoseRefusal(poseEstop, poseSleep);
-            const bool isRuntime = (sequenceLookup(poseAsk.name).kind == SEQ_RUNTIME);
-            const SequenceEntry* catalogEntry = isRuntime ? nullptr : sequenceCatalogFind(poseAsk.name);
-            bool staged = !isRuntime && catalogEntry != nullptr;
-            if (refusal != nullptr) {
-                PA_LOG_WARN(TAG, "[%s] pose %s refused - %s", commandSourceToString(poseAsk.src), poseAsk.name,
-                            refusal);
-                staged = false;
-            } else if (isRuntime) {
-                // Staged before the engine is touched, as a run is, so a load
-                // that fails never costs what is running.
-                const ProtocolCheckResult lr = seqStorePrepare(poseAsk.name);
-                staged = lr.ok;
-                if (!lr.ok) {
-                    PA_LOG_WARN(TAG, "[%s] pose load failed %s: %s (%s)",
-                                commandSourceToString(poseAsk.src), poseAsk.name, lr.message, lr.field);
-                }
-            } else if (catalogEntry == nullptr) {
-                PA_LOG_WARN(TAG, "pose request not in catalog: %s", poseAsk.name);
-            }
-            if (staged) {
-                if (seqEngineActive(engine)) {
-                    PA_LOG_INFO(TAG, "abort %s (pose)", activeName);
-                    seqEngineAbort(engine);
-                    drainBestEffort(engine, now);  // dome and audio resets, never a body move
-                    seqEvidenceEnd(SEQ_RUN_ABORTED, "pose", now, bodyQueueFullCount());
-                    seqStoreReleaseRun();
-                    clearSuppression();
-                    activeName[0] = '\0';
-                }
-                if (centreRun.active) {
-                    PA_LOG_INFO(TAG, "%s ended - a pose took over", bulkCentreName(centreRun));
-                    sequenceBulkCentreEnd(&centreRun);
-                }
-                generatedEnd("a pose took over");
-                const SequenceEntry* entry = catalogEntry;
-                if (isRuntime) {
-                    if (seqStoreCommit(runtimeEntry)) {
-                        entry = &runtimeEntry;
-                    } else {
-                        PA_LOG_WARN(TAG, "[%s] pose %s refused (run-buffer alloc failed)",
-                                    commandSourceToString(poseAsk.src), poseAsk.name);
-                    }
-                }
-                if (entry != nullptr) {
-                    // The engine runs a toggle's open half while its group is
-                    // closed, and leaves that half's ring panels open at the end.
-                    const bool toggleOpenHalf =
-                        entry->toggleGroup != TOGGLE_NONE && entry->closeSteps != nullptr;
-                    sequencePosePlan(entry->steps, entry->stepCount, toggleOpenHalf, poseAsk.atMs,
-                                     &posePlan);
-                    if (isRuntime) {
-                        seqStoreReleaseRun();  // the plan holds its own copies
-                    }
-                    // A pose that starts supersedes a staged resync close, as a
-                    // run does below: one motion owner on the dome at a time.
-                    sequencePoseStart(&poseRun, now, poseEstop, poseSleep, posePlan.count,
-                                      (uint8_t)poseAsk.src, &resyncCloseIdx);
-                    PA_LOG_INFO(TAG, "[%s] pose %s at %u ms - %u commands, motions at least %u ms apart",
-                                commandSourceToString(poseAsk.src), poseAsk.name, (unsigned)poseAsk.atMs,
-                                (unsigned)posePlan.count, (unsigned)configCacheCadenceFloorMs());
-                    if (posePlan.truncated) {
-                        PA_LOG_WARN(TAG, "pose %s names more than %u targets; the latest are left out",
-                                    poseAsk.name, (unsigned)SEQ_POSE_MAX);
-                    }
-                }
-            }
-        } else if (haveReq) {  // Check for a new request (preempt current sequence if one is running).
-            const bool isRuntime = (sequenceLookup(req.name).kind == SEQ_RUNTIME);
-            const SequenceEntry* catalogEntry =
-                isRuntime ? nullptr : sequenceCatalogFind(req.name);
-            bool willStart = isRuntime || (catalogEntry != nullptr);
-
+        if (staged) {
+            // The pose being reached is replaced, not ended: sequencePoseStart()
+            // keeps its spacing.
+            runTakeover(RUN_TAKEOVER_POSE_PRESS, now);
+            const SequenceEntry* entry = catalogEntry;
             if (isRuntime) {
-                // Stage the Learned Sequence (parse + Protocol Check into a
-                // transient heap pair) BEFORE touching the engine, so a load
-                // that fails  --  corrupt file, concurrent Memory Wipe  --  never
-                // costs the currently running sequence.
-                ProtocolCheckResult lr = seqStorePrepare(req.name);
-                if (!lr.ok) {
-                    PA_LOG_WARN(TAG, "[%s] runtime load failed %s: %s (%s)",
-                                commandSourceToString(req.src), req.name,
-                                lr.message, lr.field);
-                    willStart = false;
+                if (seqStoreCommit(runtimeEntry)) {
+                    entry = &runtimeEntry;
+                } else {
+                    PA_LOG_WARN(TAG, "[%s] pose %s refused (run-buffer alloc failed)",
+                                commandSourceToString(poseAsk.src), poseAsk.name);
                 }
             }
-            if (willStart) {
-                // A later run is the later word over Gestures still repeating
-                // and flutters still swinging from the one before, whether or
-                // not that one is still running.
-                generatedEnd("a later run");
-                if (seqEngineActive(engine)) {
-                    PA_LOG_INFO(TAG, "preempt %s -> %s", activeName, req.name);
-                    seqEngineAbort(engine);
-                    drainBestEffort(engine, now);  // drain old run from buffers
-                    seqEvidenceEnd(SEQ_RUN_PREEMPTED, "preempt", now, bodyQueueFullCount());
-                    seqStoreReleaseRun();  // free the preempted Learned run's buffers
-                }
-                const SequenceEntry* entry = catalogEntry;
+            if (entry != nullptr) {
+                // The engine runs a toggle's open half while its group is
+                // closed, and leaves that half's ring panels open at the end.
+                const bool toggleOpenHalf =
+                    entry->toggleGroup != TOGGLE_NONE && entry->closeSteps != nullptr;
+                sequencePosePlan(entry->steps, entry->stepCount, toggleOpenHalf, poseAsk.atMs,
+                                 &posePlan);
                 if (isRuntime) {
-                    // Commit copies the staged sequence into freshly allocated,
-                    // right-sized run buffers. This can fail on a tight heap, so
-                    // refuse the run gracefully rather than start on a stale entry.
-                    if (seqStoreCommit(runtimeEntry)) {
-                        entry = &runtimeEntry;
-                    } else {
-                        PA_LOG_WARN(TAG, "[%s] %s run refused (run-buffer alloc failed)",
-                                    commandSourceToString(req.src), req.name);
-                        entry = nullptr;
-                    }
+                    seqStoreReleaseRun();  // the plan holds its own copies
                 }
-                if (entry != nullptr) {
-                    seqEngineStart(engine, entry, now);
-                    takesBegin(now, engine);
-                    seqEvidenceBegin(req.name, (uint8_t)req.src, now, bodyQueueFullCount());
-                    resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;  // a new run supersedes any staged resync close
-                    // ...and so does a bulk centre still sweeping. A sequence
-                    // and a sweep both move body Outputs, and two of them
-                    // interleaving is the many-at-once shape the Cadence Floor
-                    // exists to keep apart. The sequence is the later word.
-                    if (centreRun.active) {
-                        PA_LOG_INFO(TAG, "%s ended - %s took over", bulkCentreName(centreRun),
-                                    req.name);
-                        sequenceBulkCentreEnd(&centreRun);
-                    }
-                    // ...and so does a pose still being reached, for the same reason.
-                    if (poseRun.active) {
-                        PA_LOG_INFO(TAG, "pose ended - %s took over", req.name);
-                        sequencePoseEnd(&poseRun);
-                    }
-                    strncpy(activeName, req.name, sizeof(activeName) - 1);
-                    activeName[sizeof(activeName) - 1] = '\0';
-                    retryLogged = false;
-                    setSuppression(now + entry->suppressMs);
-                    PA_LOG_INFO(TAG, "[%s] start %s suppress=%u ms",
-                                commandSourceToString(req.src),
-                                entry->name, (unsigned)entry->suppressMs);
+                sequencePoseStart(&poseRun, now, intakeEstop, intakeSleep, posePlan.count,
+                                  (uint8_t)poseAsk.src, &resyncCloseIdx);
+                PA_LOG_INFO(TAG, "[%s] pose %s at %u ms - %u commands, motions at least %u ms apart",
+                            commandSourceToString(poseAsk.src), poseAsk.name, (unsigned)poseAsk.atMs,
+                            (unsigned)posePlan.count, (unsigned)configCacheCadenceFloorMs());
+                if (posePlan.truncated) {
+                    PA_LOG_WARN(TAG, "pose %s names more than %u targets; the latest are left out",
+                                poseAsk.name, (unsigned)SEQ_POSE_MAX);
                 }
-            } else if (!isRuntime) {
-                PA_LOG_WARN(TAG, "request not in catalog: %s", req.name);
             }
         }
+    } else if (haveReq) {  // Check for a new request (preempt current sequence if one is running).
+        const SequenceRequest& req = *request;
+        const bool isRuntime = (sequenceLookup(req.name).kind == SEQ_RUNTIME);
+        const SequenceEntry* catalogEntry =
+            isRuntime ? nullptr : sequenceCatalogFind(req.name);
+        bool willStart = isRuntime || (catalogEntry != nullptr);
+        const char* refusal = sequenceRunRefusal(intakeEstop, intakeSleep);
 
-        // SAFETY INVARIANT: Abort on estop; resync the dome to a known safe state on estop-clear.
-        // Estop abort is latching: once it fires, it drains all pending actions and
-        // prevents new sequences from starting until estop is released and resync completes.
-        bool estopActive = false;
-        bool sleepActive = false;
-        taskENTER_CRITICAL(&robotStateMux);
-        estopActive = robotState.estop;
-        sleepActive = robotState.sleepMode;
-        taskEXIT_CRITICAL(&robotStateMux);
-
-        // A bulk centre or a boot pass ends on either halt, where it has got to
-        // (#365, #414). ADR 0043 has ServoTask release every enabled Output on
-        // that same edge and command no position, so a sweep that kept
-        // queueing moves would be driving parts the droid has just
-        // deliberately let go of. Nothing is commanded on the way out: the
-        // release is the whole of what a halt does to an Output.
-        if ((estopActive || sleepActive) && centreRun.active) {
-            PA_LOG_INFO(TAG, "%s ended (%s) after %u centred, %u skipped",
-                        bulkCentreName(centreRun), estopActive ? "estop" : "sleep mode",
-                        (unsigned)centreRun.centred, (unsigned)centreRun.skipped);
-            sequenceBulkCentreEnd(&centreRun);
+        if (refusal != nullptr) {
+            // Refused, never held for later, and what is running is left as
+            // it is: the halt below has its own row (an RC press is answered
+            // only by this line).
+            logRunRefused(req.src, req.name, refusal);
+            willStart = false;
+        } else if (isRuntime) {
+            // Stage the Learned Sequence (parse + Protocol Check into a
+            // transient heap pair) BEFORE touching the engine, so a load
+            // that fails  --  corrupt file, concurrent Memory Wipe  --  never
+            // costs the currently running sequence.
+            ProtocolCheckResult lr = seqStorePrepare(req.name);
+            if (!lr.ok) {
+                PA_LOG_WARN(TAG, "[%s] runtime load failed %s: %s (%s)",
+                            commandSourceToString(req.src), req.name,
+                            lr.message, lr.field);
+                willStart = false;
+            }
         }
-        // Gestures and flutters end on either halt the same way: ServoTask has
-        // let every Output go, and a Gesture still expanding, or a flutter
-        // still swinging, would drive them again.
+        if (willStart) {
+            // A later run is the later word over everything the Coordinator
+            // is doing, ended before the commit below so a Learned run's
+            // buffers are free for it. A commit that then fails starts
+            // nothing, and what was running stays ended.
+            runTakeover(RUN_TAKEOVER_LATER_RUN, now);
+            const SequenceEntry* entry = catalogEntry;
+            if (isRuntime) {
+                // Commit copies the staged sequence into freshly allocated,
+                // right-sized run buffers. This can fail on a tight heap, so
+                // refuse the run gracefully rather than start on a stale entry.
+                if (seqStoreCommit(runtimeEntry)) {
+                    entry = &runtimeEntry;
+                } else {
+                    PA_LOG_WARN(TAG, "[%s] %s run refused (run-buffer alloc failed)",
+                                commandSourceToString(req.src), req.name);
+                    entry = nullptr;
+                }
+            }
+            if (entry != nullptr) {
+                seqEngineStart(engine, entry, now);
+                takesBegin(now, engine);
+                seqEvidenceBegin(req.name, (uint8_t)req.src, now, bodyQueueFullCount());
+                strncpy(activeName, req.name, sizeof(activeName) - 1);
+                activeName[sizeof(activeName) - 1] = '\0';
+                retryLogged = false;
+                setSuppression(now + entry->suppressMs);
+                PA_LOG_INFO(TAG, "[%s] start %s suppress=%u ms",
+                            commandSourceToString(req.src),
+                            entry->name, (unsigned)entry->suppressMs);
+            }
+        } else if (!isRuntime) {
+            PA_LOG_WARN(TAG, "request not in catalog: %s", req.name);
+        }
+    }
+
+    // SAFETY INVARIANT: Abort on estop; resync the dome to a known safe state on estop-clear.
+    // Estop abort is latching: once it fires, it drains all pending actions and
+    // prevents new sequences from starting until estop is released and resync completes.
+    bool estopActive = false;
+    bool sleepActive = false;
+    taskENTER_CRITICAL(&robotStateMux);
+    estopActive = robotState.estop;
+    sleepActive = robotState.sleepMode;
+    taskEXIT_CRITICAL(&robotStateMux);
+
+    // Either halt ends what the Coordinator is doing, on every tick it holds,
+    // where each has got to (#365, #414, #502). ADR 0043 has ServoTask release
+    // every enabled Output on that same edge and command no position, so a
+    // sweep, a pose, a Gesture or a flutter that kept going would be driving
+    // parts the droid has just let go of. The estop's row wins when both hold.
+    if (estopActive) {
+        runTakeover(RUN_TAKEOVER_ESTOP, now);
+    } else if (sleepActive) {
+        if (seqEngineActive(engine)) {
+            sleepEndedRun = true;  // waking closes what it left open
+        }
+        runTakeover(RUN_TAKEOVER_SLEEP_MODE, now);
+    }
+    // The estop clears: the dome is put back to a known state. A pose taken
+    // on this same tick, before the edge was seen, ends here.
+    if (!estopActive && prevEstop) {
+        PA_LOG_INFO(TAG, "estop cleared - dome resync (staged ring close)");
+        runTakeover(RUN_TAKEOVER_ESTOP_CLEAR, now);
+    }
+    prevEstop = estopActive;
+    // Waking, after Sleep Mode ended a sequence, closes what it left as an
+    // estop clear does. A nap with no run moves nothing.
+    if (!sleepActive && prevSleep && sleepEndedRun) {
+        PA_LOG_INFO(TAG, "awake - dome resync (staged ring close)");
+        runTakeover(RUN_TAKEOVER_WAKING, now);
+    }
+    prevSleep = sleepActive;
+
+    // Web-initiated non-latching stop (POST /api/seq/stop). The flag is
+    // transient  --  set by the web handler, cleared here. Unlike estop (which
+    // latches), a stop does not affect other subsystems or boot state. A stop
+    // stops what the Coordinator is doing, and a bulk centre is that as much
+    // as a sequence is: an operator who presses Stop while the droid is
+    // sweeping means the sweep.
+    bool stopRequested = false;
+    taskENTER_CRITICAL(&robotStateMux);
+    stopRequested = robotState.seqStopRequested;
+    if (stopRequested) {
+        robotState.seqStopRequested = false;  // clear the transient flag
+    }
+    taskEXIT_CRITICAL(&robotStateMux);
+    if (stopRequested) {
+        runTakeover(RUN_TAKEOVER_STOP, now);
+    }
+
+    // Dome (re)connect resync (ADR 0004 decision 8): panel state on the dome
+    // is unknown after boot or a link gap, so assume closed. The resync owns
+    // the dome's panels now, one motion owner at a time.
+    const bool domeConn = domeConnected();
+    if (domeConn && !prevDomeConn) {
+        PA_LOG_INFO(TAG, "dome (re)connected - panel state resync (staged ring close)");
+        runTakeover(RUN_TAKEOVER_DOME_RECONNECT, now);
+    }
+    prevDomeConn = domeConn;
+
+    // Drain the staged ring-only resync close: one individual :CLnn per
+    // kResyncCloseSpacingMs (best-effort  --  hold the index on a full TX queue
+    // and retry next tick). Never a group close; never a pie close. Nothing
+    // goes out under either halt: the close holds where it is and carries on
+    // when the halt ends (include/sequence_run_takeover.h).
+    const bool ringCloseHeld = estopActive || sleepActive;
+    if (resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE && !ringCloseHeld &&
+        (int32_t)(now - resyncCloseDueMs) >= 0) {
+        char closeCmd[8];
+        if (!seqEngineRingCloseCmd(resyncCloseIdx, closeCmd, sizeof(closeCmd))) {
+            resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;  // defensive: out-of-range index
+        } else if (domeQueueTx(closeCmd)) {
+            resyncCloseIdx++;
+            resyncCloseDueMs = now + kResyncCloseSpacingMs;
+            if (resyncCloseIdx >= seqEngineRingPanelCount()) {
+                resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;  // staged close complete
+            }
+        }
+    }
+
+    // The bulk centre an operator started from the output-first table
+    // (#318, #365). The request is a transient flag the web handler sets
+    // and this clears, the shape POST /api/seq/stop already uses; the run
+    // itself - which Outputs, in what order, how far apart - is this task's
+    // and never the browser's.
+    CommandSource centreSrc = SRC_NONE;
+    taskENTER_CRITICAL(&robotStateMux);
+    if (robotState.bulkCentreRequest != SRC_NONE) {
+        centreSrc = robotState.bulkCentreRequest;
+        robotState.bulkCentreRequest = SRC_NONE;
+    }
+    taskEXIT_CRITICAL(&robotStateMux);
+    if (centreSrc != SRC_NONE) {
         if (estopActive || sleepActive) {
-            generatedEnd(estopActive ? "estop" : "sleep mode");
-        }
-        // A pose ends on either halt the same way, where it has got to.
-        if ((estopActive || sleepActive) && poseRun.active) {
-            PA_LOG_INFO(TAG, "pose ended (%s) after %u sent, %u skipped",
-                        estopActive ? "estop" : "sleep mode", (unsigned)poseRun.sent,
-                        (unsigned)poseRun.skipped);
-            sequencePoseEnd(&poseRun);
-        }
-
-        if (estopActive && seqEngineActive(engine)) {
-            PA_LOG_INFO(TAG, "abort %s (estop)", activeName);
-            seqEngineAbort(engine);
-            drainBestEffort(engine, now);
-            seqEvidenceEnd(SEQ_RUN_ESTOP, "estop", now, bodyQueueFullCount());
-            seqStoreReleaseRun();  // reclaim any Learned-run buffers
-            clearSuppression();
-            activeName[0] = '\0';
-        }
-        if (!estopActive && prevEstop) {
-            PA_LOG_INFO(TAG, "estop cleared - dome resync (staged ring close)");
-            // Stage an individual ring-only close (drained below), never a group
-            // :CL15/:CL00: a group close drives every ring servo simultaneously
-            // and browns out the dome from a loaded ring (issue #2 hardware
-            // finding). Pies are never auto-closed on resync. The logic, PSI
-            // and holo resets are non-servo commands, so they stay immediate.
-            // A pose taken on this same tick, before the edge was seen, ends
-            // here.
-            if (sequenceResyncCloseStage(&poseRun, &resyncCloseIdx, &resyncCloseDueMs, now)) {
-                PA_LOG_INFO(TAG, "pose ended - dome resync");
+            // Refused rather than queued: the droid has let go of every
+            // Output, and a sweep that started here would drive parts
+            // nobody is watching the moment the halt cleared.
+            PA_LOG_WARN(TAG, "[%s] back to centre refused - %s",
+                        commandSourceToString(centreSrc),
+                        estopActive ? "estop active" : "sleep mode active");
+        } else {
+            if (centreRun.active && centreRun.kind == SEQ_BULK_CENTRE_BOOT) {
+                PA_LOG_INFO(TAG, "boot pass ended - back to centre took over");
             }
-            resyncDomeVisuals();
-            seqEngineClearLatches(engine);
+            // A running sequence ends here, the way a web stop ends one: a
+            // sequence starting ends a sweep for the same reason, and
+            // whichever came later is the operator's word. Left running, its
+            // body steps and the sweep's rows would be dispatched together -
+            // the many-at-once shape the Cadence Floor exists to keep apart.
+            runTakeover(RUN_TAKEOVER_BACK_TO_CENTRE, now);
+            sequenceBulkCentreStart(&centreRun, now, (uint8_t)centreSrc);
+            // Rows, not outputs going back: how many of them have anything
+            // to centre is only known row by row, and the line at the end
+            // of the sweep is where that split is reported.
+            PA_LOG_INFO(TAG, "[%s] back to centre - %u rows, at least %u ms apart",
+                        commandSourceToString(centreSrc),
+                        (unsigned)configCacheServoOutputCount(),
+                        (unsigned)configCacheCadenceFloorMs());
         }
-        prevEstop = estopActive;
+    }
 
-        // Web-initiated non-latching stop (POST /api/seq/stop).
-        // The flag is transient  --  set by the web handler, cleared here after abort processing.
-        // Unlike estop (which latches), a stop does not affect other subsystems or boot state.
-        bool stopRequested = false;
-        taskENTER_CRITICAL(&robotStateMux);
-        stopRequested = robotState.seqStopRequested;
-        if (stopRequested) {
-            robotState.seqStopRequested = false;  // clear the transient flag
-        }
-        taskEXIT_CRITICAL(&robotStateMux);
+    // A flutter asked for by Output (a body-owned `:OFnn`), taken after the
+    // halts, the Stop and a back to centre press above have had their say.
+    flutterTakeRequest(now, estopActive    ? "estop active"
+                            : sleepActive  ? "sleep mode active"
+                            : centreRun.active ? "back to centre is running"
+                            : poseRun.active   ? "a pose is being reached"
+                                               : nullptr);
 
-        // A stop stops what the Coordinator is doing, and a bulk centre is that
-        // as much as a sequence is: an operator who presses Stop while the
-        // droid is sweeping means the sweep.
-        if (stopRequested && centreRun.active) {
-            PA_LOG_INFO(TAG, "%s ended (web stop) after %u centred, %u skipped",
+    // One row per tick, and only when its turn is due. One servo actuating
+    // at a time is the rail rule the Cadence Floor holds; a row the sweep
+    // passes over costs it no time, because nothing moved.
+    if (sequenceBulkCentreRowDue(centreRun, now)) {
+        centreOneOutput(centreRun, now);
+        if (!centreRun.active) {
+            PA_LOG_INFO(TAG, "[%s] %s done - %u centred, %u skipped",
+                        commandSourceToString((CommandSource)centreRun.src),
                         bulkCentreName(centreRun), (unsigned)centreRun.centred,
                         (unsigned)centreRun.skipped);
-            sequenceBulkCentreEnd(&centreRun);
         }
-        if (stopRequested) {
-            generatedEnd("web stop");
-        }
-        if (stopRequested && poseRun.active) {
-            PA_LOG_INFO(TAG, "pose ended (web stop) after %u sent", (unsigned)poseRun.sent);
-            sequencePoseEnd(&poseRun);
-        }
+    }
 
-        if (stopRequested && seqEngineActive(engine)) {
-            PA_LOG_INFO(TAG, "abort %s (web stop)", activeName);
-            seqEngineAbort(engine);
-            drainBestEffort(engine, now);
-            // Record as SEQ_RUN_ABORTED with "web stop" reason (distinguishes from
-            // estop/preempt/reconnect). Operator can see the reason in GET /api/seq/last-run.
-            seqEvidenceEnd(SEQ_RUN_ABORTED, "web stop", now, bodyQueueFullCount());
-            seqStoreReleaseRun();  // reclaim any Learned-run buffers
+    // One pose command per tick, and only when its turn is due: motions at
+    // least the Cadence Floor apart, one Output moving at a time.
+    if (sequencePoseDue(poseRun, now)) {
+        poseOneCommand(poseRun, now);
+        if (!poseRun.active) {
+            PA_LOG_INFO(TAG, "[%s] pose done - %u sent, %u skipped",
+                        commandSourceToString((CommandSource)poseRun.src), (unsigned)poseRun.sent,
+                        (unsigned)poseRun.skipped);
+        }
+    }
+
+    // The pace the Gestures and the flutters share lives on between runs,
+    // so its due time is kept recent (sequencePaceKeepRecent()).
+    sequencePaceKeepRecent(&gestureRun.dueMs, now);
+
+    // The Gestures a sequence fired, one item per tick when it is due.
+    if (sequenceGestureActive(gestureRun)) {
+        gestureOneItem(now);
+    }
+
+    // The flutters it fired, one leg per tick when one may go. After the
+    // Gestures on purpose: when the pace opens with both waiting, the
+    // Gesture's move, which its spread placed in time, goes first.
+    if (sequenceFlutterActive(flutterRun)) {
+        flutterOneLeg(now);
+    }
+
+    // SAFETY INVARIANT: Suppression window behavior.
+    // Advance the cursor: dispatch due actions, retry on queue-full.
+    // If a downstream queue is full mid-sequence, the action is retried
+    // on the next tick without advancing the cursor.
+    if (seqEngineActive(engine)) {
+        SeqAction act;
+        while (seqEnginePeek(engine, now, esp_random, act)) {
+            // The run has reached its end step: the Gestures and the
+            // flutters it fired, and its takes, end here, before terminal
+            // cleanup, so cleanup is the last thing the run moves (#438,
+            // #453, #442; sequenceGestureNext() holds the same line by
+            // time).
+            if (seqEngineFinishing(engine) &&
+                (sequenceGestureActive(gestureRun) || sequenceFlutterActive(flutterRun) ||
+                 takeRun != nullptr)) {
+                generatedEnd("end step");
+            }
+            if (!dispatchAction(act)) {
+                if (!retryLogged) {
+                    PA_LOG_WARN(TAG, "queue full, retrying: %s", act.payload);
+                    retryLogged = true;
+                }
+                seqEvidenceNoteRetry();
+                break;  // retry same action next tick
+            }
+            // seqEnginePeek flips to finishing when it hits STEP_END, so the
+            // finishing flag here classifies this action as terminal cleanup.
+            seqEvidenceRecordTx(act, seqEngineFinishing(engine));
+            retryLogged = false;
+            seqEngineCommit(engine);
+        }
+        if (!seqEngineActive(engine)) {
+            // An end with no cleanup to send finishes inside one peek;
+            // its Gestures and flutters end here all the same.
+            generatedEnd("end step");
+            PA_LOG_INFO(TAG, "end %s", activeName);
+            // No-op if an abort path already finalized this run (guarded on
+            // RUNNING); otherwise records the normal completion.
+            seqEvidenceEnd(SEQ_RUN_COMPLETED, "", now, bodyQueueFullCount());
+            seqStoreReleaseRun();  // reclaim any Learned-run buffers now idle
             clearSuppression();
             activeName[0] = '\0';
         }
+    }
 
-        // Dome (re)connect resync (ADR 0004 decision 8): panel state on the
-        // dome is unknown after boot or a link gap, so assume closed  --  abort any
-        // running sequence, end a pose being reached, stage an individual
-        // ring-only close (drained below), and clear the latches. Never a group
-        // :CL15/:CL00 (see the estop-clear resync above  --  a group close browns
-        // out the dome from a loaded ring); pies are never auto-closed on resync.
-        const bool domeConn = domeConnected();
-        if (domeConn && !prevDomeConn) {
-            PA_LOG_INFO(TAG, "dome (re)connected - panel state resync (staged ring close)");
-            if (seqEngineActive(engine)) {
-                seqEngineAbort(engine);
-                drainBestEffort(engine, now);
-                seqEvidenceEnd(SEQ_RUN_RECONNECT, "dome reconnect", now, bodyQueueFullCount());
-                seqStoreReleaseRun();  // reclaim any Learned-run buffers
-                clearSuppression();
-                activeName[0] = '\0';
-            }
-            if (sequenceResyncCloseStage(&poseRun, &resyncCloseIdx, &resyncCloseDueMs, now)) {
-                PA_LOG_INFO(TAG, "pose ended - dome resync");
-            }
-            // The resync owns the dome's panels now, one motion owner at a time.
-            generatedEnd("dome resync");
-            resyncDomeVisuals();
-            seqEngineClearLatches(engine);
-        }
-        prevDomeConn = domeConn;
+    // The run's takes, after its steps, so a take's targets never fill
+    // servoCmdQueue ahead of a step's move on the same tick.
+    if (takeRun != nullptr) {
+        takesTick(now);
+    }
 
-        // Drain the staged ring-only resync close: one individual :CLnn per
-        // kResyncCloseSpacingMs (best-effort  --  hold the index on a full TX queue
-        // and retry next tick). Never a group close; never a pie close.
-        if (resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE && (int32_t)(now - resyncCloseDueMs) >= 0) {
-            char closeCmd[8];
-            if (!seqEngineRingCloseCmd(resyncCloseIdx, closeCmd, sizeof(closeCmd))) {
-                resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;  // defensive: out-of-range index
-            } else if (domeQueueTx(closeCmd)) {
-                resyncCloseIdx++;
-                resyncCloseDueMs = now + kResyncCloseSpacingMs;
-                if (resyncCloseIdx >= seqEngineRingPanelCount()) {
-                    resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;  // staged close complete
-                }
-            }
-        }
+    // A finish this tick, a run's own end or an abort's drain, that had no
+    // room for every terminal action.
+    reportFinalDrops(engine);
 
-        // The bulk centre an operator started from the output-first table
-        // (#318, #365). The request is a transient flag the web handler sets
-        // and this clears, the shape POST /api/seq/stop already uses; the run
-        // itself - which Outputs, in what order, how far apart - is this task's
-        // and never the browser's.
-        CommandSource centreSrc = SRC_NONE;
+    // Safety: if no active sequence but flag is still set and timeout expired.
+    if (!seqEngineActive(engine)) {
+        uint32_t until = 0;
         taskENTER_CRITICAL(&robotStateMux);
-        if (robotState.bulkCentreRequest != SRC_NONE) {
-            centreSrc = robotState.bulkCentreRequest;
-            robotState.bulkCentreRequest = SRC_NONE;
+        if (robotState.domeSeqActive) {
+            until = robotState.domeSeqUntilMs;
         }
         taskEXIT_CRITICAL(&robotStateMux);
-        if (centreSrc != SRC_NONE) {
-            if (estopActive || sleepActive) {
-                // Refused rather than queued: the droid has let go of every
-                // Output, and a sweep that started here would drive parts
-                // nobody is watching the moment the halt cleared.
-                PA_LOG_WARN(TAG, "[%s] back to centre refused - %s",
-                            commandSourceToString(centreSrc),
-                            estopActive ? "estop active" : "sleep mode active");
-            } else {
-                if (centreRun.active && centreRun.kind == SEQ_BULK_CENTRE_BOOT) {
-                    PA_LOG_INFO(TAG, "boot pass ended - back to centre took over");
-                }
-                if (poseRun.active) {
-                    PA_LOG_INFO(TAG, "pose ended - back to centre took over");
-                    sequencePoseEnd(&poseRun);
-                }
-                generatedEnd("back to centre took over");
-                // A running sequence ends here, the way a web stop ends one: a
-                // sequence starting ends a sweep for the same reason (above),
-                // and whichever came later is the operator's word. Left
-                // running, its body steps and the sweep's rows would be
-                // dispatched together - the many-at-once shape the Cadence
-                // Floor exists to keep apart.
-                if (seqEngineActive(engine)) {
-                    PA_LOG_INFO(TAG, "abort %s (back to centre)", activeName);
-                    seqEngineAbort(engine);
-                    drainBestEffort(engine, now);  // dome and audio resets, never a body move
-                    seqEvidenceEnd(SEQ_RUN_ABORTED, "back to centre", now, bodyQueueFullCount());
-                    seqStoreReleaseRun();  // reclaim any Learned-run buffers
-                    clearSuppression();
-                    activeName[0] = '\0';
-                }
-                sequenceBulkCentreStart(&centreRun, now, (uint8_t)centreSrc);
-                // Rows, not outputs going back: how many of them have anything
-                // to centre is only known row by row, and the line at the end
-                // of the sweep is where that split is reported.
-                PA_LOG_INFO(TAG, "[%s] back to centre - %u rows, at least %u ms apart",
-                            commandSourceToString(centreSrc),
-                            (unsigned)configCacheServoOutputCount(),
-                            (unsigned)configCacheCadenceFloorMs());
-            }
+        if (until != 0 && millis() >= until) {
+            clearSuppression();
         }
-
-        // A flutter asked for by Output (a body-owned `:OFnn`), taken after the
-        // halts, the Stop and a back to centre press above have had their say.
-        flutterTakeRequest(now, estopActive    ? "estop active"
-                                : sleepActive  ? "sleep mode active"
-                                : centreRun.active ? "back to centre is running"
-                                : poseRun.active   ? "a pose is being reached"
-                                                   : nullptr);
-
-        // One row per tick, and only when its turn is due. One servo actuating
-        // at a time is the rail rule the Cadence Floor holds; a row the sweep
-        // passes over costs it no time, because nothing moved.
-        if (sequenceBulkCentreRowDue(centreRun, now)) {
-            centreOneOutput(centreRun, now);
-            if (!centreRun.active) {
-                PA_LOG_INFO(TAG, "[%s] %s done - %u centred, %u skipped",
-                            commandSourceToString((CommandSource)centreRun.src),
-                            bulkCentreName(centreRun), (unsigned)centreRun.centred,
-                            (unsigned)centreRun.skipped);
-            }
-        }
-
-        // One pose command per tick, and only when its turn is due: motions at
-        // least the Cadence Floor apart, one Output moving at a time.
-        if (sequencePoseDue(poseRun, now)) {
-            poseOneCommand(poseRun, now);
-            if (!poseRun.active) {
-                PA_LOG_INFO(TAG, "[%s] pose done - %u sent, %u skipped",
-                            commandSourceToString((CommandSource)poseRun.src), (unsigned)poseRun.sent,
-                            (unsigned)poseRun.skipped);
-            }
-        }
-
-        // The pace the Gestures and the flutters share lives on between runs,
-        // so its due time is kept recent (sequencePaceKeepRecent()).
-        sequencePaceKeepRecent(&gestureRun.dueMs, now);
-
-        // The Gestures a sequence fired, one item per tick when it is due.
-        if (sequenceGestureActive(gestureRun)) {
-            gestureOneItem(now);
-        }
-
-        // The flutters it fired, one leg per tick when one may go. After the
-        // Gestures on purpose: when the pace opens with both waiting, the
-        // Gesture's move, which its spread placed in time, goes first.
-        if (sequenceFlutterActive(flutterRun)) {
-            flutterOneLeg(now);
-        }
-
-        // SAFETY INVARIANT: Suppression window behavior.
-        // Advance the cursor: dispatch due actions, retry on queue-full.
-        // If a downstream queue is full mid-sequence, the action is retried
-        // on the next tick without advancing the cursor.
-        if (seqEngineActive(engine)) {
-            SeqAction act;
-            while (seqEnginePeek(engine, now, esp_random, act)) {
-                // The run has reached its end step: the Gestures and the
-                // flutters it fired, and its takes, end here, before terminal
-                // cleanup, so cleanup is the last thing the run moves (#438,
-                // #453, #442; sequenceGestureNext() holds the same line by
-                // time).
-                if (seqEngineFinishing(engine) &&
-                    (sequenceGestureActive(gestureRun) || sequenceFlutterActive(flutterRun) ||
-                     takeRun != nullptr)) {
-                    generatedEnd("end step");
-                }
-                if (!dispatchAction(act)) {
-                    if (!retryLogged) {
-                        PA_LOG_WARN(TAG, "queue full, retrying: %s", act.payload);
-                        retryLogged = true;
-                    }
-                    seqEvidenceNoteRetry();
-                    break;  // retry same action next tick
-                }
-                // seqEnginePeek flips to finishing when it hits STEP_END, so the
-                // finishing flag here classifies this action as terminal cleanup.
-                seqEvidenceRecordTx(act, seqEngineFinishing(engine));
-                retryLogged = false;
-                seqEngineCommit(engine);
-            }
-            if (!seqEngineActive(engine)) {
-                // An end with no cleanup to send finishes inside one peek;
-                // its Gestures and flutters end here all the same.
-                generatedEnd("end step");
-                PA_LOG_INFO(TAG, "end %s", activeName);
-                // No-op if an abort path already finalized this run (guarded on
-                // RUNNING); otherwise records the normal completion.
-                seqEvidenceEnd(SEQ_RUN_COMPLETED, "", now, bodyQueueFullCount());
-                seqStoreReleaseRun();  // reclaim any Learned-run buffers now idle
-                clearSuppression();
-                activeName[0] = '\0';
-            }
-        }
-
-        // The run's takes, after its steps, so a take's targets never fill
-        // servoCmdQueue ahead of a step's move on the same tick.
-        if (takeRun != nullptr) {
-            takesTick(now);
-        }
-
-        // A finish this tick, a run's own end or an abort's drain, that had no
-        // room for every terminal action.
-        reportFinalDrops(engine);
-
-        // Safety: if no active sequence but flag is still set and timeout expired.
-        if (!seqEngineActive(engine)) {
-            uint32_t until = 0;
-            taskENTER_CRITICAL(&robotStateMux);
-            if (robotState.domeSeqActive) {
-                until = robotState.domeSeqUntilMs;
-            }
-            taskEXIT_CRITICAL(&robotStateMux);
-            if (until != 0 && millis() >= until) {
-                clearSuppression();
-            }
-        }
-
-        // Compute wait timeout for next iteration: 10 ms if a sequence is
-        // active, a resync close is pending, a bulk centre is sweeping, a
-        // pose is being reached, or a Gesture or a flutter is being performed;
-        // 250 ms otherwise (task blocks on request queue, wakes on TWDT and edges).
-        waitMs = sequence_dispatcher_wait_ms(seqEngineActive(engine), resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE,
-                                             centreRun.active || poseRun.active ||
-                                                 sequenceGestureActive(gestureRun) ||
-                                                 sequenceFlutterActive(flutterRun));
     }
+
+    // Compute wait timeout for next iteration: 10 ms if a sequence is
+    // active, a resync close is pending, a bulk centre is sweeping, a
+    // pose is being reached, or a Gesture or a flutter is being performed;
+    // 250 ms otherwise (task blocks on request queue, wakes on TWDT and edges).
+    // A ring close held by a halt waits at the slow pace: the halt's end is an
+    // edge the slow wake sees.
+    return sequence_dispatcher_wait_ms(seqEngineActive(engine),
+                                       resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE && !ringCloseHeld,
+                                       centreRun.active || poseRun.active ||
+                                           sequenceGestureActive(gestureRun) ||
+                                           sequenceFlutterActive(flutterRun));
+}
+
+uint8_t sequenceDispatcherRunning() {
+    uint8_t running = 0;
+    // A run that has ended and is only sending its cleanup is not running.
+    if (seqEngineActive(engine) && !seqEngineFinishing(engine)) running |= RUN_TAKEOVER_SEQUENCE;
+    if (centreRun.active) running |= RUN_TAKEOVER_CENTRE;
+    if (poseRun.active) running |= RUN_TAKEOVER_POSE;
+    if (sequenceGestureActive(gestureRun) || sequenceFlutterActive(flutterRun) || takeRun != nullptr) {
+        running |= RUN_TAKEOVER_GENERATED;
+    }
+    if (resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE) running |= RUN_TAKEOVER_RING_CLOSE;
+    return running;
 }

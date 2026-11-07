@@ -502,7 +502,9 @@ void handleSeqDelete(WebRequest& req) {
     webSendJsonDocument(req, doc, kSeqListMaxBytes, TAG);
 }
 
-// POST /api/seq/test  - run a sequence by name (same ungated path as dome/cmd).
+// POST /api/seq/test  - run a sequence by name (the path dome/cmd takes for a
+// DM:* name). A body-owned run is refused under either halt with a 409 that
+// says why (sequenceRunRefusalNow(), #502); no Non-RC Control consent is asked.
 //
 // The name arrives either as a form field or inside a JSON body, because both
 // clients exist: data/seq.js and data/dome_control.js post JSON, and the older
@@ -532,6 +534,12 @@ void handleSeqTestPost(WebRequest& req) {
     trimAsciiWhitespace(name);
     if (name[0] == '\0' || strncmp(name, "DM:", 3) != 0) {
         sendJsonError(req, 400, "missing or invalid DM:* name");
+        return;
+    }
+    // Refused under either halt, and the answer says why (#502). The
+    // Coordinator asks the same rule again when the request reaches it.
+    if (const char* refusal = sequenceRunRefusalNow(name)) {
+        sendJsonError(req, 409, refusal);
         return;
     }
     if (!sequenceStart(name, SRC_WEB_API)) {

@@ -964,6 +964,25 @@ void test_dome_cmd_rejects_an_overlong_command() {
     TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, "cmd too long (max 127)"));
 }
 
+// A DM:* run is refused under either halt, as POST /api/seq/test refuses it
+// (#502), and the answer says why.
+void test_dome_cmd_refuses_a_body_owned_run_under_a_halt() {
+    const WebRequestTestParam params[] = {{"cmd", "DM:ROCKMARCH"}};
+    for (int halt = 0; halt < 2; ++halt) {
+        robotState.estop = halt == 0;
+        robotState.sleepMode = halt == 1;
+        WebRequestTestBackend backend;
+        backend.params = params;
+        backend.paramCount = 1;
+        WebRequest req(&backend);
+        handleDomeCmdPost(req);
+        TEST_ASSERT_EQUAL_INT(409, backend.sentCode);
+        TEST_ASSERT_NOT_NULL(strstr(backend.sentBody, halt == 0 ? "Estop latched" : "asleep"));
+    }
+    robotState.estop = false;
+    robotState.sleepMode = false;
+}
+
 void test_dome_cmd_without_a_command_is_rejected() {
     WebRequestTestBackend backend;
     WebRequest req(&backend);
@@ -1783,6 +1802,7 @@ int main(int, char**) {
     RUN_TEST(test_dome_speed_malformed_while_sleeping_answers_the_value);
     RUN_TEST(test_dome_speed_is_refused_when_dome_output_is_disabled);
     RUN_TEST(test_dome_cmd_rejects_an_overlong_command);
+    RUN_TEST(test_dome_cmd_refuses_a_body_owned_run_under_a_halt);
     RUN_TEST(test_dome_cmd_without_a_command_is_rejected);
     RUN_TEST(test_dome_layout_requests_a_refresh_on_a_cache_miss);
     RUN_TEST(test_dome_layout_is_unavailable_off_wifi_transport);

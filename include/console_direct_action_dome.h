@@ -74,7 +74,7 @@
 #include "console_catalog.h"              // ConsoleCatalogEntry, consoleCatalogFindByName()
 #include "robot_state.h"                  // robotState, robotStateMux
 #include "dome_link.h"                    // domeQueueTx(), DomeTxCmd sizing (dome_link.h)
-#include "sequence_dispatcher.h"          // sequenceStart(), sequencePoseRequest()
+#include "sequence_dispatcher.h"          // sequenceStart(), sequenceRunRefusalNow(), sequencePoseRequest()
 #include "sequence_pose.h"                // sequencePoseRefusal()
 #include "api_drive.h"                    // executeManualCommand()
 #include "api_servo.h"                    // servoOutputUndriven()
@@ -278,6 +278,13 @@ static void consoleExecuteDomeSequence(uint32_t requestId, const char* operation
         return;
     }
 
+    if (sequenceRunRefusalNow(value) != nullptr) {
+        if (sink->onRecordResult) {
+            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                CONSOLE_REASON_BLOCKED_BY_STATE);
+        }
+        return;
+    }
     if (!sequenceStart(value, consoleCommandSourceFor(source))) {
         if (sink->onRecordResult) {
             sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
@@ -436,6 +443,13 @@ static void consoleExecuteDomeTestSequence(uint32_t requestId, const char* opera
         return;
     }
 
+    if (sequenceRunRefusalNow(name) != nullptr) {
+        if (sink->onRecordResult) {
+            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                CONSOLE_REASON_BLOCKED_BY_STATE);
+        }
+        return;
+    }
     if (!sequenceStart(name, consoleCommandSourceFor(source))) {
         if (sink->onRecordResult) {
             sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
@@ -589,6 +603,13 @@ static void consoleExecuteDomeNamedSequence(uint32_t requestId, const char* oper
         return;
     }
 
+    if (sequenceRunRefusalNow(sequence) != nullptr) {
+        if (sink->onRecordResult) {
+            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
+                                CONSOLE_REASON_BLOCKED_BY_STATE);
+        }
+        return;
+    }
     if (!sequenceStart(sequence, consoleCommandSourceFor(source))) {
         if (sink->onRecordResult) {
             sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_QUEUE_FULL,
