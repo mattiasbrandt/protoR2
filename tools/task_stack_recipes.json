@@ -285,9 +285,9 @@
             "domeLinkTask"
           ],
           "frames": [],
-          "chain_bytes": 4048,
+          "chain_bytes": 4000,
           "stack_bytes": 5120,
-          "note": "Deepest route: domeLinkTask -> fetchDomeLayoutOverWifi() -> HTTPClient::GET() -> HTTPClient::sendRequest() -> HTTPClient::handleHeaderResponse() -> HTTPClient::setCookie() -> strptime -> strptime_l -> localtime_r -> ... (24 more); widest frames __ssvfiscanf_r 704 B, fetchDomeLayoutOverWifi() 640 B, domeLinkTask 368 B, HTTPClient::setCookie() 304 B.",
+          "note": "Deepest route: domeLinkTask -> fetchDomeLayoutOverWifi() -> HTTPClient::GET() -> HTTPClient::sendRequest() -> HTTPClient::handleHeaderResponse() -> HTTPClient::setCookie() -> strptime -> strptime_l -> localtime_r -> ... (24 more); widest frames __ssvfiscanf_r 704 B, fetchDomeLayoutOverWifi() 640 B, domeLinkTask 320 B, HTTPClient::setCookie() 304 B. The drain's command buffer is file-static (s_txCmd) and its halt check is out of line (#502).",
           "created": "always"
         },
         "esp32p4": {
@@ -296,9 +296,9 @@
             "domeLinkTask"
           ],
           "frames": [],
-          "chain_bytes": 7680,
+          "chain_bytes": 7632,
           "stack_bytes": 9728,
-          "note": "Deepest route: domeLinkTask -> fetchDomeLayoutOverWifi() -> HTTPClient::GET() -> HTTPClient::sendRequest() -> HTTPClient::handleHeaderResponse() -> HTTPClient::setCookie() -> void std::vector<Cookie, std::allocator<Cookie> >::_M_realloc_append<Cookie const&>() -> __cxa_rethrow -> _Unwind_Resume_or_Rethrow -> ... (26 more); widest frames _Unwind_RaiseException 1296 B, _svfprintf_r 1152 B, _Unwind_Resume_or_Rethrow 912 B, fetchDomeLayoutOverWifi() 624 B.",
+          "note": "Deepest route: domeLinkTask -> fetchDomeLayoutOverWifi() -> HTTPClient::GET() -> HTTPClient::sendRequest() -> HTTPClient::handleHeaderResponse() -> HTTPClient::setCookie() -> void std::vector<Cookie, std::allocator<Cookie> >::_M_realloc_append<Cookie const&>() -> __cxa_rethrow -> _Unwind_Resume_or_Rethrow -> ... (26 more); widest frames _Unwind_RaiseException 1296 B, _svfprintf_r 1152 B, _Unwind_Resume_or_Rethrow 912 B, fetchDomeLayoutOverWifi() 624 B. The drain's command buffer is file-static (s_txCmd) and its halt check is out of line (#502).",
           "created": "always"
         }
       }
