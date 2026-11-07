@@ -380,9 +380,9 @@
             "sequenceDispatcherTask"
           ],
           "frames": [],
-          "chain_bytes": 3728,
+          "chain_bytes": 3712,
           "stack_bytes": 5120,
-          "note": "Deepest route: sequenceDispatcherTask -> seqStorePrepare() -> paLogf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> writeFrameCounted() -> HardwareSerial::write() -> uartWriteBuf -> ... (25 more); widest frames seqStorePrepare() 592 B, emitFramedLineCounted() 432 B, sequenceDispatcherTask 384 B, paLogf() 336 B. A log line on this route formats in paLogf() (src/logging.cpp, 336 B with its 256 B line buffer), which is on the chain only while the line is written; since #491 no function that logs carries that buffer in its own frame.",
+          "note": "Deepest route: sequenceDispatcherTask -> sequenceDispatcherTick() -> seqStorePrepare() -> paLogf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> writeFrameCounted() -> HardwareSerial::write() -> ... (26 more); widest frames seqStorePrepare() 592 B, emitFramedLineCounted() 432 B, paLogf() 336 B. The task waits and calls one tick (#502); the Coordinator's state is file-static, so the two frames together are shallower than the old single loop frame. A log line on this route formats in paLogf() (src/logging.cpp, 336 B with its 256 B line buffer), which is on the chain only while the line is written.",
           "created": "always"
         },
         "esp32p4": {
@@ -393,7 +393,7 @@
           "frames": [],
           "chain_bytes": 5776,
           "stack_bytes": 7680,
-          "note": "Deepest route: sequenceDispatcherTask -> seqStorePrepare() -> ArduinoJson::V743PB22::DeserializationError ArduinoJson::V743PB22::detail::deserialize<ArduinoJson::V743PB22::detail::JsonDeserializer, ArduinoJson::V743PB22::JsonDocument&, fs::File&, , 0>() -> _Unwind_Resume -> uw_init_context_1 -> pthread_once -> esp_log -> paLogIdfVprintf() -> paLogLine() -> ... (20 more); widest frames _svfprintf_r 1152 B, _Unwind_Resume 912 B, seqStorePrepare() 592 B, uw_init_context_1 432 B.",
+          "note": "Deepest route: sequenceDispatcherTask -> sequenceDispatcherTick() -> seqStorePrepare() -> ArduinoJson::V743PB22::DeserializationError ArduinoJson::V743PB22::detail::deserialize<ArduinoJson::V743PB22::detail::JsonDeserializer, ArduinoJson::V743PB22::JsonDocument&, fs::File&, , 0>() -> _Unwind_Resume -> uw_init_context_1 -> pthread_once -> esp_log -> paLogIdfVprintf() -> paLogLine() -> ... (20 more); widest frames _svfprintf_r 1152 B, _Unwind_Resume 912 B, seqStorePrepare() 592 B, uw_init_context_1 432 B.",
           "created": "always"
         }
       }
