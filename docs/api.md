@@ -530,6 +530,8 @@ The command is routed based on its prefix:
 - `400` `{"ok":false,"error":"missing cmd parameter"}`
 - `400` `{"ok":false,"error":"cmd too long (max 127)"}`
 - `400` `{"ok":false,"error":"cmd too long (max 63)"}` -- a raw line for the dome
+- `409` with the reason, the answer `POST /api/seq/test` gives, when `cmd` names a Learned or
+  factory sequence while the estop is latched or the droid is asleep
 - `503` `{"ok":false,"error":"sequence queue full"}` (when `cmd` starts with `DM:`)
 - `503` `{"ok":false,"error":"dome TX queue full or link not ready"}` (raw command)
 
@@ -1605,8 +1607,13 @@ Accepts the sequence name via query parameter or JSON body. The body form is pre
   - `400` `{"ok":false,"error":"invalid json body"}`
   - `413` `{"ok":false,"error":"payload too large"}` for a JSON body over 512 B
   - `500` `{"ok":false,"error":"request buffer alloc failed"}`
+  - `409` `{"ok":false,"error":"Estop latched. Clear it to run a sequence."}` while the estop
+    is latched, or `{"ok":false,"error":"The droid is asleep. Wake it to run a sequence."}` in
+    Sleep Mode, for a Learned or factory sequence. A name the dome runs itself (an alias or an
+    unknown `DM:*` name) is still forwarded. The Sequence Coordinator refuses the run again if
+    a halt lands after the answer.
   - `503` `{"ok":false,"error":"sequence queue full"}`
-  - No sleep check: this route never answers `423`
+  - This route never answers `423`: Sleep Mode is the `409` above
 
 #### Example request (form)
 
@@ -1639,7 +1646,7 @@ curl -s -X POST http://artoo.local/api/seq/test \
 
 Asks the Sequence Coordinator to stop what it is doing. The handler (`handleSeqStopPost`) calls `sequenceStopRequest()`, which raises `robotState.seqStopRequested` and clears a pose that has not been taken yet. The Coordinator lives in `src/tasks/sequence_dispatcher.cpp`.
 
-On each tick the Coordinator receives at most one item from `sequenceQueue` before it reads the flag. When the flag is set it clears the flag, ends an active bulk centre, ends Gestures, ends a pose being reached, and aborts an active sequence engine (`seqEngineAbort`, evidence outcome `aborted`, reason `web stop`). It does not remove items still waiting in `sequenceQueue` (depth 4).
+On each tick the Coordinator receives at most one item from `sequenceQueue` before it reads the flag. When the flag is set it clears the flag and applies the Stop row of the Run Takeover (`include/sequence_run_takeover.h`): it ends an active bulk centre, the Gestures, flutters and takes, a pose being reached, and an active sequence (`seqEngineAbort`, evidence outcome `aborted`, reason `web stop`). A staged ring close carries on. It does not remove items still waiting in `sequenceQueue` (depth 4).
 
 A start that is still queued, and was not the one item received on this tick, is taken on a later tick. The flag has already been cleared, so that start runs. A Stop that arrives before the Coordinator has the run in the engine does not cancel a start that is only waiting in the queue. The item received on the same tick is started first; the stop on that tick can then abort it.
 
@@ -1714,7 +1721,9 @@ When a run has been recorded:
 - `source`: the `CommandSource` value as a number, not a name
 - `outcome`: `seqRunOutcomeName` — `running`, `completed`, `aborted`, `preempted`, `estop`, `reconnect`, or `none`
 - `running`: `true` only while `outcome` is `running`
-- `reason`: present when the evidence reason is non-empty (a web stop records `web stop`)
+- `reason`: present when the evidence reason is non-empty: `preempt`, `pose`, `back to centre`,
+  `web stop`, `estop`, `sleep mode` (outcome `aborted`) or `dome reconnect`, one per Run
+  Takeover row (`include/sequence_run_takeover.h`)
 - `startMs`: when the run started
 - `endMs`: present only when non-zero
 - `fxScopes`: string array, any of `panel`, `logic_psi`, `holo`, `audio`, `dome_seq`

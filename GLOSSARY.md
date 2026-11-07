@@ -373,7 +373,7 @@ The body-side owner of DM:* choreography. It applies lookup precedence, advances
 _Avoid_: dome sequencer, raw-pulse panel choreography
 
 **Run Takeover**:
-The rule for what each event ends among the things the **Sequence Coordinator** is doing: a sequence, a back to centre sweep or boot pass, a pose, the Gestures, flutters and takes a sequence fired, and a staged ring close. A later run, a pose press, back to centre, Stop, an estop, Sleep Mode, a dome reconnect and an estop clear each have one row, and every row is written in one place.
+The rule for what each event ends among the things the **Sequence Coordinator** is doing: a sequence, a back to centre sweep or boot pass, a pose, the Gestures, flutters and takes a sequence fired, and a staged ring close. A later run, a pose press, back to centre, Stop, an estop, Sleep Mode, a dome reconnect, an estop clear and waking after Sleep Mode ended a run each have one row, and every row is written in one place (`include/sequence_run_takeover.h`, #502). No dome panel is closed during a halt: a staged ring close waits for the halt to end, and the closes an ended run still owed are dropped, because the estop clear or the waking closes every ring panel itself.
 _Avoid_: preempt (for anything but one run replacing another), abort rules, teardown
 
 **Command Ownership**:
