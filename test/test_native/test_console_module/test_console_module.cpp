@@ -83,6 +83,7 @@
 #include "rc_input_test_hooks.h"  // g_test_dispatch_* - control/observe the
                                   // native stub of dispatchRcTriggerActionTest() (#220)
 #include "robot_state.h"
+#include "queue_drop_test_hooks.h"
 #include "commanded_modes_test_hooks.h"  // g_test_commanded_*/g_test_applied_mood/
                                          // g_test_status_broadcast_count - control/observe
                                          // the commanded_modes.h setter stubs (#226)
@@ -328,6 +329,7 @@ void setUp() {
     robotState = RobotState{};
     ConfigSnapshot snap = {};
     configCacheReplace(snap);
+    configCacheSetActiveDomeEnabled(true);
     g_test_dispatch_action_calls = 0;
     g_test_last_dispatch_target = ROBOT_ACTION_NONE;
     g_test_last_dispatch_source = SRC_NONE;
@@ -1632,6 +1634,16 @@ void test_sound_play_banked_is_blocked_while_sleeping() {
     TEST_ASSERT_EQUAL_UINT(0u, g_test_audio_play_banked_calls);
 }
 
+void test_sound_play_banked_answers_a_module_without_a_catalog() {
+    g_test_audio_capabilities = 0;
+
+    runQuery("sound.api.play-banked bank=3 page=C index=42");
+
+    TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_UNAVAILABLE, g_cap.outcome);
+    TEST_ASSERT_EQUAL(CONSOLE_REASON_NOT_IN_THIS_BUILD, g_cap.reason);
+    TEST_ASSERT_EQUAL_UINT(0u, g_test_audio_play_banked_calls);
+}
+
 // sound.api.get-catalog answers `ready` as a field and one item per entry.
 void test_sound_get_catalog_answers_ready_and_one_item_per_entry() {
     g_test_audio_catalog_ready = true;
@@ -2201,12 +2213,14 @@ void test_action_dome_move_queues_when_enabled() {
 void test_action_dome_move_reports_a_full_queue() {
     configCacheSetActiveDomeEnabled(true);
     testQueueSendResult() = pdFALSE;
+    g_test_queue_drop_calls = 0;
 
     runQuery("dome.action.move speed=0.5");
 
     testQueueSendResult() = pdTRUE;
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_QUEUE_FULL, g_cap.outcome);
     TEST_ASSERT_EQUAL(CONSOLE_REASON_QUEUE_FULL, g_cap.reason);
+    TEST_ASSERT_EQUAL_UINT(1, g_test_queue_drop_calls);
 }
 
 // dome.action.delete-sequence (#259): name=<string>, the same lookup-then-
@@ -3471,12 +3485,10 @@ void test_drive_move_allowed_when_sbus_is_healthy_without_web_control() {
 // driveArbiterResolve() applies its OWN clamp to cfg.speedLimitMax
 // (src/drive_arbiter.cpp) as a second, independent safety net - so reading
 // the output back through resolvedDriveOutput() at the SAME cap the command
-// was submitted under would pass even if consoleExecuteDirectDriveMove()'s
-// own clamp (mirroring handleDrivePost()'s) were deleted entirely, since the
-// arbiter's clamp alone would still produce the same 200/-200. To prove
-// THIS executor clamps its own submission (matching handleDrivePost()
-// verbatim, not merely relying on the arbiter's downstream net), the cap is
-// raised again before resolving: if consoleExecuteDirectDriveMove() had
+// was submitted under would pass even if driveMoveRequest()'s clamp were
+// deleted entirely, since the arbiter's clamp alone would still produce the
+// same 200/-200. To prove the submission itself is clamped, the cap is raised
+// again before resolving: if driveMoveRequest() had
 // submitted the raw 900/-900, the now-1000 cap would let it straight
 // through and this test would see 900/-900, not 200/-200.
 void test_drive_move_clamps_to_the_configured_speed_cap() {
@@ -5013,9 +5025,8 @@ void test_reason_matrix_not_in_this_build() {
     TEST_ASSERT_EQUAL(CONSOLE_REASON_NOT_IN_THIS_BUILD, g_cap.reason);
 }
 
-// 2/5 component-disabled: the Dome ESC Component Toggle off (ADR 0027). The
-// dome hardware is not addressed at all here - the executor reads the config
-// cache the toggle writes.
+// 2/5 component-disabled: the Dome ESC off for this boot (ADR 0027). The dome
+// hardware is not addressed at all here - the core reads the boot's answer.
 void test_reason_matrix_component_disabled_from_a_component_toggle_off() {
     configCacheSetActiveDomeEnabled(false);
 
@@ -5111,7 +5122,7 @@ void test_reason_matrix_not_on_this_board() {
 
 // `operations` lists the row as available, then the Component Toggle goes off,
 // then the SAME operation refuses. Discovery is not consulted at execution.
-void test_a_component_toggle_flipped_after_discovery_changes_the_execution_answer() {
+void test_a_component_off_this_boot_after_discovery_changes_the_execution_answer() {
     configCacheSetActiveDomeEnabled(true);
 
     runOperationsListing();
@@ -5707,6 +5718,7 @@ int main(int, char**) {
     RUN_TEST(test_sound_play_banked_bank_out_of_registry_range_is_refused);
     RUN_TEST(test_sound_play_banked_page_outside_the_published_enum_is_refused);
     RUN_TEST(test_sound_play_banked_is_blocked_while_sleeping);
+    RUN_TEST(test_sound_play_banked_answers_a_module_without_a_catalog);
     RUN_TEST(test_sound_get_catalog_answers_ready_and_one_item_per_entry);
     RUN_TEST(test_sound_get_catalog_reports_an_unenumerated_catalog_as_not_ready);
     RUN_TEST(test_sound_get_catalog_without_a_catalog_backend_is_not_in_this_build);
@@ -5965,7 +5977,7 @@ int main(int, char**) {
     RUN_TEST(test_reason_matrix_temporarily_unavailable_from_a_busy_config_write);
     RUN_TEST(test_reason_matrix_temporarily_unavailable_from_a_busy_dispatch_core);
     RUN_TEST(test_reason_matrix_not_on_this_board);
-    RUN_TEST(test_a_component_toggle_flipped_after_discovery_changes_the_execution_answer);
+    RUN_TEST(test_a_component_off_this_boot_after_discovery_changes_the_execution_answer);
     RUN_TEST(test_estop_latched_after_a_successful_run_changes_the_execution_answer);
 
     return UNITY_END();

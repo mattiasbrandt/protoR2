@@ -20,7 +20,6 @@
 // =============================================================================
 #pragma once
 
-
 #include "console_direct_action_types.h"  // ConsoleDirectActionExecutorFn/Entry
 #include "console_module.h"               // ConsoleCommandSource, ConsoleRecordSink
 #include "console_args.h"                 // ConsoleArgs, consoleArgsFind(), schema validation
@@ -40,7 +39,7 @@
 static void consoleExecuteDirectDriveMove(uint32_t requestId, const char* operationName,
                                           const ConsoleArgs& args, ConsoleCommandSource source,
                                           const ConsoleRecordSink* sink) {
-    (void)source;  // the arbiter has no console-specific source (above)
+    (void)source;  // the arbiter has no console-specific source
 
     const ConsoleCatalogEntry* entry = consoleCatalogFindByName(operationName);
     char badKey[40] = {};

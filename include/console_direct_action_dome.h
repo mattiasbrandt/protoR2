@@ -66,7 +66,6 @@
 // =============================================================================
 #pragma once
 
-#include <Arduino.h>  // millis()
 #include <string.h>
 
 #include "console_direct_action_types.h"  // ConsoleDirectActionExecutorFn/Entry
@@ -74,7 +73,6 @@
 #include "console_args.h"                 // ConsoleArgs, consoleArgsFind(), schema validation
 #include "console_catalog.h"              // ConsoleCatalogEntry, consoleCatalogFindByName()
 #include "robot_state.h"                  // robotState, robotStateMux
-#include "config_cache.h"                 // ConfigSnapshot, configCacheRead()
 #include "dome_link.h"                    // domeQueueTx(), DomeTxCmd sizing (dome_link.h)
 #include "sequence_dispatcher.h"          // sequenceStart(), sequencePoseRequest()
 #include "sequence_pose.h"                // sequencePoseRefusal()

@@ -35,7 +35,6 @@
 #include "console_args.h"                 // ConsoleArgs, consoleArgsFind(), schema validation,
                                            // consoleArgsAsParamSource()
 #include "console_catalog.h"              // ConsoleCatalogEntry, consoleCatalogFindByName()
-#include "robot_state.h"                  // robotState, robotStateMux
 #include "audio_task.h"                   // audioQueuePlayTrack(), audioQueueDollar(),
                                            // audioQueueTrackStop(), audioQueueQueryStatus(),
                                            // audioGetCapabilities() - includes audio_driver.h

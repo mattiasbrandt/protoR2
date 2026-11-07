@@ -18,6 +18,7 @@
 #include "drive_arbiter.h"
 #include "drive_arbiter_test_hooks.h"  // driveArbiterReset()
 #include "drive_motion_test_hooks.h"   // g_test_millis
+#include "queue_drop_test_hooks.h"
 #include "robot_state.h"
 #include "config_write_window_test_hooks.h"  // ConfigWriteWindowForTest
 
@@ -103,6 +104,9 @@ void test_drive_clamps_both_axes_to_the_saved_limit() {
 
     TEST_ASSERT_EQUAL(DriveMoveOutcome::Submitted, driveMoveRequest(900, -900));
 
+    // The arbiter clamps to the same limit on its own, so resolve under a wider
+    // one: only the core's clamp can still answer 200.
+    setSavedConfig(1000, true);
     TEST_ASSERT_EQUAL_INT16(200, resolvedDriveOutput().speed);
     TEST_ASSERT_EQUAL_INT16(-200, resolvedDriveOutput().steer);
 }
@@ -140,8 +144,10 @@ void test_dome_move_queues_when_on_this_boot_though_saved_off() {
 
 void test_dome_move_says_when_the_queue_is_full() {
     testQueueSendResult() = pdFALSE;
+    g_test_queue_drop_calls = 0;
 
     TEST_ASSERT_EQUAL(DomeMoveOutcome::QueueFull, domeMoveRequest(0.5f, SRC_WEB_API));
+    TEST_ASSERT_EQUAL_UINT(1, g_test_queue_drop_calls);
 }
 
 // --- executeManualCommand ------------------------------------------------------
