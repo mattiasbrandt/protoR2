@@ -20,10 +20,12 @@
 #include "Preferences.h"
 #include "config_cache.h"
 #include "config_store.h"
+#include "dome_tx_halt.h"
 #include "drive_motion_test_hooks.h"  // g_test_millis
 #include "marcduino_test_hooks.h"     // the dome link stub: connected, tx calls, last tx
 #include "robot_state.h"
 #include "seq_store_index.h"
+#include "seq_store_test_hooks.h"  // g_test_seq_prepare_latches_estop
 #include "sequence_dispatcher.h"
 #include "sequence_dispatcher_test_hooks.h"
 #include "sequence_run_evidence.h"
@@ -93,6 +95,7 @@ void setUp() {
     robotState = RobotState{};
     g_test_dome_connected = false;
     g_test_dome_tx_ok = true;
+    g_test_seq_prepare_latches_estop = false;
     seqStoreIndexClear();
     loadRowsWithAPart();
     now += 100000;
@@ -402,16 +405,16 @@ void test_a_staged_ring_close_sends_nothing_under_an_estop_and_closes_after_the_
     TEST_ASSERT_FALSE(running() & RUN_TAKEOVER_RING_CLOSE);
 }
 
-void test_a_staged_ring_close_holds_through_sleep_mode_and_carries_on_waking() {
+void test_a_staged_ring_close_holds_through_sleep_mode_and_closes_every_panel_on_waking() {
     startRingClose();  // the first panel's close went as it was staged
     robotState.sleepMode = true;
     for (int i = 0; i < 500; ++i) tickCountingCloses();
     TEST_ASSERT_EQUAL_UINT(0, ringClosesSent);
     robotState.sleepMode = false;
     for (int i = 0; i < 500; ++i) tickCountingCloses();
-    // A nap with no run ended: the close carries on where it was held, with
-    // the six panels left.
-    TEST_ASSERT_EQUAL_UINT(kRingPanels - 1, ringClosesSent);
+    // A nap with no run ended: the held close starts again from the first
+    // panel, since the dome link may have dropped the one queued before.
+    TEST_ASSERT_EQUAL_UINT(kRingPanels, ringClosesSent);
     TEST_ASSERT_FALSE(running() & RUN_TAKEOVER_RING_CLOSE);
 }
 
@@ -521,6 +524,64 @@ void test_a_dome_reconnect_runs_one_close_sequence_not_two() {
     TEST_ASSERT_EQUAL_UINT(kRingPanels, ringClosesSent);
 }
 
+// A halt that lands while a Learned run loads: the run is refused once the
+// load is done, before it ends what is running, so the stopped run's close
+// that falls due on that tick is dropped by the halt, never drained first.
+void test_a_halt_that_lands_during_a_load_refuses_the_run_and_sends_no_close() {
+    SeqIndexEntry learned = {};
+    snprintf(learned.name, sizeof(learned.name), "%s", "DM:MINE");
+    learned.valid = true;
+    TEST_ASSERT_TRUE(seqStoreIndexAdd(learned));
+    startARunThatOpensTheRing();
+    sequenceStopRequest();
+    tickCountingCloses();
+    const unsigned before = ringClosesSent;
+    g_test_seq_prepare_latches_estop = true;
+    now += 600;  // the first of the stopped run's closes is due
+    g_test_millis = now;
+    const unsigned txBefore = g_test_dome_tx_calls;
+    SequenceRequest req = {};
+    snprintf(req.name, sizeof(req.name), "%s", "DM:MINE");
+    req.src = SRC_WEB_API;
+    sequenceDispatcherTick(&req, now);
+    if (g_test_dome_tx_calls != txBefore && strncmp(g_test_dome_last_tx, ":CL", 3) == 0) ringClosesSent++;
+    for (int i = 0; i < 300; ++i) tickCountingCloses();
+    TEST_ASSERT_EQUAL_UINT(before, ringClosesSent);
+    TEST_ASSERT_EQUAL_STRING("DM:HELLO", lastRun().name);  // the refused run was never recorded
+}
+
+// -----------------------------------------------------------------------------
+// The dome link's own guard (include/dome_tx_halt.h)
+// -----------------------------------------------------------------------------
+
+void test_the_coordinator_queues_its_dome_commands_as_its_own() {
+    startRingClose();
+    TEST_ASSERT_EQUAL_STRING_LEN(":CL", g_test_dome_last_tx, 3);
+    TEST_ASSERT_EQUAL_UINT8(DOME_TX_COORDINATOR, g_test_dome_last_tx_origin);
+    TEST_ASSERT_TRUE(sequenceStart("DM:WAVE", SRC_WEB_API));  // an alias, forwarded for a person
+    TEST_ASSERT_EQUAL_STRING(":SE02", g_test_dome_last_tx);
+    TEST_ASSERT_EQUAL_UINT8(DOME_TX_OTHER, g_test_dome_last_tx_origin);
+}
+
+void test_the_dome_link_drops_a_coordinator_panel_command_under_either_halt() {
+    static const char* const panels[] = {":CL01", ":OP02", ":OF03", ":SE04", ":MV05"};
+    for (const char* cmd : panels) {
+        TEST_ASSERT_TRUE_MESSAGE(domeTxHeldByHalt(DOME_TX_COORDINATOR, cmd, true, false), cmd);
+        TEST_ASSERT_TRUE_MESSAGE(domeTxHeldByHalt(DOME_TX_COORDINATOR, cmd, false, true), cmd);
+        TEST_ASSERT_FALSE_MESSAGE(domeTxHeldByHalt(DOME_TX_COORDINATOR, cmd, false, false), cmd);
+        TEST_ASSERT_FALSE_MESSAGE(domeTxHeldByHalt(DOME_TX_OTHER, cmd, true, true), cmd);
+    }
+}
+
+void test_the_dome_link_still_sends_the_coordinators_light_resets_under_a_halt() {
+    for (const char* reset : SEQ_DOME_VISUAL_RESETS) {
+        TEST_ASSERT_FALSE_MESSAGE(domeTxHeldByHalt(DOME_TX_COORDINATOR, reset, true, true), reset);
+    }
+    TEST_ASSERT_FALSE(domeTxHeldByHalt(DOME_TX_COORDINATOR, "DV:RESET_VISUALS", true, false));
+    TEST_ASSERT_FALSE(domeTxHeldByHalt(DOME_TX_COORDINATOR, ":", true, false));
+    TEST_ASSERT_FALSE(domeTxHeldByHalt(DOME_TX_COORDINATOR, nullptr, true, false));
+}
+
 // -----------------------------------------------------------------------------
 // Waking
 // -----------------------------------------------------------------------------
@@ -591,7 +652,7 @@ int main(int, char**) {
     RUN_TEST(test_the_refusal_says_why_in_words_for_a_run);
     RUN_TEST(test_only_a_body_owned_run_is_refused_now);
     RUN_TEST(test_a_staged_ring_close_sends_nothing_under_an_estop_and_closes_after_the_clear);
-    RUN_TEST(test_a_staged_ring_close_holds_through_sleep_mode_and_carries_on_waking);
+    RUN_TEST(test_a_staged_ring_close_holds_through_sleep_mode_and_closes_every_panel_on_waking);
     RUN_TEST(test_a_dome_reconnect_under_a_halt_stages_a_close_that_waits);
     RUN_TEST(test_a_held_ring_close_lets_the_task_wait_at_the_slow_pace);
     RUN_TEST(test_a_stopped_run_sends_its_own_ring_closes);
@@ -601,6 +662,10 @@ int main(int, char**) {
     RUN_TEST(test_a_close_due_on_the_tick_a_halt_lands_is_dropped_not_sent);
     RUN_TEST(test_a_close_held_on_a_full_dome_queue_is_dropped_by_a_halt);
     RUN_TEST(test_a_dome_reconnect_runs_one_close_sequence_not_two);
+    RUN_TEST(test_a_halt_that_lands_during_a_load_refuses_the_run_and_sends_no_close);
+    RUN_TEST(test_the_coordinator_queues_its_dome_commands_as_its_own);
+    RUN_TEST(test_the_dome_link_drops_a_coordinator_panel_command_under_either_halt);
+    RUN_TEST(test_the_dome_link_still_sends_the_coordinators_light_resets_under_a_halt);
     RUN_TEST(test_waking_after_sleep_mode_ended_a_run_closes_the_ring_and_resets_the_visuals);
     RUN_TEST(test_a_nap_with_no_run_moves_nothing_on_waking);
     RUN_TEST(test_a_second_nap_after_the_close_moves_nothing);

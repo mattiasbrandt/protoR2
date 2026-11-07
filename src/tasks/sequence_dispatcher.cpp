@@ -959,7 +959,7 @@ static __attribute__((noinline)) void gestureOneItem(uint32_t now) {
         return;
     }
     if (next.dome) {
-        if (!domeQueueTx(gestureRun.g[next.entry].domeCmd)) {
+        if (!domeQueueTxFromCoordinator(gestureRun.g[next.entry].domeCmd)) {
             return;
         }
         sequenceGestureDone(&gestureRun, next, now, /*started=*/true, 0, SERVO_OUTPUT_NONE,
@@ -1012,7 +1012,7 @@ static void poseOneCommand(SeqPoseRun& run, uint32_t now) {
     const SeqPoseCmd& cmd = posePlan.cmds[run.next];
     switch (cmd.cls) {
         case SEQ_POSE_PANEL:
-            if (!domeQueueTx(cmd.act.payload)) {
+            if (!domeQueueTxFromCoordinator(cmd.act.payload)) {
                 return;
             }
             sequencePoseAdvance(&run, now, cmd.cls, /*started=*/true, 0, SERVO_OUTPUT_NONE, floorMs);
@@ -1210,7 +1210,7 @@ static bool dispatchAction(const SeqAction& act) {
     switch (decision.target) {
         case SEQ_DISPATCH_DOME_CMD:
             // Forward dome text command to dome queue.
-            return domeQueueTx(act.payload);
+            return domeQueueTxFromCoordinator(act.payload);
 
         case SEQ_DISPATCH_DOME_ROTATE: {
             // Dome output is staged at reboot (ADR 0027); when inactive, drop the action.
@@ -1327,7 +1327,7 @@ static void drainBestEffort(SeqEngineState& engine, uint32_t now) {
 // servo, so they go at once and are not staged like the ring close.
 static void resyncDomeVisuals() {
     for (const char* reset : SEQ_DOME_VISUAL_RESETS) {
-        domeQueueTx(reset);
+        domeQueueTxFromCoordinator(reset);
     }
 }
 
@@ -1650,6 +1650,23 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
                 willStart = false;
             }
         }
+        if (willStart && isRuntime) {
+            // The load above reads a file and can take a while: a halt that
+            // landed meanwhile refuses the run here, before anything of what
+            // is running is ended or drained, and the halt rows below end it.
+            // The staged load is left: the next prepare discards it.
+            bool loadEstop = false;
+            bool loadSleep = false;
+            taskENTER_CRITICAL(&robotStateMux);
+            loadEstop = robotState.estop;
+            loadSleep = robotState.sleepMode;
+            taskEXIT_CRITICAL(&robotStateMux);
+            const char* late = sequenceRunRefusal(loadEstop, loadSleep);
+            if (late != nullptr) {
+                logRunRefused(req.src, req.name, late);
+                willStart = false;
+            }
+        }
         if (willStart) {
             // A later run is the later word over everything the Coordinator
             // is doing. The sequence and what it fired end before the commit
@@ -1758,15 +1775,20 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
     // Drain the staged ring-only resync close: one individual :CLnn per
     // kResyncCloseSpacingMs (best-effort  --  hold the index on a full TX queue
     // and retry next tick). Never a group close; never a pie close. Nothing
-    // goes out under either halt: the close holds where it is and carries on
-    // when the halt ends (include/sequence_run_takeover.h).
+    // goes out under either halt: the close holds, and starts again from the
+    // first panel when the halt ends (include/sequence_run_takeover.h).
     const bool ringCloseHeld = estopActive || sleepActive;
+    if (ringCloseHeld && resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE) {
+        // It starts again from the first panel when the halt ends: DomeLinkTask
+        // may have dropped the close it queued just before the halt landed.
+        resyncCloseIdx = 0;
+    }
     if (resyncCloseIdx != SEQ_RESYNC_CLOSE_NONE && !ringCloseHeld &&
         (int32_t)(now - resyncCloseDueMs) >= 0) {
         char closeCmd[8];
         if (!seqEngineRingCloseCmd(resyncCloseIdx, closeCmd, sizeof(closeCmd))) {
             resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;  // defensive: out-of-range index
-        } else if (domeQueueTx(closeCmd)) {
+        } else if (domeQueueTxFromCoordinator(closeCmd)) {
             resyncCloseIdx++;
             resyncCloseDueMs = now + kResyncCloseSpacingMs;
             if (resyncCloseIdx >= seqEngineRingPanelCount()) {

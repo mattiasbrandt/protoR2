@@ -24,8 +24,9 @@
 //
 // A STAGED RING CLOSE HOLDS DURING A HALT (operator, 2026-11-07). No row ends
 // one on an estop or Sleep Mode, and no close command goes out while either
-// is on. The close carries on where it was when the halt ends. An estop clear
-// stages it again from the first panel.
+// is on. When the halt ends it starts again from the first panel, because
+// DomeLinkTask drops a Coordinator panel command it would send under a halt
+// (include/dome_tx_halt.h), so the close queued just before it may be lost.
 //
 // A HALT DROPS THE ENDED RUN'S OWN CLOSES (operator, 2026-11-07). A sequence's
 // cleanup closes the ring panels it left open, one every 500 ms, after its
