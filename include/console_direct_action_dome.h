@@ -119,13 +119,6 @@ static void consoleExecuteDomeSendCommand(uint32_t requestId, const char* operat
     }
 
     const ManualCommandResult result = executeManualCommand(command);
-    if (result == ManualCommandResult::Asleep) {
-        if (sink->onRecordResult) {
-            sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
-                                CONSOLE_REASON_BLOCKED_BY_STATE);
-        }
-        return;
-    }
     if (result == ManualCommandResult::Unsupported) {
         // Matches handleManualCommandPost()'s own single failure shape
         // (400 "unsupported command") - executeManualCommand() answers
@@ -226,6 +219,7 @@ static void consoleExecuteDomeSendCommand(uint32_t requestId, const char* operat
             reason = CONSOLE_REASON_QUEUE_FULL;
             break;
         case ManualCommandResult::BlockedByEstop:
+        case ManualCommandResult::Asleep:
             outcome = CONSOLE_OUTCOME_BLOCKED;
             reason = CONSOLE_REASON_BLOCKED_BY_STATE;
             break;
