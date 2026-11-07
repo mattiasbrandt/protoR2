@@ -197,11 +197,12 @@ class QueueSendTimeoutZeroTest(unittest.TestCase):
         )
         files_with_sends = {rel for rel, _, _ in sends}
         # Two Core 1 call chains and one Core 0 one, so a scan that quietly
-        # stopped covering src/, include/ or a subdirectory of either is caught.
+        # stopped covering src/ or a subdirectory of it is caught. No header
+        # holds a queue send today (#500).
         for expected in (
             "src/tasks/rc_input.cpp",
             "src/rc_dispatcher_helpers.cpp",
-            "include/console_direct_action_dome.h",
+            "src/web/api_drive.cpp",
         ):
             self.assertIn(expected, files_with_sends, f"{expected} was not scanned")
 

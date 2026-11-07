@@ -876,6 +876,25 @@ void test_play_banked_post_is_gated_by_sleep_then_catalog_support() {
     TEST_ASSERT_EQUAL_INT(404, backend.sentCode);
 }
 
+// The adapter parses before the core judges, so a bad value hears why (#500).
+void test_a_malformed_request_answers_the_value_while_sleeping() {
+    setSleeping(true);
+    const WebRequestTestParam play[] = {{"action", "play"}, {"track", "0"}};
+    callPost(handleAudioPost, play, 2);
+    TEST_ASSERT_EQUAL_INT(400, backend.sentCode);
+
+    const WebRequestTestParam mood[] = {{"mood", "99"}};
+    callPost(handleMoodPost, mood, 1);
+    TEST_ASSERT_EQUAL_INT(400, backend.sentCode);
+}
+
+void test_a_malformed_banked_play_answers_the_value_without_a_catalog() {
+    setCatalogSupported(false);
+    const WebRequestTestParam params[] = {{"index", "0"}, {"bank", "1"}, {"page", "A"}};
+    callPost(handleAudioPlayBankedPost, params, 3);
+    TEST_ASSERT_EQUAL_INT(400, backend.sentCode);
+}
+
 int main() {
     UNITY_BEGIN();
 
@@ -937,6 +956,8 @@ int main() {
     RUN_TEST(test_play_banked_post_queues_bank_page_index);
     RUN_TEST(test_play_banked_post_validates_each_parameter);
     RUN_TEST(test_play_banked_post_is_gated_by_sleep_then_catalog_support);
+    RUN_TEST(test_a_malformed_request_answers_the_value_while_sleeping);
+    RUN_TEST(test_a_malformed_banked_play_answers_the_value_without_a_catalog);
 
     return UNITY_END();
 }

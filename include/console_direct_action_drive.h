@@ -20,15 +20,11 @@
 // =============================================================================
 #pragma once
 
-#include <Arduino.h>  // millis(), constrain()
-
 #include "console_direct_action_types.h"  // ConsoleDirectActionExecutorFn/Entry
 #include "console_module.h"               // ConsoleCommandSource, ConsoleRecordSink
 #include "console_args.h"                 // ConsoleArgs, consoleArgsFind(), schema validation
 #include "console_catalog.h"              // ConsoleCatalogEntry, consoleCatalogFindByName()
-#include "robot_state.h"                  // robotState, robotStateMux
-#include "config_cache.h"                 // ConfigSnapshot, configCacheRead()
-#include "drive_arbiter.h"                // driveArbiterSubmit(), DriveSource
+#include "api_drive.h"                    // driveMoveRequest()
 #include "drive_speed_preset.h"           // SpeedPresetId, applySpeedPresetPersisted()
 #include "api_helpers.h"                  // parseDriveValue()
 
@@ -38,19 +34,12 @@
 // params (int16, -1000..1000, both required - #221's shared argument
 // contract, the same helper consoleExecuteAction() (src/console/
 // console_module.cpp) already uses for ACTION_REGISTRY[]-resolved targets).
-// Consent and clamp are reproduced verbatim from handleDrivePost() below, not
-// reinvented: blocked = estop || stationary || (!sbusHealthy &&
-// !webControlEnabled). Submits through driveArbiterSubmit() with
-// DriveSource::WEB_API - the arbiter has no console-specific source, and
-// #226 already established reusing WEB_API for a non-RC console-adjacent
-// zero-frame release (disable-web-control, include/
-// console_direct_action_system.h); the effect here is identical regardless
-// of which non-RC caller asked for it, so this is that same reuse, not a new
-// DriveSource variant.
+// Consent, clamp and submit are driveMoveRequest() (include/api_drive.h), the same
+// Dispatch Core POST /api/drive calls.
 static void consoleExecuteDirectDriveMove(uint32_t requestId, const char* operationName,
                                           const ConsoleArgs& args, ConsoleCommandSource source,
                                           const ConsoleRecordSink* sink) {
-    (void)source;  // motion consent below reads RobotState, not which adapter asked
+    (void)source;  // the arbiter has no console-specific source
 
     const ConsoleCatalogEntry* entry = consoleCatalogFindByName(operationName);
     char badKey[40] = {};
@@ -80,34 +69,13 @@ static void consoleExecuteDirectDriveMove(uint32_t requestId, const char* operat
         return;
     }
 
-    // Consent + clamp, read verbatim from handleDrivePost() (src/web/
-    // api_drive.cpp): config snapshot read before the critical section,
-    // exactly matching that handler's own ordering.
-    ConfigSnapshot cfg = {};
-    configCacheRead(&cfg);
-    taskENTER_CRITICAL(&robotStateMux);
-    const bool sbusHealthy = !robotState.sbusSignalLost && !robotState.sbusHwFailsafe;
-    const bool blocked = robotState.estop || robotState.stationary ||
-                         (!sbusHealthy && !robotState.webControlEnabled);
-    taskEXIT_CRITICAL(&robotStateMux);
-    const int16_t maxOut = cfg.drive.speedLimitMax;
-
-    if (blocked) {
+    if (driveMoveRequest(speed, steer) == DriveMoveOutcome::Blocked) {
         if (sink->onRecordResult) {
             sink->onRecordResult(requestId, CONSOLE_STATUS_ERR, CONSOLE_OUTCOME_BLOCKED,
                                 CONSOLE_REASON_BLOCKED_BY_STATE);
         }
         return;
     }
-
-    // Widened to int on all three arguments, matching handleDrivePost()'s own
-    // comment: Arduino's constrain() is a macro on the device but a
-    // same-type template on the host, and the clamp has to be identical
-    // arithmetic in both builds for a host test to mean anything about the
-    // device.
-    const int16_t clampedSpeed = (int16_t)constrain((int)speed, (int)-maxOut, (int)maxOut);
-    const int16_t clampedSteer = (int16_t)constrain((int)steer, (int)-maxOut, (int)maxOut);
-    driveArbiterSubmit(DriveSource::WEB_API, clampedSpeed, clampedSteer, millis());
 
     if (sink->onRecordResult) {
         sink->onRecordResult(requestId, CONSOLE_STATUS_OK, CONSOLE_OUTCOME_APPLIED,

@@ -138,7 +138,7 @@ rows:
   - src/web/web_seam_routes.cpp - `webRegisterRoute("/api/mood", WebMethod::kPost, handleMoodPost)`
   - include/api_audio.h - `handleMoodPost` declaration
   - src/web/api_audio.cpp - `handleMoodPost` definition
-  - src/web/api_audio.cpp - `applyMood((uint8_t)mood)`
+  - src/web/api_audio.cpp - `moodRequest((uint8_t)mood)`
   notes: ''
 - name: system.action.sleep
   anchor_kind: api

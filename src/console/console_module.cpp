@@ -679,8 +679,7 @@ static ConsoleOperationType consoleGetOperationType(const char* operationName) {
 // api_audio.cpp's anonymous-namespace audioCatalogSupported() (internal
 // linkage - unreachable from a second translation unit) rather than exporting
 // a REST-private helper, the same "read their logic, call their shared
-// functions" precedent the direct-action executors already set for
-// isSleepModeActive(). Lives above the status executors rather than in one
+// functions" precedent the direct-action executors already set. Lives above the status executors rather than in one
 // domain header because three callers now need it, and the earliest of them -
 // sound.api.get-catalog's status executor below - has to see it first:
 // g_statusExecutors[] takes the address of that executor, so everything it

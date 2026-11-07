@@ -914,11 +914,15 @@ void webRegisterNotFoundRoute(WebRequestHandler /*handler*/) {
 // lives in src/queue_drop_tracker.cpp which is only compiled for device builds.
 // Native tests exercise the pure decision function (queueDropShouldLog) directly
 // via test_queue_drop_tracker.cpp; the adapter (logQueueDrop) is a no-op here.
+#include "queue_drop_test_hooks.h"
 #include "queue_drop_tracker.h"
 
+unsigned g_test_queue_drop_calls = 0;
+
 void logQueueDrop(QueueDropId /*queueId*/, const char* /*description*/) {
-    // No-op in native test builds. The pure function queueDropShouldLog() is
-    // tested directly and covers the rate-limiting logic that matters.
+    // Only counted in native test builds. The pure function queueDropShouldLog()
+    // is tested directly and covers the rate-limiting logic that matters.
+    g_test_queue_drop_calls++;
 }
 
 // =============================================================================

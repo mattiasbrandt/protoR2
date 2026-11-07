@@ -151,6 +151,22 @@ struct AudioCategoryRangeCommitOutcome {
 AudioCategoryRangeCommitOutcome audioCategoryRangeCommitApplied(
     ConfigSnapshot* snap, const AudioCategoryRangeApplyResult& result);
 
+// Dispatch Cores (ADR 0036): the guards and the send of a sound act, for the web
+// routes and the Console's actions alike. Each adapter parses its own arguments
+// first, then words the outcome; neither carries the rule. Sleep Mode is judged
+// first, then the catalog for a banked play, then sound off for this boot.
+// AudioTask also ignores a dollar command while asleep; the core is what lets the
+// caller hear why.
+enum class SoundActOutcome : uint8_t { Queued, Asleep, SoundOff, CatalogUnsupported, QueueFull };
+SoundActOutcome soundPlayTrackRequest(uint16_t track, CommandSource source);
+SoundActOutcome soundDollarRequest(const char* cmd, CommandSource source);
+SoundActOutcome soundPlayBankedRequest(uint16_t index, uint8_t bank, char page,
+                                       CommandSource source);
+
+// A mood preset: refused in Sleep Mode, otherwise applied and broadcast.
+enum class MoodOutcome : uint8_t { Applied, Asleep };
+MoodOutcome moodRequest(uint8_t mood);
+
 // Commit Step (ADR 0036 criterion 1) for sound.action.set-volume: the same
 // audioQueueSetVolume() + persist-as-default-on-reboot sequence
 // handleAudioPost()'s action=volume branch used to run inline, extracted so
