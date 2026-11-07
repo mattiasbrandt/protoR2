@@ -1,160 +1,114 @@
 # Project Status
 
-protoR2 is open-source ESP32 body-controller firmware for MK4 astromech droids.
-This page gives builders and operators a plain-language snapshot of what's ready
-to use and what isn't, yet.
+protoR2 is open-source firmware for MK4 astromech droids. It runs on the
+controller in the droid's body. This page says what's ready and what isn't yet.
 
-For setup instructions, see the project `README`. For a full history of changes,
-see `CHANGELOG.md`.
+To get started, see the [README](../README.md). For every change, see the
+[changelog](../CHANGELOG.md).
 
-## Current Snapshot
+## At a Glance
 
-| Status item | Current state |
+| | |
 |---|---|
-| Latest release | [Releases](https://github.com/mattiasbrandt/protoR2/releases/latest). A fix release carries no images |
-| Newest images | [`v1.4.0`](https://github.com/mattiasbrandt/protoR2/releases/tag/v1.4.0) (2026-10-08): one firmware and one filesystem image per board, for the artoo-esp32 and the FireBeetle 2 |
-| Body Controllers | Artoo PCB (Supported, Tested); DFRobot FireBeetle 2 ESP32-P4 (Supported; read ["Before you buy one"](spec-sheets/firebeetle2-esp32-p4-spec-sheet.md#before-you-buy-one)) |
-| Web control | Working — pages load reliably, and a controller too busy to serve a page says so and offers a retry instead of hanging |
-| Typing commands | Working — a command console in the dashboard and over a serial cable, same words either way; it still answers when the web pages have gone quiet |
-| Next up | Foot Drive validation on an assembled droid |
-| In development | `CHANGELOG.md` `[Unreleased]` |
+| Latest release | [Releases](https://github.com/mattiasbrandt/protoR2/releases/latest) |
+| Newest firmware to download | [`v1.5.0`](https://github.com/mattiasbrandt/protoR2/releases/tag/v1.5.0) (2026-10-10). Fix releases come without downloads, so fixes since then arrive with the next feature release |
+| Body Controllers | Artoo PCB; FireBeetle 2 (read ["Before you buy one"](spec-sheets/firebeetle2-esp32-p4-spec-sheet.md#before-you-buy-one) first) |
+| Which parts work | [Parts](#parts), below |
 
-`v1.0.0` is the first stable release. Its capabilities are confirmed on real
-hardware: audio, RC control, dome control, servos, web workflows, backups, and
-firmware updates. The page-loading reliability problem that held the release
-open is fixed — the web server was replaced for `v1.0.0`, and the fix was
-confirmed on the controller including a deliberately induced low-memory
-session.
+## Parts
 
-`v1.1.0` adds the DFRobot FireBeetle 2 ESP32-P4 as a Body Controller. The full
-feature set builds for it and is confirmed on the board over USB, and the
-release ships an image for it. It is Supported; it is not yet a
-board to buy for a droid, for the reasons in the
-[spec sheet](spec-sheets/firebeetle2-esp32-p4-spec-sheet.md#before-you-buy-one).
-The artoo-esp32 image behaves as it did in `v1.0.0`.
+Pick what you own: the parts in each family are peers. **Supported** means
+protoR2 works with the part. **Tested** means it has run on a real droid.
 
-`v1.2.0` adds a command console. Anything the controller can do, you can type —
-in the dashboard's Console panel or over a serial cable, in the same words
-either way. It is not a way in past the safety layers: a typed command runs
-through exactly the code a tapped button runs through, so an estop or a
-stationary lock refuses it the same way and says which one stopped it. It also
-keeps answering when the web pages have stopped, which is when you most want to
-know how the board is doing.
+### Supported today
 
-`v1.3.0` changes how releases ship: a merge to `main` publishes a release on
-its own. A fix becomes a patch release with the source and notes but no images
-(`v1.2.1`, `v1.2.2`, `v1.3.1` to `v1.3.4`); a new feature becomes a full
-release with images for every board.
+| Family | Part | Tested | Good to know |
+|---|---|:---:|---|
+| Body Controller | Artoo PCB | Yes | Carries a generic ESP32 board |
+| | [FireBeetle 2 (ESP32-P4)](spec-sheets/firebeetle2-esp32-p4-spec-sheet.md) | | Read "Before you buy one" first |
+| Radio Controller | [HotRC DS-650](spec-sheets/hotrc-ds650-radio.md) | Yes | Run with HotRC SBUS-A receivers. Its bundled receiver works as PWM |
+| | RC Radio | | Any other radio, through a receiver below |
+| | [RC Receiver - PWM](spec-sheets/rc-receiver-spec.md) | | |
+| | [RC Receiver - SBUS](spec-sheets/sbus-protocol.md) | | |
+| Body servos | Board outputs | Yes | The controller's own outputs, for a servo or a light strip |
+| | [PCA9685](spec-sheets/pca9685-servo-expander.md) | | 16 more channels on one small board |
+| Dome Rotation | [ISDT ESC70](spec-sheets/isdt-esc70-dome-esc.md) | Yes | Needs tuning to your dome |
+| Dome Controller | [AstroPixels Plus](spec-sheets/astropixels-dome-controller.md) | Yes | Runs the [protoR2 version](https://github.com/mattiasbrandt/AstroPixelsPlus) of its firmware. Other versions get basic commands at best |
+| Foot Drive | [Hoverboard, hacked firmware](spec-sheets/hoverboard-hacked-firmware-foot-drive.md) | | You build and flash the hoverboard's firmware yourself |
+| Sound | [CHIRP Audio Trigger](spec-sheets/chirp-audio-trigger-sound.md) | Yes | A stock module needs its speed set to 9600 |
+| | [DY-SV5W](spec-sheets/dy-sv5w-sound.md) | Yes | |
+| | [MP3 Trigger](spec-sheets/mp3-trigger-sound.md) | | Needs its speed set to 9600 and a blank track on the card |
 
-Full Foot Drive (hoverboard) validation on a completely assembled droid is not
-part of any release yet. Foot Drive control and safety logic are implemented
-and tested, but have not yet been confirmed with a hoverboard turning wheels on
-a finished build. This is tracked as follow-up work after `v1.0.0`, not a blocker
-for it.
+You can also drive from a browser with no radio at all. Pick your sound module on
+the droid, with no new firmware. It takes effect at the next start.
 
-## What's Confirmed Working
+### On the roadmap
 
-- **Audio** — sound playback, named sounds, random chatter, boot sounds, and
-  sleep behavior confirmed on real hardware with the CHIRP audio module.
-  The DY-SV5W audio module has also been confirmed on hardware for playback
-  and volume control.
-- **RC control** — transmitter and receiver setup, channel mapping, and
-  RC-triggered actions (sounds, dome moves, etc.) confirmed on real hardware.
-- **Dome** — dome rotation, panel sequences, lights, and body-to-dome
-  communication confirmed on real hardware.
-- **Servos** — arm and other servo movement confirmed on real hardware.
-- **Web control workflows** — setup, live control, backup/restore, and droid
-  identity (custom `.local` name) confirmed in hardware validation. Page loads
-  are reliable, and a controller under memory pressure says it is busy and
-  offers a retry instead of leaving the browser hanging.
-- **WiFi setup from the browser** — pointing the droid at a home network or
-  keeping it on its own hotspot, switched from the WiFi page with a staged
-  reboot, confirmed on the controller. Settings survive reboots and firmware
-  updates.
-- **Firmware and filesystem updates** — updating over WiFi and over USB both
-  confirmed end-to-end.
-- **Safety systems** — emergency stop and RC-signal-loss failsafe confirmed,
-  outside of live Foot Drive behavior (see below).
-- **The command console**: confirmed on both Body Controllers, in the browser
-  and over a serial cable: commands run, refusals name the layer that stopped
-  them, Tab completion and history work, and the console still answers over the
-  cable when the controller is low on memory and the web pages have gone quiet.
-- **Long web sessions** — a three-hour live-update soak and a reconnect storm
-  on the FireBeetle 2, and four and a half hours under web load on the
-  artoo-esp32, without a reboot or a refused page. The artoo-esp32 runs used a
-  build with Bluetooth compiled out of the framework, which is not the release
-  configuration; the release configuration passes the same build, size and
-  test checks but has not had a soak of its own.
+Planned, with no dates and in no set order. None of these work yet.
 
-## FireBeetle 2 ESP32-P4
+| Family | Part | Where it stands |
+|---|---|---|
+| Radio Controller | [RC Receiver - ELRS](spec-sheets/elrs-crsf-radio.md) | Researched |
+| | [Xbox Controller](spec-sheets/xbox-controller-input.md) | How it connects depends on the board: USB dongle, wired or Bluetooth |
+| Body servos | [Pololu Maestro](spec-sheets/pololu-maestro-servo-controller.md) | A 6 to 24 channel servo board, researched |
+| Dome Rotation | [SyRen 10](spec-sheets/sabertooth-syren-packet-serial.md) | In R/C mode it may need no new firmware. Not tried yet |
+| Dome Controller | [Teeces](spec-sheets/teeces-dome-lighting.md) | Researched |
+| Foot Drive | [Sabertooth 2x25](spec-sheets/sabertooth-syren-packet-serial.md) | Discontinued, and its maker now points to the 2x32. Which to support is still open |
+| | [Flipsky Mini V6 VESC](spec-sheets/flipsky-vesc-foot-drive.md) | Researched, and how to connect it is still to be decided |
+| Sound | [DFPlayer Mini](spec-sheets/dfplayer-mini-sound.md) | Researched |
 
-A Body Controller, Supported.
+## What Works
 
-**Confirmed on the board (over USB, no droid attached):**
+### With the real parts connected
 
-- Web control, live status and the dashboard over the board's ESP32-C6 WiFi
-  module, including a three-hour live-update soak and a reconnect storm.
-- Firmware updates over WiFi, end to end.
-- The safety posture: 50 Hz drive frames keep coming, the RC-loss failsafe is
-  armed from boot, a watchdog reset arms the emergency stop, and the task
-  watchdog is fed.
-- A deliberate reset of the WiFi module, typed at the console on the image that
-  ships it, recovers without restarting the controller: the link drops, the
-  controller notices and brings it back on its own at the first attempt, and the
-  board stays up the whole time.
-- `firebeetle2.local` next to an artoo controller's `artoo.local` on one
-  network.
+Most of this was checked at `v1.0.0`. Later releases changed a lot, and not all
+of it has been run again.
 
-**Not yet checked:**
+- **Sound:** playback, named sounds, random chatter, boot sounds and sleep on the
+  CHIRP Audio Trigger. Playback and volume on the DY-SV5W.
+- **Radio:** setup, channel mapping, and sticks and switches firing sounds and
+  dome moves.
+- **Dome:** rotation, panel sequences, lights and the link to the dome.
+- **Servos:** arms and other servos.
+- **Stops:** emergency stop, and the stop when the radio signal drops. Not with
+  Foot Drive running.
 
-- Anything that needs a signal on a pin: RC receiver input, the Foot Drive
-  serial link and protoR2link, servo pulses, I2C and the LED strip. The board
-  has not run a droid.
-- The WiFi module's "degraded" announcement (sound cue, dome text, serial log)
-  has never been seen firing. The controller only gives up after five failures in
-  a row, and a healthy module comes back on the first, so rebooting it on purpose
-  cannot produce the announcement.
-- GPIO 48 to 52 sit on regulator rails that are unmeasured under load; a
-  problem there would look like servo jitter or dome ESC throttle, not a log
-  line (`docs/pin_map.md`, Known Issue).
-- Updating the WiFi module's own firmware: a factory module refuses the
-  wire-free route and the wired procedure is marginal (spec sheet, Known
-  Issues).
-- Moving a droid's saved settings from an artoo-esp32 to a FireBeetle 2.
+### On the controller, with nothing else attached
 
-## What's Not Yet Verified
+- **Web pages:** the pages since `v1.4.0`, gone through by hand on a FireBeetle 2,
+  with automated runs on both boards.
+- **Backups:** saving and restoring a droid's settings.
+- **WiFi setup:** joining a home network or using the droid's own hotspot, from
+  the browser. Settings survive restarts and updates.
+- **Firmware updates:** over WiFi and over USB.
+- **Console:** typing commands on both boards, in the browser and over a cable. It
+  still answers when the web pages have gone quiet.
+- **Long sessions:** hours of constant web use without a restart, at `v1.1.0`,
+  before the pages were rebuilt.
+- **FireBeetle 2 WiFi:** restarting the WiFi module on purpose. It comes back on
+  its own and the droid stays up.
 
-- **Foot Drive (hoverboard) behavior on a complete droid.** Foot Drive control
-  and safety logic exist and have been tested, but live wheel response, Foot
-  Drive failsafe with motors connected, and kill-switch behavior have not yet been
-  confirmed on an assembled droid with a hoverboard installed. This is planned
-  as follow-up work after `v1.0.0` and will be documented when complete.
-- **MP3 Trigger sound module.** Supported; not yet Tested on a droid.
-- **First boot of a downloaded release on a fresh controller.** The
-  boot-into-setup-hotspot flow is covered by automated tests and the release
-  builds ship without any developer WiFi shortcut, but the literal "flash,
-  join the hotspot, open the WiFi page" pass hasn't been run live yet.
-- **Recovery from an interrupted update.** The firmware rejects an upload that
-  delivers no usable image instead of rebooting into it; this guard is tested
-  in software, but the failure itself hasn't been reproduced on hardware.
-- **Reworked RC input decision logic.** Mode changes, watchdog and
-  receiver-failsafe transitions, and zero-frame behavior on signal loss were
-  reworked for this release and are covered by automated tests; a hardware
-  pass, including a signal-loss drill with a live receiver, is still to come.
+## Still to Try
+
+- **Foot Drive** on a finished droid, with a hoverboard turning wheels.
+- **The FireBeetle 2** with parts wired to it.
+- **MP3 Trigger** on a droid.
+- **Newer moves on real parts:** the `v1.4.0` servo pace, light strips and wiring
+  sheet, and losing the radio signal with a live receiver.
+- **A fresh start** from a downloaded release on a new controller, and a real
+  interrupted update.
+- **Moving settings** from an Artoo PCB to a FireBeetle 2.
 
 ## Release History
 
-| Release | Key additions |
+| Release | What it added |
 |---|---|
-| `v0.1.0` | Hoverboard drive, RC receiver input, failsafe |
-| `v0.2.0` | WiFi, web UI, OTA firmware updates |
-| `v0.3.0` | Arm servos, dome motor, RC diagnostics and channel mapping |
-| `v0.4.0` | Audio system, two-way link to the dome (now protoR2link), web UI improvements |
-| `v1.0.0` | First stable release: reliable page loads on a rebuilt web server, WiFi setup from the browser with a recovery mode, ready-to-flash release downloads per audio module, four log levels, and per-component enable toggles. Full Foot Drive validation follows as a separate, documented pass. |
-| `v1.1.0` | The DFRobot FireBeetle 2 ESP32-P4 joins as a Body Controller, with WiFi through its ESP32-C6 module and a release image of its own; component switches named for what they control; memory sized per chip; build-size budgets on every pull request; a soak harness. artoo-esp32 behaviour unchanged. |
-| `v1.2.0` | A command console: type anything the controller can do, in the dashboard or over a serial cable, in the same words either way and through the same safety layers. Answers come back one field per line with a plain word for what happened. Tab completion and history built from the droid's own command list. The console keeps answering over the cable when the web pages have gone quiet. A console tool for your computer replays written sheets of commands and keeps the transcript. |
-| `v1.2.1`, `v1.2.2` | Fixes, no images. `help` no longer drops a long description: it shortens it and says so with a `_truncated` field. |
-| `v1.3.0` | A merge to `main` publishes a release on its own: a fix ships as a patch release, a feature as a full release with images. |
-| `v1.3.1` to `v1.3.4` | Fixes, no images: DY-SV5W driver comments, the dome ESC pin per board, and release tooling. |
-
-For detailed per-change history, see `CHANGELOG.md`.
+| `v0.1.0` | Foot Drive, radio control, stopping on signal loss |
+| `v0.2.0` | WiFi, web pages, firmware updates over WiFi |
+| `v0.3.0` | Arm servos, dome motor, radio channel setup |
+| `v0.4.0` | Sound, the two-way link to the dome |
+| `v1.0.0` | First stable release: reliable pages, WiFi setup from the browser, ready-to-flash downloads |
+| `v1.1.0` | The FireBeetle 2 joins as a Body Controller |
+| `v1.2.0` | The Console: type anything the droid can do, in the browser or over a cable |
+| `v1.4.0` | The modular release: the project becomes protoR2, with rebuilt pages, Sequences on a timeline, Wiring, guided Setup and a lineup of parts to pick from |
+| `v1.5.0` | The RC page says why the droid won't save, and shows what the droid reads as pressed |
