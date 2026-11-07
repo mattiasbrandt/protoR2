@@ -20,6 +20,8 @@
 #include "Preferences.h"
 #include "config_cache.h"
 #include "config_store.h"
+#include "drive_motion_test_hooks.h"  // g_test_millis
+#include "marcduino_test_hooks.h"     // the dome link stub: connected, tx calls, last tx
 #include "robot_state.h"
 #include "seq_store_index.h"
 #include "sequence_dispatcher.h"
@@ -27,11 +29,6 @@
 #include "sequence_run_evidence.h"
 #include "sequence_run_takeover.h"
 
-extern unsigned long g_test_millis;
-extern bool g_test_dome_connected;
-extern bool g_test_dome_tx_ok;
-extern unsigned g_test_dome_tx_calls;
-extern char g_test_dome_last_tx[64];
 
 static uint32_t now = 1000;
 
