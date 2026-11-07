@@ -320,6 +320,18 @@ void test_estop_and_sleep_together_record_the_estop() {
 // stays ended, and neither its suppression window nor its name is left behind
 // for a run that never started. The host's store commit always fails, which
 // is exactly that case.
+// The same load failing leaves a staged ring close running: what a later run
+// ends beyond the sequence goes only once it has started.
+void test_a_later_run_with_no_memory_leaves_a_staged_ring_close_running() {
+    SeqIndexEntry learned = {};
+    snprintf(learned.name, sizeof(learned.name), "%s", "DM:MINE");
+    learned.valid = true;
+    TEST_ASSERT_TRUE(seqStoreIndexAdd(learned));
+    startRingClose();
+    tick(10, "DM:MINE");
+    TEST_ASSERT_TRUE(running() & RUN_TAKEOVER_RING_CLOSE);
+}
+
 void test_a_later_run_with_no_memory_leaves_nothing_running_and_no_suppression() {
     SeqIndexEntry learned = {};
     snprintf(learned.name, sizeof(learned.name), "%s", "DM:MINE");
@@ -471,6 +483,44 @@ void test_a_halt_drops_the_closes_of_a_run_already_ended_by_a_stop() {
     TEST_ASSERT_EQUAL_UINT(before, ringClosesSent);
 }
 
+// The halt lands on the very tick one of the stopped run's closes falls due:
+// it is dropped with the rest, not sent first.
+void test_a_close_due_on_the_tick_a_halt_lands_is_dropped_not_sent() {
+    startARunThatOpensTheRing();
+    sequenceStopRequest();
+    tickCountingCloses();
+    const unsigned before = ringClosesSent;
+    robotState.estop = true;
+    tickCountingCloses(600);  // past the first close's 500 ms
+    for (int i = 0; i < 300; ++i) tickCountingCloses();
+    TEST_ASSERT_EQUAL_UINT(before, ringClosesSent);
+}
+
+// A close the dome queue turned away is held for a retry; a halt drops it too.
+void test_a_close_held_on_a_full_dome_queue_is_dropped_by_a_halt() {
+    startARunThatOpensTheRing();
+    sequenceStopRequest();
+    tickCountingCloses();
+    g_test_dome_tx_ok = false;
+    for (int i = 0; i < 60; ++i) tickCountingCloses();  // the first close falls due and is held
+    const unsigned before = ringClosesSent;
+    g_test_dome_tx_ok = true;
+    robotState.estop = true;
+    for (int i = 0; i < 300; ++i) tickCountingCloses();
+    TEST_ASSERT_EQUAL_UINT(before, ringClosesSent);
+}
+
+// A dome reconnect stages its own close of every ring panel, so the ended
+// run's closes are dropped: one close sequence, seven closes in all.
+void test_a_dome_reconnect_runs_one_close_sequence_not_two() {
+    startARunThatOpensTheRing();
+    g_test_dome_connected = false;
+    tickCountingCloses();
+    g_test_dome_connected = true;
+    for (int i = 0; i < 600; ++i) tickCountingCloses();
+    TEST_ASSERT_EQUAL_UINT(kRingPanels, ringClosesSent);
+}
+
 // -----------------------------------------------------------------------------
 // Waking
 // -----------------------------------------------------------------------------
@@ -536,6 +586,7 @@ int main(int, char**) {
     RUN_TEST(test_sleep_mode_ends_a_running_sequence_as_aborted_for_sleep_mode);
     RUN_TEST(test_estop_and_sleep_together_record_the_estop);
     RUN_TEST(test_a_later_run_with_no_memory_leaves_nothing_running_and_no_suppression);
+    RUN_TEST(test_a_later_run_with_no_memory_leaves_a_staged_ring_close_running);
     RUN_TEST(test_a_run_asked_for_under_either_halt_is_refused_and_nothing_starts);
     RUN_TEST(test_the_refusal_says_why_in_words_for_a_run);
     RUN_TEST(test_only_a_body_owned_run_is_refused_now);
@@ -547,6 +598,9 @@ int main(int, char**) {
     RUN_TEST(test_an_estop_drops_the_ended_runs_ring_closes_and_its_clear_closes_the_ring);
     RUN_TEST(test_sleep_mode_drops_the_ended_runs_ring_closes_and_waking_closes_the_ring);
     RUN_TEST(test_a_halt_drops_the_closes_of_a_run_already_ended_by_a_stop);
+    RUN_TEST(test_a_close_due_on_the_tick_a_halt_lands_is_dropped_not_sent);
+    RUN_TEST(test_a_close_held_on_a_full_dome_queue_is_dropped_by_a_halt);
+    RUN_TEST(test_a_dome_reconnect_runs_one_close_sequence_not_two);
     RUN_TEST(test_waking_after_sleep_mode_ended_a_run_closes_the_ring_and_resets_the_visuals);
     RUN_TEST(test_a_nap_with_no_run_moves_nothing_on_waking);
     RUN_TEST(test_a_second_nap_after_the_close_moves_nothing);

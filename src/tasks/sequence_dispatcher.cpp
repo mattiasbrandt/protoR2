@@ -1395,13 +1395,25 @@ static struct {
 // the Coordinator is doing ends.
 // -----------------------------------------------------------------------------
 
+static __attribute__((noinline)) void logRunClosesDropped(uint8_t dropped, const char* why) {
+    if (dropped != 0) {
+        PA_LOG_INFO(TAG, "%u ring close(s) of the ended run dropped (%s)", (unsigned)dropped, why);
+    }
+}
+
 // The one way a running sequence ends short of its own end step: the engine
 // aborts, its cleanup is drained best-effort (dome and audio resets, never a
 // body move), the run is recorded with the row's outcome and reason, a Learned
 // run's buffers are freed, and the suppression window and the run's name go.
+// A row that drops the run's staggered ring closes drops them BEFORE the
+// drain, so not one of them goes out on this tick either: an engine already
+// finishing may have one due now.
 static void endSequence(const RunTakeoverRow& row, uint32_t now) {
     PA_LOG_INFO(TAG, "abort %s (%s)", activeName, row.why);
     seqEngineAbort(engine);
+    if (row.dropsRunCloses) {
+        logRunClosesDropped(seqEngineDropStaggeredCloses(engine), row.why);
+    }
     drainBestEffort(engine, now);
     seqEvidenceEnd(row.outcome, row.why, now, bodyQueueFullCount());
     seqStoreReleaseRun();
@@ -1409,44 +1421,40 @@ static void endSequence(const RunTakeoverRow& row, uint32_t now) {
     activeName[0] = '\0';
 }
 
-static __attribute__((noinline)) void logRunClosesDropped(uint8_t dropped, const char* why) {
-    if (dropped != 0) {
-        PA_LOG_INFO(TAG, "%u ring close(s) of the ended run dropped (%s)", (unsigned)dropped, why);
-    }
-}
-
 // What `event` ends, from its row, in one fixed order: the sequence first,
 // so nothing its cleanup drain hands over outlives it; then the Gestures,
 // flutters and takes, the pose, the sweep, a staged ring close; and last the
 // ring close the row stages. Nothing is commanded on the way out (ADR 0043)
 // but the sequence's own cleanup and the staged close.
-static void runTakeover(RunTakeoverEvent event, uint32_t now) {
+//
+// `only` narrows the row to some of its runs. A later run and a pose press
+// end the sequence and what it fired when they are taken, so a Learned run's
+// buffers are free for the load; what else their row ends goes only once the
+// new one has started, so a load that fails leaves a sweep, a pose or a staged
+// ring close running rather than nothing.
+static void runTakeover(RunTakeoverEvent event, uint32_t now, uint8_t only = RUN_TAKEOVER_ALL) {
     const RunTakeoverRow& row = runTakeoverRow(event);
-    if ((row.ends & RUN_TAKEOVER_SEQUENCE) != 0 && seqEngineActive(engine)) {
+    const uint8_t ends = row.ends & only;
+    if ((ends & RUN_TAKEOVER_SEQUENCE) != 0 && seqEngineActive(engine)) {
         endSequence(row, now);
     }
-    // A halt drops the ring closes the ended run's cleanup still has to send:
-    // nothing closes under the halt, and its end stages one paced close.
-    if (row.dropsRunCloses && seqEngineActive(engine)) {
-        logRunClosesDropped(seqEngineDropStaggeredCloses(engine), row.why);
-    }
-    if ((row.ends & RUN_TAKEOVER_GENERATED) != 0) {
+    if ((ends & RUN_TAKEOVER_GENERATED) != 0) {
         generatedEnd(row.why);
     }
-    if ((row.ends & RUN_TAKEOVER_POSE) != 0 && poseRun.active) {
+    if ((ends & RUN_TAKEOVER_POSE) != 0 && poseRun.active) {
         PA_LOG_INFO(TAG, "pose ended (%s) after %u sent, %u skipped", row.why, (unsigned)poseRun.sent,
                     (unsigned)poseRun.skipped);
         sequencePoseEnd(&poseRun);
     }
-    if ((row.ends & RUN_TAKEOVER_CENTRE) != 0 && centreRun.active) {
+    if ((ends & RUN_TAKEOVER_CENTRE) != 0 && centreRun.active) {
         PA_LOG_INFO(TAG, "%s ended (%s) after %u centred, %u skipped", bulkCentreName(centreRun), row.why,
                     (unsigned)centreRun.centred, (unsigned)centreRun.skipped);
         sequenceBulkCentreEnd(&centreRun);
     }
-    if ((row.ends & RUN_TAKEOVER_RING_CLOSE) != 0) {
+    if ((ends & RUN_TAKEOVER_RING_CLOSE) != 0) {
         resyncCloseIdx = SEQ_RESYNC_CLOSE_NONE;
     }
-    if (row.stagesRingClose) {
+    if (row.stagesRingClose && only == RUN_TAKEOVER_ALL) {
         // An individual ring-only close, drained by the tick, never a group
         // :CL15/:CL00: a group close drives every ring servo at once and
         // browns out the dome from a loaded ring (issue #2 hardware finding).
@@ -1579,8 +1587,10 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
         }
         if (staged) {
             // The pose being reached is replaced, not ended: sequencePoseStart()
-            // keeps its spacing.
-            runTakeover(RUN_TAKEOVER_POSE_PRESS, now);
+            // keeps its spacing. A staged ring close ends only once the pose
+            // has started (below).
+            runTakeover(RUN_TAKEOVER_POSE_PRESS, now,
+                        RUN_TAKEOVER_SEQUENCE | RUN_TAKEOVER_CENTRE | RUN_TAKEOVER_GENERATED);
             const SequenceEntry* entry = catalogEntry;
             if (isRuntime) {
                 if (seqStoreCommit(runtimeEntry)) {
@@ -1600,8 +1610,10 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
                 if (isRuntime) {
                     seqStoreReleaseRun();  // the plan holds its own copies
                 }
-                sequencePoseStart(&poseRun, now, intakeEstop, intakeSleep, posePlan.count,
-                                  (uint8_t)poseAsk.src, &resyncCloseIdx);
+                if (sequencePoseStart(&poseRun, now, intakeEstop, intakeSleep, posePlan.count,
+                                      (uint8_t)poseAsk.src, &resyncCloseIdx)) {
+                    runTakeover(RUN_TAKEOVER_POSE_PRESS, now, RUN_TAKEOVER_RING_CLOSE);
+                }
                 PA_LOG_INFO(TAG, "[%s] pose %s at %u ms - %u commands, motions at least %u ms apart",
                             commandSourceToString(poseAsk.src), poseAsk.name, (unsigned)poseAsk.atMs,
                             (unsigned)posePlan.count, (unsigned)configCacheCadenceFloorMs());
@@ -1640,10 +1652,11 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
         }
         if (willStart) {
             // A later run is the later word over everything the Coordinator
-            // is doing, ended before the commit below so a Learned run's
-            // buffers are free for it. A commit that then fails starts
-            // nothing, and what was running stays ended.
-            runTakeover(RUN_TAKEOVER_LATER_RUN, now);
+            // is doing. The sequence and what it fired end before the commit
+            // below, so a Learned run's buffers are free for it; a commit that
+            // then fails starts nothing, and the sequence stays ended. The
+            // sweep, a pose and a staged ring close end once the run starts.
+            runTakeover(RUN_TAKEOVER_LATER_RUN, now, RUN_TAKEOVER_SEQUENCE | RUN_TAKEOVER_GENERATED);
             const SequenceEntry* entry = catalogEntry;
             if (isRuntime) {
                 // Commit copies the staged sequence into freshly allocated,
@@ -1661,6 +1674,8 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
                 seqEngineStart(engine, entry, now);
                 takesBegin(now, engine);
                 seqEvidenceBegin(req.name, (uint8_t)req.src, now, bodyQueueFullCount());
+                runTakeover(RUN_TAKEOVER_LATER_RUN, now,
+                            RUN_TAKEOVER_CENTRE | RUN_TAKEOVER_POSE | RUN_TAKEOVER_RING_CLOSE);
                 strncpy(activeName, req.name, sizeof(activeName) - 1);
                 activeName[sizeof(activeName) - 1] = '\0';
                 retryLogged = false;
@@ -1669,14 +1684,15 @@ uint32_t sequenceDispatcherTick(const SequenceRequest* request, uint32_t now) {
                             commandSourceToString(req.src),
                             entry->name, (unsigned)entry->suppressMs);
             }
-        } else if (!isRuntime) {
+        } else if (!isRuntime && catalogEntry == nullptr) {
             PA_LOG_WARN(TAG, "request not in catalog: %s", req.name);
         }
     }
 
     // SAFETY INVARIANT: Abort on estop; resync the dome to a known safe state on estop-clear.
-    // Estop abort is latching: once it fires, it drains all pending actions and
-    // prevents new sequences from starting until estop is released and resync completes.
+    // While the estop is latched every tick ends what is running, and the intake
+    // above refuses a new run; once it clears, a run may start before the staged
+    // ring close is done, and ends it (the later run's row).
     bool estopActive = false;
     bool sleepActive = false;
     taskENTER_CRITICAL(&robotStateMux);

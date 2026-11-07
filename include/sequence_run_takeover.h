@@ -32,7 +32,8 @@
 // instant resets. On an estop or Sleep Mode those staggered closes are dropped
 // (`dropsRunCloses`), so nothing closes during the halt. The estop clear, or
 // waking after Sleep Mode ended the run, stages one paced close of every ring
-// panel instead: one close sequence, never two side by side.
+// panel instead: one close sequence, never two side by side. A dome
+// reconnect drops them for the same reason: it stages its own close.
 //
 // Pure: no FreeRTOS, no Arduino, no clock.
 // =============================================================================
@@ -72,7 +73,7 @@ struct RunTakeoverRow {
     RunTakeoverEvent event;
     uint8_t ends;          // RunTakeoverRun bits
     bool stagesRingClose;  // and the dome's visual reset and the latches
-    bool dropsRunCloses;   // an ended run's staggered ring closes still to come
+    bool dropsRunCloses;   // an ended run's staggered ring closes not yet sent
     // How a sequence this ends is recorded (GET /api/seq/last-run), and the
     // reason, which is also the word the Coordinator's log lines use.
     SeqRunOutcome outcome;
@@ -95,7 +96,7 @@ constexpr RunTakeoverRow kRunTakeover[RUN_TAKEOVER_EVENT_COUNT] = {
     {RUN_TAKEOVER_SLEEP_MODE,
      RUN_TAKEOVER_SEQUENCE | RUN_TAKEOVER_CENTRE | RUN_TAKEOVER_POSE | RUN_TAKEOVER_GENERATED, false, true,
      SEQ_RUN_ABORTED, "sleep mode"},
-    {RUN_TAKEOVER_DOME_RECONNECT, RUN_TAKEOVER_SEQUENCE | RUN_TAKEOVER_POSE | RUN_TAKEOVER_GENERATED, true, false,
+    {RUN_TAKEOVER_DOME_RECONNECT, RUN_TAKEOVER_SEQUENCE | RUN_TAKEOVER_POSE | RUN_TAKEOVER_GENERATED, true, true,
      SEQ_RUN_RECONNECT, "dome reconnect"},
     {RUN_TAKEOVER_ESTOP_CLEAR, RUN_TAKEOVER_POSE, true, false, SEQ_RUN_NONE, "estop clear"},
     {RUN_TAKEOVER_WAKING, RUN_TAKEOVER_POSE, true, false, SEQ_RUN_NONE, "waking"},

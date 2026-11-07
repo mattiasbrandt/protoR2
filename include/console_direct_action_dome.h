@@ -248,10 +248,9 @@ static void consoleExecuteDomeSendCommand(uint32_t requestId, const char* operat
 // 127-char REST guard: a value between those two bounds would pass the REST
 // endpoint but be silently truncated by domeQueueTx() on the SEQ_FALLBACK/
 // SEQ_ALIAS path (src/tasks/dome_link.cpp) - explicit out-of-range here
-// instead of a silently truncated forward. handleDomeCmdPost() itself applies
-// no estop/sleep gate before this call, and neither does this executor - "no
-// widening" cuts both ways, so a guard REST does not have is not added here
-// either.
+// instead of a silently truncated forward. A body-owned run is refused under
+// either halt here as handleDomeCmdPost() refuses it (sequenceRunRefusalNow(),
+// #502); a name the dome runs itself is forwarded as before.
 static constexpr size_t kDomeTxCmdMax = 64;  // DomeTxCmd::buf[64], include/dome_link.h
 
 static void consoleExecuteDomeSequence(uint32_t requestId, const char* operationName,
