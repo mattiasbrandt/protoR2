@@ -369,6 +369,27 @@ static void finishIdle(SeqEngineState& st) {
     st.pendingComputed = false;
 }
 
+// Only addRingClose() queues a terminal action with a delay, and it queues
+// them last, so the closes still to come are the queue's tail from the first
+// of them not yet sent - due or not, and one held on a full queue included.
+// The queue is cut there; what comes before it is left for the drain.
+uint8_t seqEngineDropStaggeredCloses(SeqEngineState& st) {
+    if (st.entry == nullptr || !st.finishing) {
+        return 0;
+    }
+    uint8_t cut = st.finalCursor;
+    while (cut < st.finalCount &&
+           !(st.finalDueRel[cut] != 0 && st.finalQ[cut].kind == SEQ_ACT_DOME_CMD)) {
+        cut++;
+    }
+    const uint8_t dropped = (uint8_t)(st.finalCount - cut);
+    st.finalCount = cut;
+    if (st.finalCursor >= st.finalCount) {
+        finishIdle(st);
+    }
+    return dropped;
+}
+
 // Absolute fire time of the step under the cursor. Steps inside a STEP_LOOP
 // body are scheduled relative to the current iteration start.
 static uint32_t stepFireAt(const SeqEngineState& st, const SeqStep& step) {

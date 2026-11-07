@@ -62,6 +62,14 @@ void sequenceDispatcherTask(void* pvParameters);
 // (queue full) or if the name is empty.
 bool sequenceStart(const char* name, CommandSource src);
 
+// Why a run of `name` would be refused now, in the words the surface shows
+// (sequenceRunRefusal(), include/sequence_run_takeover.h), or nullptr when it
+// would not. Only a body-owned sequence is refused: an alias or a name the
+// dome runs itself goes to the dome as before. A caller that answers a press
+// asks this before sequenceStart(), whose false means a full queue; the
+// Coordinator asks the same rule again when the request reaches it (#502).
+const char* sequenceRunRefusalNow(const char* name);
+
 // Send the droid to one instant of a Learned or Factory sequence (#440). Hands
 // the request to the Coordinator (robotState.poseRequest), which works out the
 // pose from the stored steps and paces it; the estop and Sleep Mode refuse it

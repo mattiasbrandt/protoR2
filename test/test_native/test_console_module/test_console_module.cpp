@@ -1814,6 +1814,31 @@ void test_dome_seq_named_row_queues_through_the_dispatcher() {
     TEST_ASSERT_EQUAL(CONSOLE_OUTCOME_QUEUED, g_cap.outcome);
 }
 
+// Every row that starts a run is refused under either halt (#502):
+// blocked-by-state, the answer the pose row gives, and nothing is queued.
+// A name the dome runs itself goes on to the dome as before.
+void test_run_rows_are_blocked_by_state_under_either_halt() {
+    static const char* const runs[] = {
+        "dome.action.dome-sequence value=DM:VADER",
+        "dome.action.test-sequence name=DM:VADER",
+        "dome.seq.vader",
+    };
+    for (int halt = 0; halt < 2; ++halt) {
+        for (const char* line : runs) {
+            robotState.estop = halt == 0;
+            robotState.sleepMode = halt == 1;
+            runQuery(line);
+            TEST_ASSERT_EQUAL_MESSAGE(CONSOLE_STATUS_ERR, g_cap.status, line);
+            TEST_ASSERT_EQUAL_MESSAGE(CONSOLE_OUTCOME_BLOCKED, g_cap.outcome, line);
+            TEST_ASSERT_EQUAL_MESSAGE(CONSOLE_REASON_BLOCKED_BY_STATE, g_cap.reason, line);
+        }
+    }
+    robotState.estop = true;
+    runQuery("dome.action.dome-sequence value=DM:WAVE");
+    TEST_ASSERT_EQUAL(CONSOLE_STATUS_OK, g_cap.status);
+    robotState.estop = false;
+}
+
 // The operation name is the whole command, so a supplied key is unknown -
 // the same answer every other no-argument action gives, with the key named.
 void test_dome_seq_named_row_rejects_any_argument() {
@@ -5707,6 +5732,7 @@ int main(int, char**) {
     RUN_TEST(test_action_dome_sequence_catalog_name_queues_through_the_dispatcher);
     RUN_TEST(test_dome_seq_named_row_queues_through_the_dispatcher);
     RUN_TEST(test_dome_seq_named_row_rejects_any_argument);
+    RUN_TEST(test_run_rows_are_blocked_by_state_under_either_halt);
     RUN_TEST(test_catalog_sequence_lookup_answers_only_for_literal_dm_rows);
     RUN_TEST(test_every_named_sequence_row_dispatches);
     RUN_TEST(test_sound_refresh_catalog_queues_through_the_audio_queue);

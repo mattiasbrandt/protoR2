@@ -30,6 +30,7 @@
 // =============================================================================
 
 #include "dome_link.h"
+#include "dome_tx_halt.h"  // domeTxHeldByHalt() - no Coordinator panel move under a halt (#502)
 
 #include <Arduino.h>
 #include <ESPmDNS.h>
@@ -543,7 +544,11 @@ bool domeUartOwnedBy(DomeUartOwner owner) {
 // domeQueueTx()
 // Non-blocking enqueue. Increments queueOverflowCount on full queue.
 // -----------------------------------------------------------------------------
-bool domeQueueTx(const char* cmd) {
+// Always inlined into its two callers, so neither has a frame more than
+// domeQueueTx() had: it sits on RCInputTask's and ReactionTask's measured
+// chains, under sequenceStart() (ADR 0040).
+static inline __attribute__((always_inline)) bool domeQueueTxAs(const char* cmd,
+                                                                DomeTxOrigin origin) {
     if (!cmd || !*cmd) {
         return false;
     }
@@ -551,11 +556,20 @@ bool domeQueueTx(const char* cmd) {
     DomeTxCmd msg{};
     strncpy(msg.buf, cmd, sizeof(msg.buf) - 1);
     msg.buf[sizeof(msg.buf) - 1] = '\0';
+    msg.origin = origin;
     if (xQueueSend(domeTxQueue, &msg, 0) != pdTRUE) {
         logQueueDrop(QUEUE_DOME_TX, "TX command");
         return false;
     }
     return true;
+}
+
+bool domeQueueTx(const char* cmd) {
+    return domeQueueTxAs(cmd, DOME_TX_OTHER);
+}
+
+bool domeQueueTxFromCoordinator(const char* cmd) {
+    return domeQueueTxAs(cmd, DOME_TX_COORDINATOR);
 }
 
 bool domeConnected() {
@@ -782,6 +796,29 @@ static bool __attribute__((noinline)) domeLinkEnabledAtStart() {
     return cfg.system.enable_protor2link;
 }
 
+// The command the drain below has just taken off domeTxQueue. Static, off
+// this task's measured stack (ADR 0040): only DomeLinkTask touches it.
+static DomeTxCmd s_txCmd;
+
+// Whether `cmd` is a Sequence Coordinator panel command the halts, read as
+// they are now, hold back (domeTxHeldByHalt(), include/dome_tx_halt.h), and
+// says so. Out of line, so neither the halt read nor its log line sits on this
+// task's root frame.
+static __attribute__((noinline)) bool txHeldByHaltNow(const DomeTxCmd& cmd) {
+    if (cmd.origin != DOME_TX_COORDINATOR) {
+        return false;
+    }
+    taskENTER_CRITICAL(&robotStateMux);
+    const bool estop = robotState.estop;
+    const bool sleep = robotState.sleepMode;
+    taskEXIT_CRITICAL(&robotStateMux);
+    if (!domeTxHeldByHalt(cmd.origin, cmd.buf, estop, sleep)) {
+        return false;
+    }
+    PA_LOG_INFO(TAG, "TX held back (%s): %s", estop ? "estop" : "sleep mode", cmd.buf);
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // domeLinkTask()
 // -----------------------------------------------------------------------------
@@ -812,8 +849,6 @@ void domeLinkTask(void* pvParameters) {
     bool peerKnown  = false;
     bool peerManual = false;
     bool udpReady   = false;
-
-    DomeTxCmd txCmd{};
 
     for (;;) {
         const uint32_t now = millis();
@@ -928,8 +963,14 @@ void domeLinkTask(void* pvParameters) {
             }
         }
 
-        // Queue drain.
+        // Queue drain. A Sequence Coordinator panel command is dropped while
+        // either halt holds, read as it is now, so one it queued just before
+        // the halt landed does not move a panel after it (#502).
+        DomeTxCmd& txCmd = s_txCmd;
         while (xQueueReceive(domeTxQueue, &txCmd, 0) == pdTRUE) {
+            if (txHeldByHaltNow(txCmd)) {
+                continue;
+            }
             if (act.txRoute == DOME_LINK_TRANSPORT_UART && s_uartOwned) {
                 s_domeSerial.print(txCmd.buf);
                 s_domeSerial.print('\r');

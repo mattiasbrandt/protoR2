@@ -80,6 +80,7 @@ bool g_test_dome_connected = true;
 bool g_test_dome_tx_ok = true;
 unsigned g_test_dome_tx_calls = 0;
 char g_test_dome_last_tx[64] = {};
+uint8_t g_test_dome_last_tx_origin = 0;
 MarcduinoBodyOutcome g_test_marcduino_body_outcome = MarcduinoBodyOutcome::Applied;
 char g_test_marcduino_last_line[32] = {};
 
@@ -93,13 +94,23 @@ bool domeConnected() { return g_test_dome_connected; }
 // sibling audio command queue stubs, #258 - it used to be this unconditional
 // no-op, which left g_test_audio_dollar_calls/g_test_audio_last_dollar
 // declared but never written by anything.
-bool domeQueueTx(const char* cmd) {
+#include "dome_tx_halt.h"
+static bool domeQueueTxAs(const char* cmd, uint8_t origin) {
     if (!g_test_dome_tx_ok) {
         return false;
     }
     g_test_dome_tx_calls++;
     snprintf(g_test_dome_last_tx, sizeof(g_test_dome_last_tx), "%s", cmd != nullptr ? cmd : "");
+    g_test_dome_last_tx_origin = origin;
     return true;
+}
+
+bool domeQueueTx(const char* cmd) {
+    return domeQueueTxAs(cmd, DOME_TX_OTHER);
+}
+
+bool domeQueueTxFromCoordinator(const char* cmd) {
+    return domeQueueTxAs(cmd, DOME_TX_COORDINATOR);
 }
 
 #include "audio_task.h"
@@ -847,7 +858,12 @@ std::string g_test_seq_file_body;
 void seqStoreInit() {
 }
 
+bool g_test_seq_prepare_latches_estop = false;
+
 ProtocolCheckResult seqStorePrepare(const char* /*name*/) {
+    if (g_test_seq_prepare_latches_estop) {
+        robotState.estop = true;
+    }
     return pcOk();
 }
 

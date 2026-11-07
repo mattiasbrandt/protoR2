@@ -604,3 +604,13 @@ int seqEngineRingPanelNumber(uint8_t i);
 // dispatcher classify a peeked action as cleanup (vs normal choreography) for
 // run-evidence capture. False when idle or running normal steps.
 bool seqEngineFinishing(const SeqEngineState& st);
+
+// While finishing, drop the staggered ring closes not yet sent, due or not,
+// and go idle once nothing else is owed (#502). They are the tail of the
+// terminal queue; the instant resets before them are left for the drain. A
+// halt calls this before draining, rather than send a close to the dome under
+// an estop or in Sleep Mode (operator, 2026-11-07): the estop clear, or waking
+// after Sleep Mode ended the run, stages its own paced close of every ring
+// panel. A dome reconnect calls it too, since it stages one as well. Returns
+// how many were dropped.
+uint8_t seqEngineDropStaggeredCloses(SeqEngineState& st);

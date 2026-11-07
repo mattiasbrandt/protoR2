@@ -20,3 +20,7 @@
 // core actually ran.
 extern bool g_test_seq_delete_ok;
 extern unsigned g_test_seq_delete_calls;
+
+// seqStorePrepare()'s stub latches the estop while it "loads" when this is
+// true: a halt that lands during a Learned run's load (#502).
+extern bool g_test_seq_prepare_latches_estop;

@@ -21,6 +21,9 @@ extern bool g_test_dome_connected;
 extern bool g_test_dome_tx_ok;
 extern unsigned g_test_dome_tx_calls;
 extern char g_test_dome_last_tx[64];
+// Who queued that line (DomeTxOrigin, include/dome_tx_halt.h): the Sequence
+// Coordinator's own commands go through domeQueueTxFromCoordinator().
+extern uint8_t g_test_dome_last_tx_origin;
 
 // executeMarcduinoBodyCommand() answers this. Default Applied.
 extern MarcduinoBodyOutcome g_test_marcduino_body_outcome;

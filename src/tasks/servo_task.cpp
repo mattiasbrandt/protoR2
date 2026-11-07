@@ -1280,9 +1280,10 @@ static inline __attribute__((always_inline)) void processCommand(const ServoComm
         PA_LOG_WARN(TAG, "[%s] Command rejected - estop active", commandSourceToString(cmd.source));
         return;
     }
-    // A sequence keeps running through Sleep Mode, but it does not move the body
-    // while the droid is asleep -- the same rule the body routines kept when
-    // ServoTask ran them itself. A move from a person is still accepted.
+    // Sleep Mode ends a running sequence (the Run Takeover, #502), and a move
+    // the Coordinator queued before it ended is still refused here: the droid
+    // does not move the body on a sequence's word while asleep. A move from a
+    // person is still accepted.
     if (sleepMode && cmd.source == SRC_SEQ) {
         PA_LOG_INFO(TAG, "[%s] Sequence move ignored - sleep mode active",
                     commandSourceToString(cmd.source));

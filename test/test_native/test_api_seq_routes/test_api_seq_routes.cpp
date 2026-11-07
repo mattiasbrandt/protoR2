@@ -30,6 +30,7 @@
 #include "robot_state.h"
 #include "sequence_dispatcher.h"
 #include "sequence_pose.h"
+#include "sequence_run_takeover.h"
 #include "web_request_test_backend.h"
 
 // Recorded side effects from src/native_test_stubs.cpp.
@@ -263,6 +264,31 @@ void test_pose_is_refused_under_the_estop_and_in_sleep_mode_and_says_why() {
     TEST_ASSERT_EQUAL_INT(409, asleep.sentCode);
     TEST_ASSERT_TRUE(bodyContains(asleep, sequencePoseRefusal(false, true)));
     TEST_ASSERT_EQUAL_INT(SRC_NONE, robotState.poseRequest);
+    setHalts(false, false);
+}
+
+// A run is refused under either halt the same way, with words for a run
+// (#502). A name the dome runs itself still goes to the dome.
+void test_test_is_refused_under_the_estop_and_in_sleep_mode_and_says_why() {
+    setHalts(true, false);
+    WebRequestTestBackend estop = postBackend("{\"name\":\"DM:ROCKMARCH\"}");
+    WebRequest estopReq(&estop);
+    handleSeqTestPost(estopReq);
+    TEST_ASSERT_EQUAL_INT(409, estop.sentCode);
+    TEST_ASSERT_TRUE(bodyContains(estop, sequenceRunRefusal(true, false)));
+
+    setHalts(false, true);
+    WebRequestTestBackend asleep = postBackend("{\"name\":\"DM:ROCKMARCH\"}");
+    WebRequest asleepReq(&asleep);
+    handleSeqTestPost(asleepReq);
+    TEST_ASSERT_EQUAL_INT(409, asleep.sentCode);
+    TEST_ASSERT_TRUE(bodyContains(asleep, sequenceRunRefusal(false, true)));
+
+    setHalts(true, false);
+    WebRequestTestBackend alias = postBackend("{\"name\":\"DM:WAVE\"}");
+    WebRequest aliasReq(&alias);
+    handleSeqTestPost(aliasReq);
+    TEST_ASSERT_EQUAL_INT(200, alias.sentCode);
     setHalts(false, false);
 }
 
@@ -562,6 +588,7 @@ int main(int, char**) {
     RUN_TEST(test_test_rejects_a_malformed_json_body);
     RUN_TEST(test_pose_accepts_a_factory_sequence_and_an_instant);
     RUN_TEST(test_pose_is_refused_under_the_estop_and_in_sleep_mode_and_says_why);
+    RUN_TEST(test_test_is_refused_under_the_estop_and_in_sleep_mode_and_says_why);
     RUN_TEST(test_pose_refuses_a_name_the_dome_runs_and_a_negative_instant);
     RUN_TEST(test_a_run_or_a_stop_after_a_pose_press_cancels_the_pending_pose);
 

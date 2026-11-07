@@ -62,8 +62,11 @@ struct DomeLayoutCacheStatus {
 // DomeLinkTask appends \r before writing to UART2.
 // 64 bytes comfortably covers all Marcduino command lengths.
 // -----------------------------------------------------------------------------
+// origin says who queued it (DomeTxOrigin, include/dome_tx_halt.h): DomeLinkTask
+// drops a Sequence Coordinator panel command while either halt holds (#502).
 struct DomeTxCmd {
     char buf[64];
+    uint8_t origin;
 };
 
 // The longest line domeQueueTx() carries whole. It copies into buf with
@@ -89,6 +92,12 @@ void domeLinkTask(void* pvParameters);
 // Safe to call from any task with timeout 0.
 // -----------------------------------------------------------------------------
 bool domeQueueTx(const char* cmd);
+
+// domeQueueTx() for the Sequence Coordinator's own commands: the same queue,
+// marked DOME_TX_COORDINATOR, so DomeLinkTask drops a panel command of it that
+// it would send while the estop is latched or the droid is asleep
+// (domeTxHeldByHalt(), include/dome_tx_halt.h, #502).
+bool domeQueueTxFromCoordinator(const char* cmd);
 
 // True when a dome heartbeat has been seen within the timeout window.
 bool domeConnected();

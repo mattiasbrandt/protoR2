@@ -15,8 +15,10 @@ The body **never sends a group close** (`:CL00`/`:CL14`/`:CL15`) and never close
 on its own: a group close moves every servo in the group at once and browns the dome
 out from a loaded ring.
 
-- **End of a run, abort, preempt or estop:** closes only the ring panels the run left
-  open, one at a time, about 500 ms apart. A sequence that closes its own panels
+- **End of a run, abort or preempt:** closes only the ring panels the run left
+  open, one at a time, about 500 ms apart. An estop, Sleep Mode or a dome reconnect
+  drops those closes: nothing closes during the halt, and the estop clear, the waking
+  or the reconnect closes every ring panel in turn instead. A sequence that closes its own panels
   leaves nothing to close. A `:OF` flutter ends closed and marks nothing open.
 - **Lights:** a step tagged with a light effect (every `DV:` preset) gets the reset
   `@0T1`, `@0P1`, `*ST00` at the end.

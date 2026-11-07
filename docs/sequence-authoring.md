@@ -209,9 +209,15 @@ routine ends with every Part it moved closed. How fast any of them moves is the
 Output's Motion Profile, not the routine's. Where the choreography came from is
 in [`sequence-credits.md`](sequence-credits.md).
 
-If estop or Sleep Mode arrives while a sequence is running, the outputs that
-sequence moved snap to their close position -- the promise the body routines kept
-when ServoTask ran them itself -- and any move in progress stops where it is.
+If estop or Sleep Mode arrives while a sequence is running, the sequence ends where
+it is and the droid lets go of every output. Nothing is moved back: a move in
+progress stops where it is, and a part the sequence opened stays where it was. Its
+sound stops and the dome's lights go back to rest. No dome panel is closed during
+the halt. When the estop is cleared, or the droid wakes, it closes each ring panel
+in turn, one at a time.
+
+A sequence asked for during an estop or Sleep Mode does not start, and the page or
+the Console says why.
 
 ## A Background Track
 
