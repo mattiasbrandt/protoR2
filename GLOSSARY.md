@@ -617,6 +617,10 @@ _Avoid_: a Record field treated as a Setting, a Record checked or merged by hand
 A pure module behind a write path: it reads parameters through a Param Source (a function-pointer name lookup), validates and applies them onto a working snapshot, and returns field-level errors, an applied-fields record, and plain-data actions. A refusal carries its **field, reason and accepts as data** beside its sentence, and every adapter answers from the data: no adapter, and no page, reads the sentence to find which field failed or what it would take (#425). Its side effects live in one Commit Step shared by every adapter; the HTTP handler and the Controller Console are transport adapters over the pair and own only their own response rendering (ADR 0011, amended by ADR 0036). The write-path counterpart of the pure GET JSON builders; cores: `api_config_apply`, `api_rc_map_apply`, `api_audio_apply`.
 _Avoid_: handler helper, inline lambda validation, validation util, handler-owned side effects, an adapter parsing a refusal's sentence
 
+**Dispatch Core**:
+The transport-free module behind an action **Operation**: it applies every guard the action has, sends the command, and returns an outcome that each adapter words for itself. One per subject, kept beside what it guards, never a single central action module.
+_Avoid_: handler guard, per-adapter gate, reproduced check, global action function
+
 **Commit Step**:
 The transport-free side-effect sequence that completes an Apply Core's operation - runtime-state synchronization, Commanded Mode setters, persistence where required, the canonical log and result effects - kept beside its Apply Core (one per core, never a global commit function), run inside that operation's **Write Window** so two adapters cannot interleave a write, and called identically by the HTTP handler and the Controller Console, so that no adapter carries its own copy of the effects or of the lock (ADR 0036; ADR 0011 amended 2026-09-04). It answers with a plain outcome and refreshes the caller's Working Snapshot rather than returning a second one.
 _Avoid_: post-apply block, handler tail, per-adapter persistence, global commit function, adapter-held lock, snapshot-returning outcome
@@ -1005,7 +1009,7 @@ _Avoid_: web control, network authentication, console unlock, blanket gate, a fa
 
 - The **Controller Console** has exactly two **Console Adapters**; every **Operation** behaves identically through both, on every board.
 - **Serial Backpressure** is a property of the serial **Console Adapter**'s transport, never of the **Controller Console**: it changes what reaches the wire, never what an **Operation** does, and it is reported in the **Log Ring**, not refused at the adapter (grilling 2026-09-05).
-- An **Operation** of type config is an **Apply Core** plus its **Commit Step**; of type status, a **Zone Snapshot** rendered as **Console Records**; of type action, the existing dispatch core returning an outcome instead of nothing.
+- An **Operation** of type config is an **Apply Core** plus its **Commit Step**; of type status, a **Zone Snapshot** rendered as **Console Records**; of type action, a **Dispatch Core** returning an outcome instead of nothing.
 - Every **Console Record** carries one **Request ID**; a write that entered through a **Console Adapter** carries its **Console Source** as its Command Source.
 - A **Console Client** drives exactly one **Console Adapter** per session and adds no behaviour to the **Controller Console**; a scripted client may address either adapter, which is what makes a parity transcript a one-program job.
 - A **Bench Runbook** row is replayed by a **Console Client** script that carries commands only; what the row expects stays on the epic's **Closing Ticket**, and each replay still leaves one dated evidence comment there.

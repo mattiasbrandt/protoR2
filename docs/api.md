@@ -466,9 +466,9 @@ Queues dome speed command.
 - Success: `200` `{"ok":true}`
 - Errors:
 - `400` `{"ok":false,"error":"missing speed"}`
-- `423` `{"ok":false,"error":"sleeping","hint":"POST /api/wake"}`
 - `400` `{"ok":false,"error":"speed must be a float in range -1.0..1.0"}`
-- `409` `{"ok":false,"error":"dome output is disabled"}`
+- `423` `{"ok":false,"error":"sleeping","hint":"POST /api/wake"}`
+- `409` `{"ok":false,"error":"dome output is disabled"}` -- the Dome ESC is off for this boot. A switch saved since takes effect at the restart, in both directions
 - `503` `{"ok":false,"error":"dome command queue full"}`
 
 #### Example request
