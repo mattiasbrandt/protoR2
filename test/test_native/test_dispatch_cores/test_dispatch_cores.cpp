@@ -17,12 +17,9 @@
 #include "config_cache.h"
 #include "drive_arbiter.h"
 #include "drive_arbiter_test_hooks.h"  // driveArbiterReset()
+#include "drive_motion_test_hooks.h"   // g_test_millis
 #include "robot_state.h"
 #include "config_write_window_test_hooks.h"  // ConfigWriteWindowForTest
-
-extern unsigned long g_test_millis;
-extern uint8_t g_test_audio_capabilities;
-extern unsigned g_test_audio_play_banked_calls;
 
 namespace {
 
