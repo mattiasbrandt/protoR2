@@ -660,10 +660,14 @@
     // so the pins beside a card never read as a link of the product's own.
     if (lane) return [lane.label, laneDetail(lane), lane.shared ? LANE_SHARED : ""].filter(Boolean);
     if (!product.outputs) return [];
-    // An Output Address opens with the protocol that reaches it (`ledc:3`),
-    // which is the protocol the product's registry row declares.
+    // The Outputs a body servo controller answers for, read off the Outputs
+    // themselves: the board's own carry a stored id (fromConfig, data/outputs.js)
+    // and an expander's channels none. Never off the product's Component
+    // Protocol: that is a word for makers (`rc_pwm`), and an Output Address
+    // opens with a driver token (`ledc:3`) that it no longer spells (#504).
+    const boardOwn = product.outputs === OWNS_BOARD_OUTPUTS;
     return (model.outputs || [])
-      .filter((output) => output.address.startsWith(`${product.outputs}:`))
+      .filter((output) => output.fromConfig === boardOwn)
       .map((output) => output.name);
   };
 
@@ -714,6 +718,10 @@
 
   // The family whose product is the board itself (Component Registry id).
   const BOARD_FAMILY = "body_controller";
+  // Whose Outputs a body servo controller's card lists: the board's own, or an
+  // expander's channels (productPins(), fittedProducts()).
+  const OWNS_BOARD_OUTPUTS = "board";
+  const OWNS_EXPANDER_OUTPUTS = "expander";
 
   // What is on an Output's wire, by its own name: the Light Type's or the
   // servo model's, as the table's row offers them.
@@ -1359,7 +1367,9 @@
       parts.filter(Boolean).forEach((part) => {
         // A Board Lane's key is its Component Toggle's, folded to lower case
         // (componentIndex() above).
-        found.push({ id: part.id, name: part.name, family, title, lane: toggle.toLowerCase(), outputs: outputs ? part.protocol : "" });
+        // `outputs` says whose Outputs the card lists (productPins()).
+        const owns = !outputs ? "" : part.id === BOARD_GPIO_PRODUCT ? OWNS_BOARD_OUTPUTS : OWNS_EXPANDER_OUTPUTS;
+        found.push({ id: part.id, name: part.name, family, title, lane: toggle.toLowerCase(), outputs: owns });
       });
     });
     if (!picker.isRadioNotFitted()) {
