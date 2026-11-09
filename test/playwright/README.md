@@ -99,8 +99,6 @@ after mount is not what the page already cached.
 `FIXTURE`, `BASE_URL` and `TARGET_URL`, and runs that folder's
 `// bench-auto: fixture` scripts. Stop a server you started by its PID.
 
-Stop the server by its PID when done.
-
 ### Look at a fixture droid
 
 For a live look at the surfaces offline, one command stages the default asset
