@@ -241,7 +241,9 @@ inline DomeTurnPlan domeBearingTurnPlan(float fromDeg, float toDeg, const DomeTu
     // The share the Dome ESC will report for this speed, read through the
     // pulse it will write: the pulse is whole microseconds (truncated), so the
     // share of that pulse is the one the integration will follow, and the turn
-    // is timed on it. A backend with no pulse (#309) supplies its own share.
+    // is timed on it. This is the Dome ESC's mapping, the only backend there
+    // is: the plan has no way yet to ask a backend for its share, and #309 is
+    // where a packet-serial backend gives the plan one.
     const uint16_t pulseUs =
         domeSpeedToPulseUs(speed, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs, speedLimitPct);
     const float share = domePulseToShare(pulseUs, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs);

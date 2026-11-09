@@ -90,18 +90,22 @@ struct DomeRotationOutput {
 // For a Dome ESC, the stop on the wire, held for the profile's
 // startupNeutralMs. Blocks for that long: call once from setup(), before the
 // Dome Rotation task's loop starts.
+// thread-safe: no (setup() only, before the Dome Rotation task exists)
 void domeRotationBackendStart(const DomeConfig& cfg);
 
 // domeRotationBackendWrite()
 // Put one signed speed (-1..1, clamped) on the wire, scaled by the speed limit
-// (0..100 %), and say what went out. A leaf: no log, no wait, no heap; it runs
-// on the Dome Rotation task's Core 1 loop.
-// thread-safe: must only be called from the Dome Rotation task.
+// (0..100 %), and say what went out. No wait, no heap; it logs only when the
+// LEDC write fails. It runs on the Dome Rotation task's Core 1 loop. The output
+// is reported as written even if that write fails, as the task always assumed.
+// thread-safe: no (Dome Rotation task only)
 DomeRotationOutput domeRotationBackendWrite(const DomeConfig& cfg, float speed,
                                             uint8_t speedLimitPct);
 
 // domeRotationBackendStop()
-// Put the profile's stop on the wire, and say what went out (share 0).
-// thread-safe: must only be called from the Dome Rotation task.
+// Put the profile's stop on the wire, and say what went out (share 0). The
+// same contract as domeRotationBackendWrite(): no wait, no heap, a log only on
+// a failed LEDC write, and the stop reported as written either way.
+// thread-safe: no (Dome Rotation task only, or setup() before it starts)
 DomeRotationOutput domeRotationBackendStop(const DomeConfig& cfg);
 #endif

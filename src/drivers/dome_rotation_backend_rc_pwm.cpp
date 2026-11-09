@@ -17,6 +17,17 @@
 #include "dome_math.h"  // domeSpeedToPulseUs(), domePulseToShare()
 #include "ledc_pwm.h"
 
+// The selected row must describe this unit, or the profile would say one
+// thing and the wire do another. What this file does: a stop is the neutral
+// pulse on a line it never releases, every output is a pulse it reports, and
+// the signal is the RC pulse the registry row calls rc_pwm.
+static_assert(kDomeRotationBackend.stop == DomeRotationStop::NeutralPulseHeld,
+              "the RC pulse backend's stop is a held neutral pulse");
+static_assert(kDomeRotationBackend.reportsPulse,
+              "the RC pulse backend reports the pulse it writes");
+static_assert(component_registry_detail::idEquals(kDomeRotationBackend.protocol, "rc_pwm"),
+              "the selected Dome Rotation row does not speak rc_pwm: it is not this backend's");
+
 void domeRotationBackendStart(const DomeConfig& cfg) {
     ledcPwmSetPulseWidth(LEDC_CH_DOME, cfg.dome_neutral_us);
     delay(kDomeRotationBackend.startupNeutralMs);
