@@ -2055,7 +2055,8 @@ Returns current config snapshot.
   read whole from its row on `GET /api/servo/outputs` and written back the same
   way (ADR 0068). There are no `arm1OpenUs`-style end names here any more.
 - `domeRotation`: the Dome ESC's pulse calibration (`neutralUs`,
-  `minPulseUs`, `maxPulseUs`), `speedLimitPct`, the random movement config
+  `minPulseUs`, `maxPulseUs`) and its `smallestTurnUs`, `speedLimitPct`,
+  `reversePauseMs`, the random movement config
   (`rndEnable`, `rndSpeedPct`, `rndPauseMin`, `rndPauseMax`, `rndMoveMs`) and
   the Dome Bearing's calibration (`fullTurnMs`, `fullTurnPct`, `positiveTurn`).
   There is no `dome` key. Before #504 these were `domeEsc` and
@@ -2171,6 +2172,17 @@ Updates supported config fields and persists to NVS.
     domeRotationNeutralUs 1500, domeRotationMaxPulseUs 1200: must be min <=
     neutral <= max`): out of order, a stop does not put neutral on the ESC. A set stored
     out of order by an older firmware loads as `1000`/`1500`/`2000`.
+- Dome Rotation Smallest turn (#504): `domeRotationSmallestTurnUs(0..1000)` - a
+  Dome ESC's distance from neutral, in us, where every non-zero turn starts:
+  the pulse is neutral +/- (Smallest turn + |speed| x (the limited half-range -
+  Smallest turn)), and a stop is still exactly neutral. Clamped to the limited
+  half-range on each side. The Dome Bearing counts nothing at or inside it.
+  `0` (the default) is off.
+- Dome Rotation Pause before reversing (#504): `domeRotationReversePauseMs(0..2000)` -
+  a turn the other way from the last turn on the wire waits until a stop has
+  been on the wire this long; from rest it goes at once. It applies to every
+  source, and a timed turn that waits ends that much later, so it turns for
+  as long as it asked. `0` (the default) is off.
 - Dome Rotation random: `domeRotationRndEnable(bool)`, `domeRotationRndSpeedPct(5..100)`, `domeRotationRndPauseMin(1..120)`, `domeRotationRndPauseMax(1..120)`, `domeRotationRndMoveMs(500..10000)`
 - Dome Rotation full turn, the Dome Bearing's calibration (#445): `domeRotationFullTurnMs(0..60000)`
   - how long one full turn takes; `domeRotationFullTurnPct(0..100)` - the speed it was
