@@ -74,19 +74,18 @@ static const char* TAG = "DomeRotation";
 // on the wire, after the speed limit has scaled it, never from a speed somebody
 // asked for. Each write first moves the belief by what the output being
 // replaced did over the measured time it was on the wire, and the loop moves it
-// once a tick as well: a tick is vTaskDelay(20)
-// after the loop's work, not a fixed period, so the elapsed time is always
-// measured, never assumed.
+// once a tick as well: a tick is vTaskDelay(20) after the loop's work, not a
+// fixed period, so the elapsed time is always measured, never assumed.
 //
 // Only an estop, Sleep Mode and a boot forget it. A commanded stop does not:
 // the coast after it is part of what "believed" admits (the 2026-09-30
 // amendment). A boot forgets because nothing here survives one, and the
 // RobotState mirror starts zeroed, which reads as unknown.
 //
-// The state is file-static rather than on domeRotationTask()'s frame, which sits on
-// every one of this task's measured chains (tools/task_stack_recipes.json), and
-// the helpers below are leaves that never log, so none of them lengthens the log
-// route that is this task's deepest. They run on this task only.
+// The state is file-static rather than on domeRotationTask()'s frame, which
+// sits on every one of this task's measured chains
+// (tools/task_stack_recipes.json), and the helpers below are leaves that never
+// log, so none of them lengthens the log route that is this task's deepest. They run on this task only.
 // -----------------------------------------------------------------------------
 static struct {
     float    share;    // the backend's output on the wire since atMs (-1..1)
@@ -107,8 +106,8 @@ static void bearingPublish() {
     taskEXIT_CRITICAL(&robotStateMux);
 }
 
-// Move the belief by the turn the pulse on the wire made since it was last
-// moved. A belief whose calibration has been cleared is dropped: the turn it
+// Move the belief by the turn the backend's output on the wire made since it
+// was last moved. A belief whose calibration has been cleared is dropped: the turn it
 // would need to follow cannot be followed, and a number that stops moving while
 // the dome does is the one failure ADR 0051 exists to prevent. ("Front is here"
 // is refused without a calibration, so this is reached only by clearing one.)
@@ -155,8 +154,8 @@ static void __attribute__((noinline)) bearingTick(bool forget) {
 // Taken after an estop or Sleep Mode cleared, a press made before either held
 // would call a coasted dome front: the bearing would silently become a number
 // again. Both discard the queue every tick they hold, and once more on the tick
-// they clear (domeRotationTask()), so such a press is normally gone before it reaches
-// here; this stamp check is the second guard, so the bearing does not rest on
+// they clear (domeRotationTask()), so such a press is normally gone before it
+// reaches here; this stamp check is the second guard, so the bearing does not rest on
 // the discard alone.
 // Every sender stamps timestampMs when it sends; the comparison is wrap-safe.
 static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pressedAtMs) {
