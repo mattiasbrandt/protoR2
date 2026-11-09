@@ -50,9 +50,9 @@ static const char* TAG = "DOME";
 #define DOME_COMMAND_TIMEOUT_MS 500  // Zero speed if no command for 500ms
 #define ESC_ARMING_DURATION_MS 2000  // Time to hold neutral for arming
 // The longest timed turn taken from a sender (#504): a Dome Controller
-// `dome=rot` line, a sequence step, a web hold. A longer one is cut to this and
-// logged. A turn to a Dome Bearing is exempt: it is planned here from the
-// droid's own calibration (bearingPlanTurn()), and half a turn can take longer
+// `dome=rot` line or a sequence step. A longer one is cut to this and logged.
+// A turn to a Dome Bearing is exempt: it is planned here from the droid's own
+// calibration (bearingPlanTurn()), and half a turn can take longer
 // (DOME_FULL_TURN_MS_MAX), so the cap is applied to the command as it arrives,
 // before that plan replaces it.
 #define DOME_TIMED_TURN_MAX_MS 30000
@@ -147,9 +147,10 @@ static void __attribute__((noinline)) bearingTick(bool forget) {
 // held.
 // Taken after an estop or Sleep Mode cleared, a press made before either held
 // would call a coasted dome front: the bearing would silently become a number
-// again. Both now discard the queue every tick they hold (domeTask()), so such
-// a press is normally gone before it reaches here; this stamp check is the
-// second guard, kept so the bearing does not rest on the discard alone.
+// again. Both discard the queue every tick they hold, and once more on the tick
+// they clear (domeTask()), so such a press is normally gone before it reaches
+// here; this stamp check is the second guard, so the bearing does not rest on
+// the discard alone.
 // Every sender stamps timestampMs when it sends; the comparison is wrap-safe.
 static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pressedAtMs) {
     if (s_bearing.forgotAtMs != 0 && (int32_t)(pressedAtMs - s_bearing.forgotAtMs) <= 0) {
@@ -290,6 +291,7 @@ void domeTask(void* pvParameters) {
 
     bool hwmLogged = false;
     bool sleepHolding = false;
+    bool estopHolding = false;        // the estop held on the previous tick
     bool estopDiscardLogged = false;  // the discard below logs once per estop
     uint32_t seqMoveUntilMs = 0;
 
@@ -329,6 +331,13 @@ void domeTask(void* pvParameters) {
         }
         if (sleepHolding) {
             sleepHolding = false;
+            // The edge drain (#504): a command sent during the last sleeping
+            // tick's vTaskDelay() is still queued, and taken now it would run
+            // on the clear. One more drain closes that window; a command sent
+            // just after the clear goes too, and a continuous sender resends.
+            while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+                // discard: sent while sleeping
+            }
             PA_LOG_INFO(TAG, "Sleep mode cleared - dome command processing resumed");
         }
 
@@ -343,26 +352,34 @@ void domeTask(void* pvParameters) {
         // While the estop is latched every queued command is discarded, every
         // tick, as Sleep Mode does above (#504): a turn sent during the estop
         // must not run once it clears. Clearing the estop never starts the dome
-        // by itself. A turn to a bearing and "Front is here" go too; both are
-        // refused after an estop anyway, the bearing being forgotten.
-        if (estop) {
+        // by itself. A turn to a bearing and "Front is here" go too: the turn
+        // would be refused anyway, the bearing being forgotten, and the press
+        // by its press time (bearingDeclareFront()).
+        // The tick the estop clears drains once more, the edge drain: a command
+        // sent during the last estop tick's vTaskDelay() is still queued, and
+        // taken now it would run on the clear. A command sent just after the
+        // clear goes too; a continuous sender resends.
+        if (estop || estopHolding) {
             bool discarded = false;
             while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
                 discarded = true;
             }
             hasCommand = false;
             if (discarded && !estopDiscardLogged) {
-                PA_LOG_WARN(TAG, "Estop active - queued dome turns discarded");
+                PA_LOG_WARN(TAG, "Estop - queued dome commands discarded");
                 estopDiscardLogged = true;
             }
-        } else {
+        }
+        if (!estop) {
             estopDiscardLogged = false;
         }
+        estopHolding = estop;
 
         bool manualCommandThisTick = false;
 
-        // Process any pending commands (non-blocking). Under an estop the queue
-        // was just emptied; the guard keeps a command sent since out too.
+        // Process any pending commands (non-blocking). Under an estop, and on
+        // the tick it clears, the queue was just emptied; the guard keeps a
+        // command sent since out too while it holds.
         while (!estop && xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
             // The timed-turn cap, on the command as received: a TURN_TO is
             // still a TURN_TO here, so a planned bearing turn is never cut.
