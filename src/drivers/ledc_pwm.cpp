@@ -69,9 +69,9 @@ uint8_t getChannelGpio(uint8_t channel) {
 // move every servo on the droid to 1500 us at once on every power-up, which is
 // both the move limp exists to prevent and the many-at-once shape the Cadence
 // Floor exists to hold apart. The DOME channel is the exception and starts at
-// neutral, because it drives an ESC, not a servo: a floating signal line reads
-// as Receiver Lost to an ESC70 (include/ledc_pwm.h, ledcPwmRelease()), and
-// domeRotationTaskInit() then arms it at its configured neutral.
+// neutral, because it carries an RC ESC, not a servo: a line with no pulse reads
+// as a lost receiver to an RC ESC (include/ledc_pwm.h, ledcPwmRelease()), and
+// domeRotationTaskInit() then holds it at its configured neutral.
 // -----------------------------------------------------------------------------
 bool ledcPwmInit(uint8_t enabledMask) {
     s_configuredMask = enabledMask;
@@ -101,7 +101,7 @@ bool ledcPwmInit(uint8_t enabledMask) {
         channelConfig.channel = (ledc_channel_t)i;
         channelConfig.intr_type = LEDC_INTR_DISABLE;
         channelConfig.timer_sel = PA_LEDC_TIMER;
-        channelConfig.duty = (i == LEDC_CH_DOME) ? pulseUsToDuty(SERVO_PULSE_NEUTRAL_US) : 0;
+        channelConfig.duty = (i == LEDC_CH_DOME) ? pulseUsToDuty(ESC_PULSE_NEUTRAL_US) : 0;
         channelConfig.hpoint = 0;
 
         err = ledc_channel_config(&channelConfig);

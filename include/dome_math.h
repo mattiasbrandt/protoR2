@@ -1,12 +1,15 @@
 // =============================================================================
 // include/dome_math.h
 //
-// Pure-logic dome ESC pulse mapping and random-move pause arithmetic  --  no
+// Pure-logic Dome ESC pulse mapping and random-move pause arithmetic  --  no
 // hardware, no FreeRTOS.
-// Extracted for testability. Used by DomeRotationTask and native tests.
+// Extracted for testability. The pulse mapping is the Dome ESC backend's
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp); the random-move arithmetic
+// is DomeRotationTask's. Both are exercised by native tests.
 //
-// ESC PWM semantics (standard RC PWM, 50 Hz):
-//   1000us = full reverse / max brake
+// Dome ESC pulse semantics (standard RC PWM, 50 Hz):
+//   1000us = full reverse in a forward-and-reverse running mode; in a mode
+//            with a brake, a reverse from forward brakes first
 //   1500us = neutral / stop
 //   2000us = full forward
 // =============================================================================
@@ -23,8 +26,8 @@
 // about 60% reverse on an ESC in a forward/reverse mode, with nobody
 // commanding it (#417). So the config door refuses such a set, the loader
 // replaces a stored one with the defaults, and the mapping falls back to
-// neutral rather than trust it. data/dome.js applies the same rule before it
-// sends.
+// neutral rather than trust it. data/dome.js sends what the builder typed and
+// leaves this rule to the droid, whose refusal it shows.
 // -----------------------------------------------------------------------------
 inline bool domePulsesInOrder(uint16_t minPulseUs, uint16_t neutralUs, uint16_t maxPulseUs) {
     return minPulseUs <= neutralUs && neutralUs <= maxPulseUs;
