@@ -1034,9 +1034,10 @@ products:
          one way, neutral, full the other way, neutral. The ESC counts its own
          beeps; somebody has to listen next to the droid.
       4. Restart the ESC to finish.
-      Each full hold is an ordinary timed turn of at most 30 s (`POST /api/dome`
-      with `durationMs`); one that runs out returns to neutral, which is safe, and
-      is held again. The estop and Sleep Mode stop a hold as they stop any turn.
+      Each hold, neutral included, is an ordinary timed turn of at most 30 s
+      (`POST /api/dome` with `durationMs`), so random idle turns stay off while it
+      runs; a full hold that runs out returns to neutral, which is safe, and is
+      held again. The estop and Sleep Mode stop a hold as they stop any turn.
       The clean way is to calibrate with whatever will drive the ESC. Calibrated
       against the droid, the learned endpoints are exactly 1000 / 2000 us and
       `dome_min_pulse_us` / `dome_max_pulse_us` stay at their defaults. Calibrated
