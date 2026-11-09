@@ -66,6 +66,7 @@ const KeyPin kStoredKeys[] = {
     {"enableAux2", "en_aux2", SettingStorage::Bool},          {"enableAux3", "en_aux3", SettingStorage::Bool},
     {"domeRotationNeutralUs", "drot_neu", SettingStorage::U16},   {"domeRotationMinPulseUs", "drot_minp", SettingStorage::U16},
     {"domeRotationMaxPulseUs", "drot_maxp", SettingStorage::U16}, {"domeRotationSpeedLimitPct", "drot_pct", SettingStorage::U8},
+    {"domeRotationSmallestTurnUs", "drot_small_us", SettingStorage::U16}, {"domeRotationReversePauseMs", "drot_rev_ms", SettingStorage::U16},
     {"domeRotationRndEnable", "drot_rnd_en", SettingStorage::Bool}, {"domeRotationRndSpeedPct", "drot_rnd_spd", SettingStorage::U8},
     {"domeRotationRndPauseMin", "drot_rnd_pmin", SettingStorage::U8}, {"domeRotationRndPauseMax", "drot_rnd_pmax", SettingStorage::U8},
     {"domeRotationRndMoveMs", "drot_rnd_ms", SettingStorage::U16}, {"protoR2linkWifiPeerIp", "dome_wip", SettingStorage::Text},

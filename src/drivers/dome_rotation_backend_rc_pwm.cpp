@@ -35,11 +35,15 @@ void domeRotationBackendStart(const DomeConfig& cfg) {
 
 DomeRotationOutput domeRotationBackendWrite(const DomeConfig& cfg, float speed,
                                             uint8_t speedLimitPct) {
-    const uint16_t pulseUs = domeSpeedToPulseUs(speed, cfg.dome_neutral_us, cfg.dome_min_pulse_us,
-                                                cfg.dome_max_pulse_us, speedLimitPct);
+    // Smallest turn is the Dome ESC's: where its dead band ends, in us. The
+    // share reported back is measured from that edge, so the Dome Bearing
+    // above the seam counts nothing a pulse inside it does not turn.
+    const uint16_t pulseUs =
+        domeSpeedToPulseUs(speed, cfg.dome_neutral_us, cfg.dome_min_pulse_us,
+                           cfg.dome_max_pulse_us, speedLimitPct, cfg.dome_smallest_turn_us);
     ledcPwmSetPulseWidth(LEDC_CH_DOME, pulseUs);
     return {domePulseToShare(pulseUs, cfg.dome_neutral_us, cfg.dome_min_pulse_us,
-                             cfg.dome_max_pulse_us),
+                             cfg.dome_max_pulse_us, cfg.dome_smallest_turn_us),
             pulseUs};
 }
 

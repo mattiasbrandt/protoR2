@@ -176,6 +176,14 @@ const ConfigSetting kConfigSettings[] = {
              kDomePulseSettingMaxUs, 2000),
     PA_RANGE("domeRotationSpeedLimitPct", "domeRotation.speedLimitPct", "drot_pct", Immediate,
              Dome, DomeConfig, dome_speed_limit_pct, 0, 100, 100),
+    // Smallest turn and Pause before reversing (#504), both 0 = off. Smallest
+    // turn's bound is the widest half-range a pulse set can have; the mapping
+    // clamps it to the half-range a turn actually has (domeSpeedToPulseUs()).
+    PA_RANGE("domeRotationSmallestTurnUs", "domeRotation.smallestTurnUs", "drot_small_us",
+             Immediate, Dome, DomeConfig, dome_smallest_turn_us, 0,
+             kDomePulseSettingMaxUs - kDomePulseSettingMinUs, 0),
+    PA_RANGE("domeRotationReversePauseMs", "domeRotation.reversePauseMs", "drot_rev_ms",
+             Immediate, Dome, DomeConfig, dome_reverse_pause_ms, 0, DOME_REVERSE_PAUSE_MAX_MS, 0),
     PA_BOOL("domeRotationRndEnable", "domeRotation.rndEnable", "drot_rnd_en", Immediate,
             Dome, DomeConfig, dome_rnd_enable, false),
     PA_RANGE("domeRotationRndSpeedPct", "domeRotation.rndSpeedPct", "drot_rnd_spd", Immediate,
