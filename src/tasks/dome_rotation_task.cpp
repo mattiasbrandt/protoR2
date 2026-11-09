@@ -8,26 +8,26 @@
 // reach it: the 500 ms silence stop, a stop under the estop and in Sleep Mode
 // and the queue discarded while either holds, the 30 s cap on a timed turn
 // from a sender, the speed limit, Pause before reversing, random moves, and
-// the Dome Bearing. Every
-// turn and every stop goes out through include/dome_rotation_backend.h, which
-// alone knows how a speed becomes a wire signal; for a Dome ESC that is one
-// standard RC pulse (src/drivers/dome_rotation_backend_rc_pwm.cpp).
+// the Dome Bearing. Every turn and every stop goes out through
+// include/dome_rotation_backend.h, which alone knows how a speed becomes a
+// wire signal; for a Dome ESC that is one standard RC pulse
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp).
 //
 // For a Dome ESC the pulse limits (neutral, min, max), Smallest turn and the
 // speed limit percentage are read from persisted config (DomeConfig's
 // dome_neutral_us, dome_min_pulse_us, dome_max_pulse_us, dome_smallest_turn_us
 // and dome_speed_limit_pct) so each ESC's calibration can be trimmed on the
-// droid without a firmware rebuild. What full reverse does on the wire is the ESC's running mode: in
-// "Forward and Reverse" the min pulse is full reverse; in a mode with a brake
-// it brakes first.
+// droid without a firmware rebuild. What full reverse does on the wire is the
+// ESC's running mode: in "Forward and Reverse" the min pulse is full reverse;
+// in a mode with a brake it brakes first.
 //
 // An ESC's own configuration (running mode, throttle calibration, PWM
 // frequency, voltage cutoff) is set in the maker's app for that ESC  --  out of
 // scope for this firmware, and a bring-up prerequisite before the dome motor
 // answers our pulse correctly.
 //
-// Feature toggle: cfg_enable_dome_esc (staged at reboot per ADR 0027) gates whether
-// the task is spawned at all. When disabled at boot, DomeRotationTask does not run.
+// Feature toggle: the enableDomeRotation Setting (SystemConfig.enable_dome_esc,
+// staged at reboot per ADR 0027) gates whether the task is spawned at all. When disabled at boot, DomeRotationTask does not run.
 //
 // It also holds the Dome Bearing, the angle the dome believes it points at,
 // integrated from what the backend reports it wrote (the section below
@@ -207,8 +207,9 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeRotationComma
 // stop - the estop, Sleep Mode, the 0.5 s silence stop, a timed turn's end, a
 // random move's end - drops it at once. The wire's sign is the share the
 // backend reports, so a turn the speed limit or Smallest turn leaves standing
-// still counts as the stop it is. File-static, like s_bearing, and touched by
-// leaves that never log.
+// still counts as the stop it is. File-static, like s_bearing; the helpers
+// that keep it are leaves that never log, and the one log, a pause starting,
+// is in the loop (sendDomeSpeed()).
 // -----------------------------------------------------------------------------
 static struct {
     int8_t   wireSign;      // sign of the last non-zero output on the wire, 0 for none
