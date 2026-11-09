@@ -2174,7 +2174,10 @@ Updates supported config fields and persists to NVS.
   taken on input - a form field, a JSON body, the Controller Console's
   `enableDomeEsc=` - and read as the new one; when a request carries both, the
   new name wins. A request that used an old name is answered with `warnings`
-  (below) and logged.
+  (below), the Console's with a `renamed` field (docs/console-protocol.md
+  section 4), and logged. A value refused under an old name is refused as the
+  new one: `field` names the new form name (`domeRotationNeutralUs`), whichever
+  name or path it came by.
 - protoR2link: `protoR2linkWifiPeerIp(valid IPv4 or empty)`
 - seq: `standDownSequence(DM:<NAME> or empty)` — the Stand Down Sequence (#451),
   read back on GET as `seq.standDown`. Empty means never chosen, and the

@@ -1962,7 +1962,7 @@ static void consoleExecuteAction(uint32_t requestId, const ConsoleCatalogEntry* 
 // ConsoleArgs are reused verbatim, only the schema check is local).
 // =============================================================================
 
-// ConfigApplyResult is 2,088 B on artoo-esp32 (include/api_config_apply.h) -
+// ConfigApplyResult is 2,628 B on artoo-esp32 (include/api_config_apply.h) -
 // more than a stack local should cost the Console task, whose stack is sized
 // against a measured chain (CONSOLE_TASK_STACK_BYTES, include/config.h), and
 // the web server task the header's own warning was written for (pin fact 3).
@@ -2076,11 +2076,14 @@ static const char* consoleOutputRowParamGet(void* ctx, const char* name) {
 // below emits the answer. `refusalField` is the core's name for the field this
 // write carries, and `argument` the Console argument a refusal about it is
 // pinned on: the builder typed `value=` or the field's own key, never the
-// core's name.
+// core's name. `renamedTo`, when not nullptr, is the name a renamed Setting
+// has now, which the builder typed under its old one (include/config_settings.h,
+// "Renamed Settings"): a write that lands says it, as a `renamed` field.
 static void consoleWriteConfig(uint32_t requestId, const char* operationName,
                                const ConfigParamSource& params, const char* refusalField,
                                const char* argument, ConsoleCommandSource source,
-                               ConsoleOutcome successOutcome, const ConsoleRecordSink* sink) {
+                               ConsoleOutcome successOutcome, const ConsoleRecordSink* sink,
+                               const char* renamedTo = nullptr) {
     ConfigSnapshot working = {};
 
     CommandSource src = (source == CONSOLE_SOURCE_SERIAL) ? SRC_SERIAL_CONSOLE : SRC_WEB_CONSOLE;
@@ -2123,6 +2126,20 @@ static void consoleWriteConfig(uint32_t requestId, const char* operationName,
         return;
     }
 
+    if (renamedTo != nullptr) {
+        // A field needs a begin and an end around it (docs/console-protocol.md
+        // section 3.3), so the answer is the multi-record shape a refusal has.
+        if (sink->onRecordBegin) {
+            sink->onRecordBegin(requestId, operationName);
+        }
+        if (sink->onRecordField) {
+            sink->onRecordField(requestId, "renamed", renamedTo);
+        }
+        if (sink->onRecordEnd) {
+            sink->onRecordEnd(requestId, CONSOLE_STATUS_OK, successOutcome, CONSOLE_REASON_NONE);
+        }
+        return;
+    }
     if (sink->onRecordResult) {
         sink->onRecordResult(requestId, CONSOLE_STATUS_OK, successOutcome, CONSOLE_REASON_NONE);
     }
@@ -2175,8 +2192,10 @@ static void consoleWriteScalarConfigField(uint32_t requestId, const char* operat
         renamed != nullptr) {
         argument = renamed->oldForm;  // the only other key the check above lets through
     }
+    // Typed under its old name: the answer says the name it has now.
+    const char* renamedTo = renamed != nullptr && argument == renamed->oldForm ? fieldKey : nullptr;
     consoleWriteConfig(requestId, operationName, params, fieldKey, argument, source, successOutcome,
-                       sink);
+                       sink, renamedTo);
 }
 
 // system.config.enable_* (Component Toggles, ADR 0027/0033): a read with no
@@ -2956,7 +2975,7 @@ static void consoleWriteAudioTracksField(uint32_t requestId, const ConsoleCatalo
     params.ctx = &adapter;
     params.get = consoleAudioTracksParamGet;
 
-    // ~270 B, unlike ConfigApplyResult's 2,088 B - small enough to be an
+    // ~270 B, unlike ConfigApplyResult's 2,628 B - small enough to be an
     // ordinary local on the Console task's stack, so it needs neither a
     // module static nor the sharing hazard one would bring (pin fact 4).
     AudioTracksApplyResult result;
