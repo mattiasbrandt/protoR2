@@ -151,13 +151,13 @@ void captureStatusHeapReadings(StatusJsonInputs* in);
 // which the 4,320 B holds (4,201 + 89 + 5 = 4,295 B). Added, not measured, for
 // the same reason.
 //
-// #504 then added what Dome Rotation sent, 60 B at its widest: the two keys
+// #504 then added what Dome Rotation sent, 63 B at its widest: the two keys
 // `,"domeRotationSentPct":-100.0,"domeRotationPulseUs":65535` (29 + 28 B, the
 // pulse at its type's bound rather than the 2,000 us its range allows), and
 // the domeRotation entry's detail growing from "Target -100%" to
-// "-100%, 65535 us" (12 to 15 B; "-0.9%, 65535 us" is as wide). 4,295 + 60 =
-// 4,355 B, past 4,352, so the buffer steps two multiples of 32 to 4,384 B.
-// Added, not measured, for the same reason.
+// "-100.0%, 65535 <micro sign>s" (12 to 18 B: the micro sign is two bytes of
+// UTF-8). 4,295 + 63 = 4,358 B, past 4,352, so the buffer steps two multiples
+// of 32 to 4,384 B. test_native/test_status_json sweeps that widest case.
 //
 // The hostedLink object (#189, #471) is 620 B at its widest: every count and
 // time at 4294967295, livenessAgeMs at 2147483647, both esp_err_t results at

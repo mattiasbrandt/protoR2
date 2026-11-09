@@ -16,11 +16,18 @@
 #include "api_aux_led.h"
 #include "audio_sound_member.h"
 #include "audio_task.h"
+#include "dome_math.h"  // kDomePulseSetting*Us - why one decimal is exact for the sent share
 #include "drive_speed_preset.h"
 #include "heap_reading.h"
 #include "web_admission.h"
 #include "web_event_stream.h"
 #include "web_response_deadline.h"
+
+// One decimal is exact for the Dome Rotation sent share only while no Dome
+// ESC half-range can pass 1,000 us (include/dome_math.h): wider, the smallest
+// turn would print 0.0 and read as Stopped on every surface.
+static_assert(kDomePulseSettingMaxUs - kDomePulseSettingMinUs <= 1000,
+              "a Dome ESC half-range over 1,000 us needs a second decimal on the sent share");
 
 namespace {
 
@@ -165,8 +172,9 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
         in.diag.webDriveExpired ? "true" : "false", (int)in.diag.failsafeSource, in.driveSpeed, in.driveSteer,
         // What Dome Rotation sent, after the speed limit, beside what was asked
         // for. One decimal is exact for the share: a Dome ESC's pulse moves in
-        // whole us over a half-range of at most 1,000 us, so the smallest turn
-        // that goes out is 0.1 % and never prints as 0.0.
+        // whole us over a half-range of at most 1,000 us (the pulse Settings'
+        // bounds, static_assert above), so the smallest turn that goes out is
+        // 0.1 % and never prints as 0.0.
         (double)in.domeTargetSpeed, (double)(in.domeRotationSentShare * 100.0f),
         (unsigned)in.domeRotationPulseUs, in.enableDome ? "true" : "false",
         domeBearingStateWord(in.domeBearing), domeBearingDeg,
@@ -347,17 +355,17 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
             // threshold is needed (#504). The Dome page reads the same share.
             // The tokens stay `spinning` / `idle` for the readers that key on
             // them; the words a page shows are its own.
-            // The detail is the sent figure as the Dome page prints it
-            // (data/dome.js sentPercentText): whole percent, with the decimal
-            // kept under 1 % so the smallest turn never reads as 0 %; then the
-            // pulse where the product sends one.
+            // The detail is the sent figure in the one rule every surface
+            // prints it by: the share at one decimal, exactly as
+            // "domeRotationSentPct" above carries it and the Dome page prints
+            // it (data/dome.js sentPercentText); then the pulse where the
+            // product sends one, its unit spelt with the micro sign (U+00B5,
+            // two bytes of UTF-8) as data/ spells it.
             const bool stopped = in.domeRotationSentShare == 0.0f;
-            const float sentPct = in.domeRotationSentShare * 100.0f;
-            const bool wholePct = stopped || sentPct >= 1.0f || sentPct <= -1.0f;
-            const int n = snprintf(detail, sizeof(detail), wholePct ? "%.0f%%" : "%.1f%%",
-                                   (double)sentPct);
+            const int n = snprintf(detail, sizeof(detail), "%.1f%%",
+                                   (double)(in.domeRotationSentShare * 100.0f));
             if (in.domeRotationPulseUs > 0 && n > 0 && n < (int)sizeof(detail)) {
-                snprintf(detail + n, sizeof(detail) - (size_t)n, ", %u us",
+                snprintf(detail + n, sizeof(detail) - (size_t)n, ", %u \u00b5s",
                          (unsigned)in.domeRotationPulseUs);
             }
             ok = appendPeripheralStatus(pos, remaining, "domeRotation",

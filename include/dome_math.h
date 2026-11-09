@@ -17,6 +17,17 @@
 #include <stdint.h>
 
 // -----------------------------------------------------------------------------
+// The bounds every Dome ESC pulse Setting (neutral, min, max) is held to, at
+// the config door and on load (src/config_settings.cpp). With the pulses in
+// order, no half-range can be wider than these two apart: 1,000 us. The
+// status document leans on that (src/web/status_json.cpp): a pulse moves in
+// whole us, so the smallest turn that goes out is 0.1 % of a half-range and
+// one decimal never prints a turning dome as 0.0, which reads as Stopped.
+// -----------------------------------------------------------------------------
+inline constexpr uint16_t kDomePulseSettingMinUs = 1000;
+inline constexpr uint16_t kDomePulseSettingMaxUs = 2000;
+
+// -----------------------------------------------------------------------------
 // domePulsesInOrder()
 // The one rule a dome ESC pulse set must keep: min <= neutral <= max.
 //

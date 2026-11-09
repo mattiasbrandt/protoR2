@@ -19,6 +19,7 @@
 #include "component_registry.h"
 #include "config.h"               // SPEED_*, SBUS_TIMEOUT_MS, WEB_DRIVE_TIMEOUT_MS, PA_LOG_LEVEL*
 #include "dome_bearing.h"         // DomeTurnDirection - the dome's calibration words
+#include "dome_math.h"            // kDomePulseSetting*Us - the Dome ESC pulse bounds
 #include "mood_sound_mapping.h"   // MOOD_CATEGORY_MASK_MAX - a mood mask's bits
 #include "pca9685.h"              // PCA9685_ADDRESS_* - where one expander board may answer
 #include "protocol_check.h"       // PC_SM_MOVE_MIN/MAX - what bounds the Cadence Floor
@@ -165,11 +166,14 @@ const ConfigSetting kConfigSettings[] = {
     // in order: a rule across them, in configApply() and on load. The Dome
     // Rotation task reads them from the cache on every command and every loop.
     PA_RANGE("domeRotationNeutralUs", "domeRotation.neutralUs", "drot_neu", Immediate,
-             Dome, DomeConfig, dome_neutral_us, 1000, 2000, 1500),
+             Dome, DomeConfig, dome_neutral_us, kDomePulseSettingMinUs,
+             kDomePulseSettingMaxUs, 1500),
     PA_RANGE("domeRotationMinPulseUs", "domeRotation.minPulseUs", "drot_minp", Immediate,
-             Dome, DomeConfig, dome_min_pulse_us, 1000, 2000, 1000),
+             Dome, DomeConfig, dome_min_pulse_us, kDomePulseSettingMinUs,
+             kDomePulseSettingMaxUs, 1000),
     PA_RANGE("domeRotationMaxPulseUs", "domeRotation.maxPulseUs", "drot_maxp", Immediate,
-             Dome, DomeConfig, dome_max_pulse_us, 1000, 2000, 2000),
+             Dome, DomeConfig, dome_max_pulse_us, kDomePulseSettingMinUs,
+             kDomePulseSettingMaxUs, 2000),
     PA_RANGE("domeRotationSpeedLimitPct", "domeRotation.speedLimitPct", "drot_pct", Immediate,
              Dome, DomeConfig, dome_speed_limit_pct, 0, 100, 100),
     PA_BOOL("domeRotationRndEnable", "domeRotation.rndEnable", "drot_rnd_en", Immediate,
