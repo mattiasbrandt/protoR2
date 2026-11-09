@@ -149,23 +149,23 @@ rows:
       - "src/web/web_seam_routes.cpp - `webRegisterRoute(\"/api/dome\", WebMethod::kPost, handleDomeSpeedPost)`"
       - "include/api_drive.h - `void handleDomeSpeedPost(WebRequest& req)`"
       - "src/web/api_drive.cpp - `void handleDomeSpeedPost(WebRequest& req)`"
-      - "src/web/api_drive.cpp - `xQueueSend(domeCmdQueue, &cmd, 0)`"
+      - "src/web/api_drive.cpp - `xQueueSend(domeRotationCmdQueue, &cmd, 0)`"
     notes: ""
   - name: dome.action.front-is-here
     anchor_kind: "api"
     evidence:
       - "src/web/web_seam_routes.cpp - `webRegisterRoute(\"/api/dome/front\", WebMethod::kPost, handleDomeFrontPost)`"
       - "include/api_drive.h - `void handleDomeFrontPost(WebRequest& req)`"
-      - "src/web/api_drive.cpp - `domeBearingActRequest()`: domeBearingActRefusal(), then DOME_CMD_FRONT_IS_HERE on domeCmdQueue"
-      - "src/tasks/dome_task.cpp - `bearingDeclareFront()` sets the Dome Bearing to 0, believed"
+      - "src/web/api_drive.cpp - `domeBearingActRequest()`: domeBearingActRefusal(), then DOME_ROTATION_CMD_FRONT_IS_HERE on domeRotationCmdQueue"
+      - "src/tasks/dome_rotation_task.cpp - `bearingDeclareFront()` sets the Dome Bearing to 0, believed"
     notes: "Web-API and Console (#445). Refused under a latched estop, in Sleep Mode, with the Dome ESC off, and before the full turn is timed."
   - name: dome.action.go-home
     anchor_kind: "api"
     evidence:
       - "src/web/web_seam_routes.cpp - `webRegisterRoute(\"/api/dome/home\", WebMethod::kPost, handleDomeHomePost)`"
       - "include/api_drive.h - `void handleDomeHomePost(WebRequest& req)`"
-      - "src/web/api_drive.cpp - `domeBearingActRequest()`: domeBearingActRefusal(), then DOME_CMD_TURN_TO front on domeCmdQueue"
-      - "src/tasks/dome_task.cpp - `bearingPlanTurn()` rewrites it into the timed turn domeBearingTurnPlan() names"
+      - "src/web/api_drive.cpp - `domeBearingActRequest()`: domeBearingActRefusal(), then DOME_ROTATION_CMD_TURN_TO front on domeRotationCmdQueue"
+      - "src/tasks/dome_rotation_task.cpp - `bearingPlanTurn()` rewrites it into the timed turn domeBearingTurnPlan() names"
     notes: "Web-API and Console (#445). Does not move the dome while the bearing is unknown or the dome is not calibrated, and says which."
   - name: dome.action.save-sequence
     anchor_kind: "api"
@@ -205,7 +205,7 @@ rows:
       - "include/rc_action_types.h - `DOME_ACTION_SPEED` analog enum"
       - "src/tasks/rc_input.cpp - `rcDispatchDome(output.domeRawFiltered, mapping, output.domeFiltered)`"
       - "include/rc_dispatcher_helpers.h - void `rcDispatchDome(int domeRawFiltered,` ...)"
-      - "src/rc_dispatcher_helpers.cpp - `xQueueSend(domeCmdQueue, &domeCmd, 0)`"
+      - "src/rc_dispatcher_helpers.cpp - `xQueueSend(domeRotationCmdQueue, &domeCmd, 0)`"
     notes: ""
   - name: dome.action.test-sequence
     anchor_kind: "api"

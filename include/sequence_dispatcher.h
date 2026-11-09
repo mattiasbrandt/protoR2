@@ -103,10 +103,10 @@ void sequenceStopRequest();
 SequenceLookupResult sequenceLookup(const char* name);
 
 // Testable dispatcher mapping for body-owned dome rotation. Returns true only
-// for SEQ_ACT_DOME_ROTATE and fills the DomeCommand that production dispatch
-// sends to domeCmdQueue.
-bool sequenceActionToDomeCommand(const SeqAction& act, uint32_t nowMs,
-                                 DomeCommand& out);
+// for SEQ_ACT_DOME_ROTATE and fills the DomeRotationCommand that production dispatch
+// sends to domeRotationCmdQueue.
+bool sequenceActionToDomeRotationCommand(const SeqAction& act, uint32_t nowMs,
+                                 DomeRotationCommand& out);
 
 // Catalog lookup  --  returns the body-owned entry or nullptr.
 const SequenceEntry* sequenceCatalogFind(const char* name);

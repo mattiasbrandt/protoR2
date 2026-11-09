@@ -377,12 +377,12 @@ static bool parseDomeRxLine(const char* line, DomeRxSource source, uint32_t nowM
         if (sscanf(line + 9, "%d,%u", &speedPct, &durMs) == 2) {
             if (speedPct > 100) speedPct = 100;
             if (speedPct < -100) speedPct = -100;
-            DomeCommand rotCmd = {};
+            DomeRotationCommand rotCmd = {};
             rotCmd.speed      = (float)speedPct / 100.0f;
             rotCmd.durationMs = (uint32_t)durMs;
             rotCmd.source     = SRC_INTERNAL;
             rotCmd.timestampMs = nowMs;
-            if (xQueueSend(domeCmdQueue, &rotCmd, 0) != pdTRUE) {
+            if (xQueueSend(domeRotationCmdQueue, &rotCmd, 0) != pdTRUE) {
                 PA_LOG_WARN(TAG, "dome=rot dropped: queue full");
             } else {
                 PA_LOG_INFO(TAG, "dome seq rot: %d%% for %u ms", speedPct, durMs);

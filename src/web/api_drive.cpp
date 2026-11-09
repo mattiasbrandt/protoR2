@@ -573,18 +573,18 @@ DomeMoveOutcome domeMoveRequest(float speed, CommandSource source) {
         return DomeMoveOutcome::Asleep;
     }
     // The Dome ESC as this boot runs it, not as saved: a switch saved since is
-    // staged until the restart (ADR 0027), and DomeTask runs or not by the
-    // boot's answer. With no DomeTask nothing reads the queue, so a send here
+    // staged until the restart (ADR 0027), and DomeRotationTask runs or not by the
+    // boot's answer. With no DomeRotationTask nothing reads the queue, so a send here
     // would answer "queued" for a move that never happens.
     if (!configCacheReadActiveDomeEnabled()) {
         return DomeMoveOutcome::DomeOff;
     }
 
-    DomeCommand cmd = {};
+    DomeRotationCommand cmd = {};
     cmd.speed = constrain(speed, -1.0f, 1.0f);
     cmd.source = source;
     cmd.timestampMs = millis();
-    if (xQueueSend(domeCmdQueue, &cmd, 0) != pdTRUE) {
+    if (xQueueSend(domeRotationCmdQueue, &cmd, 0) != pdTRUE) {
         logQueueDrop(QUEUE_DOME_CMD, "dome move");
         return DomeMoveOutcome::QueueFull;
     }
@@ -633,7 +633,7 @@ DomeBearingActOutcome domeBearingActRequest(DomeBearingAct act, CommandSource so
     configCacheReadDome(&dome);
 
     // The Dome ESC as this boot runs it, not as saved: a switch saved since is
-    // staged until the restart (ADR 0027), and DomeTask runs or not by the
+    // staged until the restart (ADR 0027), and DomeRotationTask runs or not by the
     // boot's answer.
     DomeBearingActOutcome outcome = {
         domeBearingActRefusal(act, estopLatched, sleepMode, configCacheReadActiveDomeEnabled(),
@@ -644,12 +644,13 @@ DomeBearingActOutcome domeBearingActRequest(DomeBearingAct act, CommandSource so
         return outcome;
     }
 
-    DomeCommand cmd = {};
-    cmd.kind = (act == DOME_BEARING_ACT_FRONT_IS_HERE) ? DOME_CMD_FRONT_IS_HERE : DOME_CMD_TURN_TO;
+    DomeRotationCommand cmd = {};
+    cmd.kind = (act == DOME_BEARING_ACT_FRONT_IS_HERE) ? DOME_ROTATION_CMD_FRONT_IS_HERE
+                                                       : DOME_ROTATION_CMD_TURN_TO;
     cmd.targetTenths = 0;  // home is front
     cmd.source = source;
     cmd.timestampMs = millis();
-    outcome.queued = xQueueSend(domeCmdQueue, &cmd, 0) == pdTRUE;
+    outcome.queued = xQueueSend(domeRotationCmdQueue, &cmd, 0) == pdTRUE;
     if (!outcome.queued) {
         logQueueDrop(QUEUE_DOME_CMD, act == DOME_BEARING_ACT_FRONT_IS_HERE ? "dome front" : "dome home");
     }

@@ -127,7 +127,7 @@ static void pushSnapshot(const char* label, uint32_t heapMin, uint32_t largestBl
 // disabled. If you create a task anywhere in src/, add it here.
 // test/test_tools/test_profiler_task_list.py now scans the whole tree.
 static const char* const s_taskNames[PROF_TASK_MAX] = {
-    "DriveTask", "RCInputTask", "ServoTask", "DomeTask",
+    "DriveTask", "RCInputTask", "ServoTask", "DomeRotation",
     "AudioTask", "AuxLedTask", "DomeLinkTask", "SafetyMonitor", "loopTask",
     "SeqDisp", "Console", "WebEvents", "ArduinoOTA", "HostedRecovery",
     "ReactionTask", "Pca9685Task"

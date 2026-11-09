@@ -182,7 +182,7 @@ bool ledcPwmSetPulseWidth(uint8_t channel, uint16_t pulseUs);
 // a held drive grinds a fought part and driving many outputs at once is the
 // documented brownout. The dome ESC is the deliberate exception and is not
 // released: a floating signal line reads as Receiver Lost to an ESC70, so
-// dome_task.cpp drives it to its CONFIGURED neutral instead
+// dome_rotation_task.cpp drives it to its CONFIGURED neutral instead
 // (setDomeNeutral(); docs/spec-sheets/isdt-esc70-dome-esc.md, "What the ESC
 // watches, and what it says").
 bool ledcPwmRelease(uint8_t channel);

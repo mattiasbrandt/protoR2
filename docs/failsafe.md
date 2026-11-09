@@ -92,7 +92,7 @@ timeout like any other.
 
 - Source: the chip's watchdogs (task watchdog, interrupt watchdog, or RTC watchdog)
 - Implementation: five tasks subscribe to the task watchdog: DriveTask,
-  ServoTask, RCInputTask, SequenceDispatcherTask and DomeTask (the last three
+  ServoTask, RCInputTask, SequenceDispatcherTask and DomeRotationTask (the last three
   when they are created). The boot decision is `src/failsafe_boot_twdt.cpp`,
   called from `src/main.cpp`
 - Trigger: a subscribed task stops reaching `esp_task_wdt_reset()` within
@@ -209,7 +209,7 @@ from, generated into `include/task_stack_figures.h` (ADR 0040).
 | **DriveTask** | 5 | 50 Hz Foot Drive frame transmission + TWDT reset. Core-critical. Must complete within its 20 ms period, or the hoverboard keeps acting on its last frame. |
 | **RCInputTask** | 5 | RC poll (SBUS or PWM). Decodes frames and routes to failsafe/arbiter. Core-critical. Not created when the receiver mode reads no input (`elrs`, `not_fitted`). |
 | **ServoTask** | 4 | 50 Hz servo PWM updates for the servo Outputs. Processes its queue without blocking. It never writes the Dome ESC's channel. |
-| **DomeTask** | 4 | 50 Hz Dome Rotation: the only writer of the Dome ESC's pulse. Applies the speed limit and the dome rules under [Dome Rotation stop rules](#dome-rotation-stop-rules). Not created when Dome Rotation is off at boot. |
+| **DomeRotationTask** | 4 | 50 Hz Dome Rotation: the only writer of the Dome ESC's pulse, through the Dome Rotation backend. Applies the speed limit and the dome rules under [Dome Rotation stop rules](#dome-rotation-stop-rules). Not created when Dome Rotation is off at boot. |
 | **DomeLinkTask** | 3 | protoR2link to the Dome Controller over UART2, including the protoR2link Arbiter (UART slip ring vs WiFi fallback). Non-blocking I/O. |
 
 **Core 0 (Housekeeping, Web, OTA):**

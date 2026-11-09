@@ -94,7 +94,7 @@ static bool s_cdcDropProbeArmed = true;
 // task's paLogLine() through the pre-bind emit path -- the walk cannot see
 // that waitForRoom is false there -- so logging from the drop site put that
 // cost on all nine walked chains and failed ADR 0040's gate row (measured at
-// db310551: +816..1040 B per task, DomeTask's floor holds by 80). The drain's
+// db310551: +816..1040 B per task, DomeRotationTask's floor holds by 80). The drain's
 // entry is reachable from the Console task alone, and it sits beside the
 // eviction marker's own snprintf rather than on top of the redraw frame.
 static uint32_t s_backpressureDrops = 0;       // consecutive drops, host present

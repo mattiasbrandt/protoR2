@@ -3,7 +3,7 @@
 AGENTS.md "Architecture Guardrails": *"Queue sends in real-time paths should be
 non-blocking (timeout 0)"*. #206's acceptance matrix states the consequence the
 Controller Console depends on: *"Queue sends from real-time paths remain timeout
-zero"*, so a Console command that fills `domeCmdQueue`, `servoCmdQueue` or
+zero"*, so a Console command that fills `domeRotationCmdQueue`, `servoCmdQueue` or
 `audioCmdQueue` can never make a Core 1 task wait on a consumer. Core 1 carries
 drive zero-frame continuity at 50 Hz; a send that blocks there is a missed frame,
 not a slow response.

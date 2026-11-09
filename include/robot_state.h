@@ -321,30 +321,31 @@ struct ServoCommandedPosition {
 };
 
 // -----------------------------------------------------------------------------
-// Dome command message (sent via domeCmdQueue)
+// Dome Rotation command message (sent via domeRotationCmdQueue)
 // -----------------------------------------------------------------------------
-// What a DomeCommand asks of DomeTask. SPEED is every command there was before
-// the Dome Bearing (#445), and it is 0, so a sender that zero-fills its command
-// and sets a speed keeps meaning exactly what it meant.
-enum DomeCommandKind : uint8_t {
-    DOME_CMD_SPEED = 0,          // speed and durationMs
-    DOME_CMD_FRONT_IS_HERE = 1,  // the builder says the dome points front now
-    DOME_CMD_TURN_TO = 2,        // turn the short way to targetTenths of Dome Bearing
+// What a DomeRotationCommand asks of DomeRotationTask. SPEED is every command
+// there was before the Dome Bearing (#445), and it is 0, so a sender that
+// zero-fills its command and sets a speed keeps meaning exactly what it meant.
+enum DomeRotationCommandKind : uint8_t {
+    DOME_ROTATION_CMD_SPEED = 0,          // speed and durationMs
+    DOME_ROTATION_CMD_FRONT_IS_HERE = 1,  // the builder says the dome points front now
+    DOME_ROTATION_CMD_TURN_TO = 2,        // turn the short way to targetTenths of Dome Bearing
 };
 
-struct DomeCommand {
+struct DomeRotationCommand {
     float speed;         // -1.0 (full reverse) .. +1.0 (full forward), 0 = stop
     uint32_t durationMs; // 0 = indefinite (RC/web), >0 = auto-stop after this many ms
     CommandSource source;
     // These two sit in the padding after `source`, so the struct is the size
     // it always was and no sender's frame grows - RC input's measured stack
     // chain among them. The assertion below holds that.
-    DomeCommandKind kind;
+    DomeRotationCommandKind kind;
     int16_t targetTenths;  // TURN_TO: the Dome Bearing to turn to, 0..3599
     uint32_t timestampMs;
 };
-static_assert(sizeof(DomeCommand) == 16,
-              "DomeCommand grew - every domeCmdQueue sender's frame grows with it");
+static_assert(sizeof(DomeRotationCommand) == 16,
+              "DomeRotationCommand grew - every domeRotationCmdQueue sender's frame grows"
+              " with it");
 
 // -----------------------------------------------------------------------------
 // RobotState  --  shared state, all access under robotStateMux
@@ -430,7 +431,7 @@ struct RobotState {
     uint32_t domeLastSeenUartMs;
     uint32_t domeLastSeenWifiMs;
     // The Dome Bearing (include/dome_bearing.h, ADR 0051, #445), written by
-    // DomeTask alone. A zeroed flag is UNKNOWN: `RobotState robotState = {}`
+    // DomeRotationTask alone. A zeroed flag is UNKNOWN: `RobotState robotState = {}`
     // is the boot path, and a boot forgets, so the zero value must never read
     // as a number - least of all as front. Read both through domeBearingRead(),
     // which hands out NaN for an unknown bearing.
@@ -521,7 +522,7 @@ struct RobotState {
 extern RobotState robotState;
 extern portMUX_TYPE robotStateMux;
 extern QueueHandle_t servoCmdQueue;
-extern QueueHandle_t domeCmdQueue;
+extern QueueHandle_t domeRotationCmdQueue;
 extern QueueHandle_t audioCmdQueue;
 extern QueueHandle_t domeTxQueue;
 extern QueueHandle_t sequenceQueue;

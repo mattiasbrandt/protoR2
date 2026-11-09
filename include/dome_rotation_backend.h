@@ -14,7 +14,7 @@
 //   - the speed limit, random moves, and the queue and its senders
 //   - the Dome Bearing and its turn plan (include/dome_bearing.h)
 //
-// All of those live in the Dome Rotation task (src/tasks/dome_task.cpp). A
+// All of those live in the Dome Rotation task (src/tasks/dome_rotation_task.cpp). A
 // backend gets a signed speed and the speed limit, and puts them on its wire;
 // what it declares about itself is data, in its profile row below.
 //

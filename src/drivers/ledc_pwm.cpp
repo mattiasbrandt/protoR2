@@ -71,7 +71,7 @@ uint8_t getChannelGpio(uint8_t channel) {
 // Floor exists to hold apart. The DOME channel is the exception and starts at
 // neutral, because it drives an ESC, not a servo: a floating signal line reads
 // as Receiver Lost to an ESC70 (include/ledc_pwm.h, ledcPwmRelease()), and
-// domeTaskInit() then arms it at its configured neutral.
+// domeRotationTaskInit() then arms it at its configured neutral.
 // -----------------------------------------------------------------------------
 bool ledcPwmInit(uint8_t enabledMask) {
     s_configuredMask = enabledMask;

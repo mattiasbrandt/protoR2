@@ -54,11 +54,11 @@ void rcDispatchDome(int domeRawFiltered, const RcMappingConfig& mapping, bool do
     }
     if (domeFiltered) {
         float calibrated = applyRcAnalogCalibration(domeRawFiltered, mapping.domeSpeed, nullptr);
-        DomeCommand domeCmd = {};
+        DomeRotationCommand domeCmd = {};
         domeCmd.speed = calibrated;
         domeCmd.source = SRC_SBUS;
         domeCmd.timestampMs = millis();
-        if (xQueueSend(domeCmdQueue, &domeCmd, 0) != pdTRUE) {
+        if (xQueueSend(domeRotationCmdQueue, &domeCmd, 0) != pdTRUE) {
             logQueueDrop(QUEUE_DOME_CMD, "dome command");
         }
     }

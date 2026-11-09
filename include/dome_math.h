@@ -3,7 +3,7 @@
 //
 // Pure-logic dome ESC pulse mapping and random-move pause arithmetic  --  no
 // hardware, no FreeRTOS.
-// Extracted for testability. Used by DomeTask and native tests.
+// Extracted for testability. Used by DomeRotationTask and native tests.
 //
 // ESC PWM semantics (standard RC PWM, 50 Hz):
 //   1000us = full reverse / max brake
@@ -123,7 +123,7 @@ inline bool domeRndMoodStartsMoves(uint8_t mood) {
 // its turns is running. Whether the dome goes to neutral with it: yes, unless
 // a manual command was taken on this very tick, which owns the dome now and
 // must not be overwritten by a turn that is only ending (#450). The estop and
-// Sleep Mode still win, and need no word here: DomeTask takes no command
+// Sleep Mode still win, and need no word here: DomeRotationTask takes no command
 // under either, so no manual command exists on such a tick.
 inline bool domeRndStandDownGoesNeutral(bool manualCommandThisTick) {
     return !manualCommandThisTick;

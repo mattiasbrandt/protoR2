@@ -311,7 +311,7 @@ entries:
   - pwm
   safety_critical: false
   requires_web_control: false
-  executor: domeCmdQueue
+  executor: domeRotationCmdQueue
 - name: dome.action.send-command
   display_name: Send Dome Command
   description: Send a raw Marcduino command to the dome.
@@ -856,7 +856,7 @@ entries:
     - -1.0
     - 1.0
     required: true
-  executor: domeCmdQueue
+  executor: domeRotationCmdQueue
 - name: dome.action.front-is-here
   display_name: Front Is Here
   description: Say the dome points at the droid's front now, after turning it there by hand or by stick. Where the dome points is believed again from here. Refused while the estop is latched, asleep, with the dome motor off, or before its full turn is timed.

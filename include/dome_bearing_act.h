@@ -14,9 +14,9 @@
 //
 // The web routes (POST /api/dome/front, POST /api/dome/home), the Console's two
 // actions and the Sequence Coordinator all ask domeBearingActRefusal() here, so
-// a refusal has one reason and one clause wherever it is shown. DomeTask asks
+// a refusal has one reason and one clause wherever it is shown. DomeRotationTask asks
 // the questions that are its own again when the command reaches it
-// (src/tasks/dome_task.cpp), because the answers can change on the way.
+// (src/tasks/dome_rotation_task.cpp), because the answers can change on the way.
 //
 // Pure: no FreeRTOS, no RobotState. The callers read the state and pass it in.
 // =============================================================================
@@ -34,7 +34,7 @@ enum DomeBearingRefusal : uint8_t {
     DOME_BEARING_OK = 0,
     DOME_BEARING_ESTOP,           // the estop is latched
     DOME_BEARING_ASLEEP,          // Sleep Mode
-    DOME_BEARING_DOME_OFF,        // the Dome ESC is switched off: no DomeTask to tell
+    DOME_BEARING_DOME_OFF,        // the Dome ESC is switched off: no DomeRotationTask to tell
     DOME_BEARING_NOT_CALIBRATED,  // a full turn not timed, or its direction not set
     DOME_BEARING_UNKNOWN,         // nothing to turn from: estop, Sleep Mode or a boot forgot it
 };
@@ -139,7 +139,7 @@ inline int16_t domeBearingTargetTenths(const char* target) {
 // -----------------------------------------------------------------------------
 struct DomeBearingStepPlan {
     ConsoleReason reason;
-    bool          turn;          // true => send DOME_CMD_TURN_TO to targetTenths
+    bool          turn;          // true => send DOME_ROTATION_CMD_TURN_TO to targetTenths
     int16_t       targetTenths;
 };
 

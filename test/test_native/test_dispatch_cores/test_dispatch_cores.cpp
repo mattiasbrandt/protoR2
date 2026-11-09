@@ -125,7 +125,7 @@ void test_dome_move_is_refused_asleep_before_anything_else() {
     TEST_ASSERT_EQUAL(DomeMoveOutcome::Asleep, domeMoveRequest(0.5f, SRC_WEB_API));
 }
 
-// Saved on since boot, not restarted: no DomeTask reads the queue, so "queued"
+// Saved on since boot, not restarted: no DomeRotationTask reads the queue, so "queued"
 // would be a move that never happens (ADR 0027).
 void test_dome_move_is_refused_when_off_this_boot_though_saved_on() {
     setSavedConfig(300, true);
@@ -134,7 +134,7 @@ void test_dome_move_is_refused_when_off_this_boot_though_saved_on() {
     TEST_ASSERT_EQUAL(DomeMoveOutcome::DomeOff, domeMoveRequest(0.5f, SRC_WEB_API));
 }
 
-// Saved off since boot, not restarted: DomeTask still runs until the restart.
+// Saved off since boot, not restarted: DomeRotationTask still runs until the restart.
 void test_dome_move_queues_when_on_this_boot_though_saved_off() {
     setSavedConfig(300, false);
     configCacheSetActiveDomeEnabled(true);

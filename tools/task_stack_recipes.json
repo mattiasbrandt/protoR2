@@ -166,35 +166,35 @@
       }
     },
     {
-      "task": "DomeTask",
+      "task": "DomeRotation",
       "created_in": "src/main.cpp",
       "create_site": {
         "function": "setup",
         "guard": "bootCfg.system.enable_dome_esc"
       },
-      "chain_constant": "DOME_TASK_MEASURED_CHAIN_BYTES",
-      "stack_constant": "DOME_TASK_STACK_BYTES",
+      "chain_constant": "DOME_ROTATION_TASK_MEASURED_CHAIN_BYTES",
+      "stack_constant": "DOME_ROTATION_TASK_STACK_BYTES",
       "chips": {
         "esp32": {
           "env": "artoo_esp32",
           "roots": [
-            "domeTask"
+            "domeRotationTask"
           ],
           "frames": [],
           "chain_bytes": 3024,
           "stack_bytes": 4096,
-          "note": "Deepest route: domeTask -> setDomeSpeed() -> paLogf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> writeFrameCounted() -> HardwareSerial::write() -> uartWriteBuf -> ... (25 more); widest frames emitFramedLineCounted() 432 B, paLogf() 336 B, paLogIdfVprintf() 320 B, _svfiprintf_r 176 B. A log line on this route formats in paLogf() (src/logging.cpp, 336 B with its 256 B line buffer), which is on the chain only while the line is written; since #491 no function that logs carries that buffer in its own frame.",
+          "note": "Deepest route: domeRotationTask -> setDomeSpeed() -> paLogf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> writeFrameCounted() -> HardwareSerial::write() -> uartWriteBuf -> ... (25 more); widest frames emitFramedLineCounted() 432 B, paLogf() 336 B, paLogIdfVprintf() 320 B, _svfiprintf_r 176 B. A log line on this route formats in paLogf() (src/logging.cpp, 336 B with its 256 B line buffer), which is on the chain only while the line is written; since #491 no function that logs carries that buffer in its own frame.",
           "created": "only when bootCfg.system.enable_dome_esc: dome output is enabled at boot (ADR 0027)"
         },
         "esp32p4": {
           "env": "firebeetle2",
           "roots": [
-            "domeTask"
+            "domeRotationTask"
           ],
           "frames": [],
           "chain_bytes": 3680,
           "stack_bytes": 4608,
-          "note": "Deepest route: domeTask -> setDomeSpeed() -> ledcPwmSetPulseWidth() -> ledc_set_duty -> esp_log -> paLogIdfVprintf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> ... (18 more); widest frames _svfprintf_r 1152 B, emitFramedLineCounted() 432 B, _dtoa_r 416 B, paLogf() 336 B.",
+          "note": "Deepest route: domeRotationTask -> setDomeSpeed() -> ledcPwmSetPulseWidth() -> ledc_set_duty -> esp_log -> paLogIdfVprintf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> ... (18 more); widest frames _svfprintf_r 1152 B, emitFramedLineCounted() 432 B, _dtoa_r 416 B, paLogf() 336 B.",
           "created": "only when bootCfg.system.enable_dome_esc: dome output is enabled at boot (ADR 0027)"
         }
       }

@@ -16,7 +16,7 @@
 // Dispatch decision logic is extracted to sequence_dispatcher_step (ADR 0014):
 // a pure decision module that takes a SeqAction and returns the target queue
 // and command format. The task adapter executes those decisions. The pure
-// functions (sequenceStart, sequenceLookup, sequenceActionToDomeCommand) are
+// functions (sequenceStart, sequenceLookup, sequenceActionToDomeRotationCommand) are
 // testable in the native environment without FreeRTOS/Arduino dependencies.
 // The task adapter compiles with native test stubs for FreeRTOS. The task
 // waits on its queue and calls sequenceDispatcherTick() once per wake; a
@@ -78,8 +78,8 @@ void sequenceDispatcherInit() {
 
 static const char* TAG = "SEQ";
 
-bool sequenceActionToDomeCommand(const SeqAction& act, uint32_t nowMs,
-                                 DomeCommand& out) {
+bool sequenceActionToDomeRotationCommand(const SeqAction& act, uint32_t nowMs,
+                                 DomeRotationCommand& out) {
     if (act.kind != SEQ_ACT_DOME_ROTATE) {
         return false;
     }
@@ -183,7 +183,7 @@ static bool dispatchBodyMove(const SeqAction& act, BodyMoveOutcome* outcome = nu
 }
 
 // -----------------------------------------------------------------------------
-// dispatchDomeBearing  --  a bearing step reaching DomeTask (#445).
+// dispatchDomeBearing  --  a bearing step reaching DomeRotationTask (#445).
 //
 // Resolved HERE, when the step runs, every time: the target's bearing from the
 // catalog table (a corrected `bearing_deg` reaches every saved step), and the
@@ -193,7 +193,7 @@ static bool dispatchBodyMove(const SeqAction& act, BodyMoveOutcome* outcome = nu
 // part-not-assigned takes (domeBearingStepPlan(), include/dome_bearing_act.h).
 // Returning true is therefore correct; only a full queue is a retry.
 //
-// What goes out is the target, not a timed turn: DomeTask plans the turn from
+// What goes out is the target, not a timed turn: DomeRotationTask plans the turn from
 // its own belief when the command reaches it, because the dome may have moved
 // in between, and asks the calibration and belief questions again.
 // -----------------------------------------------------------------------------
@@ -219,12 +219,12 @@ static bool __attribute__((noinline)) dispatchDomeBearing(const SeqAction& act) 
                     consoleReasonString(plan.reason));
         return true;  // inert step; the sequence carries on
     }
-    DomeCommand cmd = {};
-    cmd.kind = DOME_CMD_TURN_TO;
+    DomeRotationCommand cmd = {};
+    cmd.kind = DOME_ROTATION_CMD_TURN_TO;
     cmd.targetTenths = plan.targetTenths;
     cmd.source = SRC_SEQ;
     cmd.timestampMs = millis();
-    return xQueueSend(domeCmdQueue, &cmd, 0) == pdTRUE;
+    return xQueueSend(domeRotationCmdQueue, &cmd, 0) == pdTRUE;
 }
 
 // -----------------------------------------------------------------------------
@@ -1217,12 +1217,12 @@ static bool dispatchAction(const SeqAction& act) {
             if (!configCacheReadActiveDomeEnabled()) {
                 return true;
             }
-            // Send converted DomeCommand to the dome rotation queue.
-            DomeCommand cmd = {};
-            if (!sequenceActionToDomeCommand(act, millis(), cmd)) {
+            // Send converted DomeRotationCommand to the dome rotation queue.
+            DomeRotationCommand cmd = {};
+            if (!sequenceActionToDomeRotationCommand(act, millis(), cmd)) {
                 return true;
             }
-            return xQueueSend(domeCmdQueue, &cmd, 0) == pdTRUE;
+            return xQueueSend(domeRotationCmdQueue, &cmd, 0) == pdTRUE;
         }
 
         case SEQ_DISPATCH_DOME_BEARING:

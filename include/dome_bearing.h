@@ -7,7 +7,7 @@
 // clockwise from above is 90. Never a heading in the room; there is no sensor
 // for one.
 //
-// It is integrated, not measured. DomeTask writes every turn the dome gets,
+// It is integrated, not measured. DomeRotationTask writes every turn the dome gets,
 // through the Dome Rotation backend (include/dome_rotation_backend.h), and
 // moves the belief by the turn the backend's output makes at the calibrated
 // rate over the measured time it was on the wire (domeBearingRateDegPerMs()).
@@ -17,7 +17,7 @@
 // records them:
 //
 //   - the full-turn time, and the speed it was taken at, as a share of the
-//     backend's FULL output - the scale of what DomeTask writes after the
+//     backend's FULL output - the scale of what DomeRotationTask writes after the
 //     speed limit has scaled it, so a later change of the limit cannot make
 //     the two disagree;
 //   - which way a positive command turns the dome, seen from above.
@@ -27,8 +27,8 @@
 // cannot render as "pointing front". Only an estop, Sleep Mode and a boot make
 // it unknown, and only the builder's "front is here" makes it believed again.
 //
-// Pure: no Arduino, no FreeRTOS, no RobotState. DomeTask owns the belief and
-// the side effects (src/tasks/dome_task.cpp); robot_state.h reads it.
+// Pure: no Arduino, no FreeRTOS, no RobotState. DomeRotationTask owns the belief and
+// the side effects (src/tasks/dome_rotation_task.cpp); robot_state.h reads it.
 // =============================================================================
 #pragma once
 
@@ -72,7 +72,7 @@ inline const char* domeTurnDirectionName(uint8_t direction) {
 constexpr uint16_t DOME_FULL_TURN_MS_MAX = 60000;
 
 // The calibration as the integration reads it: the three recorded facts and
-// the pulse set they are read against. Filled from DomeConfig by DomeTask.
+// the pulse set they are read against. Filled from DomeConfig by DomeRotationTask.
 struct DomeTurnCalibration {
     uint16_t neutralUs;
     uint16_t minPulseUs;
@@ -206,7 +206,7 @@ inline float domeBearingFacingFrontDeg(int16_t partBearingTenths) {
 // slip shows as the next turn landing short and never as a readout claiming
 // the target.
 //
-// `speed` is in DomeCommand units, before the limit scales it; `durationMs` 0
+// `speed` is in DomeRotationCommand units, before the limit scales it; `durationMs` 0
 // means there is nothing to turn - already there, or no pulse could turn it (a
 // limit of 0).
 // -----------------------------------------------------------------------------
@@ -216,7 +216,7 @@ struct DomeTurnPlan {
 };
 
 // Closer than this and the dome is already there: a turn shorter than one
-// DomeTask tick could not be stopped on time anyway.
+// DomeRotationTask tick could not be stopped on time anyway.
 constexpr float DOME_BEARING_ARRIVED_DEG = 1.0f;
 
 inline DomeTurnPlan domeBearingTurnPlan(float fromDeg, float toDeg, const DomeTurnCalibration& cal,
