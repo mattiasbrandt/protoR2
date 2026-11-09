@@ -190,7 +190,7 @@ Rule of thumb:
 What NVS stores in this repo:
 
 - Persistent config such as speed limits, timeouts, servo positions, dome pulse settings
-- Component Toggles (`en_arm1`, `en_dome_esc`, `en_drive`, `en_audio`, etc.)
+- Component Toggles (`en_arm1`, `en_dome_rot`, `en_drive`, `en_audio`, etc.)
 
 Why it matters:
 

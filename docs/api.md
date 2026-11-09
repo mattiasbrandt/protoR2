@@ -2029,7 +2029,7 @@ Returns current config snapshot.
   is a change still waiting for the droid. A page compares against this, never
   against what it happened to read first. An Output's wired tick is not here:
   it is on the Output's row.
-- `components`: the Component Toggles that are not an Output - `domeEsc`,
+- `components`: the Component Toggles that are not an Output - `domeRotation`,
   `rcCh1`..`rcCh6`, `drive`, `audio`, `protoR2link` - each with `enabled` and
   `label`, the Board Component Label (`include/component_labels.inc`) where the
   board has one; `audio` also carries `member` and `activeMember`.
@@ -2043,11 +2043,12 @@ Returns current config snapshot.
   LED count, its Motion Profile and boot behaviour, its ends and its Parts - is
   read whole from its row on `GET /api/servo/outputs` and written back the same
   way (ADR 0068). There are no `arm1OpenUs`-style end names here any more.
-- `domeEsc`: the Dome Rotation ESC's pulse calibration (`neutralUs`,
+- `domeRotation`: the Dome ESC's pulse calibration (`neutralUs`,
   `minPulseUs`, `maxPulseUs`), `speedLimitPct`, the random movement config
   (`rndEnable`, `rndSpeedPct`, `rndPauseMin`, `rndPauseMax`, `rndMoveMs`) and
   the Dome Bearing's calibration (`fullTurnMs`, `fullTurnPct`, `positiveTurn`).
-  There is no `dome` key.
+  There is no `dome` key. Before #504 these were `domeEsc` and
+  `components.domeEsc`; GET answers with the new names only.
 - `protoR2link.wifiPeerIp`: the dome's address for protoR2link over WiFi
 - `servo`: `cadenceFloorMs` and `cadenceFloorSource` (see POST below)
 - `seq.standDown`: the Stand Down Sequence (see POST below)
@@ -2081,7 +2082,7 @@ curl -s http://artoo.local/api/config
 #### Example response (abridged)
 
 ```json
-{"drive":{"speedLimitMax":600,"speedPreset":"normal","webDriveTimeoutMs":500,"stationary":false},"rc":{"inputMode":"dual_sbus","member":"hotrc_ds650","sbusTimeoutMs":300,"sbus":{"recvCh2":false},"activeInputMode":"dual_sbus"},"components":{"domeEsc":{"enabled":true,"label":"DOME"},"drive":{"enabled":true,"label":"S1"}},"domeEsc":{"neutralUs":1500,"minPulseUs":1000,"maxPulseUs":2000,"speedLimitPct":100},"protoR2link":{"wifiPeerIp":""},"servo":{"cadenceFloorMs":450,"cadenceFloorSource":"dome"},"system":{"logLevel":2}}
+{"drive":{"speedLimitMax":600,"speedPreset":"normal","webDriveTimeoutMs":500,"stationary":false},"rc":{"inputMode":"dual_sbus","member":"hotrc_ds650","sbusTimeoutMs":300,"sbus":{"recvCh2":false},"activeInputMode":"dual_sbus"},"components":{"domeRotation":{"enabled":true,"label":"DOME"},"drive":{"enabled":true,"label":"S1"}},"domeRotation":{"neutralUs":1500,"minPulseUs":1000,"maxPulseUs":2000,"speedLimitPct":100},"protoR2link":{"wifiPeerIp":""},"servo":{"cadenceFloorMs":450,"cadenceFloorSource":"dome"},"system":{"logLevel":2}}
 ```
 
 ### POST /api/config
@@ -2093,7 +2094,7 @@ Updates supported config fields and persists to NVS.
 - servo: `cadenceFloorMs(50..5000)` — the Cadence Floor: the least time, in ms, between two body Outputs the droid starts itself (back to centre, the power-up pass, a pose, a Gesture, a flutter's legs). Steps an author wrote keep their own timing. The default, 450, is the dome's measured figure; nobody has measured the body's. Takes effect from the next move. The Console's `servo.config.cadence-floor` sets the same value. GET also reads `servo.cadenceFloorSource`: `dome` while the value is the dome's figure, `builder` once another has been set. It is a reading, ignored on POST.
 - system: `logLevel(1..4|error|warning|info|debug)` — 1 Error, 2 Warning, 3 Info, 4 Debug; the words are taken as well as the numbers, at every door (the Console's `system.config.log-level` takes the same), and GET always reads the number. Emission changes immediately; the log ring's depth follows the saved level at the next reboot.
 - rc: `rcInputMode(standard_pwm|single_sbus|dual_sbus|elrs|not_fitted)` (`elrs`: ELRS is roadmap, so a request that would change the mode to `elrs` is refused (400, `rcInputMode elrs is not read by this firmware yet`); a droid that stored it earlier keeps it, may state it again, and its RC path behaves as with no receiver. `not_fitted`: no Radio Controller at all, a droid driven from the web alone; storing it also clears `rcMember` and sets `enableRcCh1`..`enableRcCh6` false, each unless the same request states it, and the RC path starts nothing, so the SBUS boot lock and the two radio failsafe layers stand down), `rcMember` (the RC Radio: a Radio Controller registry id), `sbusTimeoutMs(50..1000)`, `sbusRecvCh2(bool)`
-- components (bool): `enableDomeEsc`, `enableRcCh1..6`, `enableDrive`, `enableAudio`, `enableProtoR2link`.
+- components (bool): `enableDomeRotation`, `enableRcCh1..6`, `enableDrive`, `enableAudio`, `enableProtoR2link`.
   `enableArm1`, `enableArm2`, `enableAux1`, `enableAux2` and `enableAux3` name the
   Outputs' wired ticks, and **every write of one is refused**, `400` with `field`
   the name and `reason` `conflict`: a tick follows the Parts on its Output (an
@@ -2152,20 +2153,28 @@ Updates supported config fields and persists to NVS.
   `guidedSetupSummaryDone` — `true` or `false`, anything else `400`
   `{"ok":false,"error":"guidedSetupSummaryDone must be true or false"}`; ending a
   run sends `false` so the run that ended has a summary to show (#371).
-- domeEsc calibration: `domeEscNeutralUs(1000..2000)`, `domeEscMinPulseUs(1000..2000)`, `domeEscMaxPulseUs(1000..2000)`, `domeEscSpeedLimitPct(0..100)`
+- Dome Rotation calibration: `domeRotationNeutralUs(1000..2000)`, `domeRotationMinPulseUs(1000..2000)`, `domeRotationMaxPulseUs(1000..2000)`, `domeRotationSpeedLimitPct(0..100)`
   - The three pulse widths must also run `min <= neutral <= max`, judged with
     the stored values for any the request leaves out. A set out of order is
-    refused with `400` naming all three (`domeEscMinPulseUs 1800,
-    domeEscNeutralUs 1500, domeEscMaxPulseUs 1200: must be min <= neutral <=
-    max`): out of order, a stop does not put neutral on the ESC. A set stored
+    refused with `400` naming all three (`domeRotationMinPulseUs 1800,
+    domeRotationNeutralUs 1500, domeRotationMaxPulseUs 1200: must be min <=
+    neutral <= max`): out of order, a stop does not put neutral on the ESC. A set stored
     out of order by an older firmware loads as `1000`/`1500`/`2000`.
-- domeEsc random: `domeEscRndEnable(bool)`, `domeEscRndSpeedPct(5..100)`, `domeEscRndPauseMin(1..120)`, `domeEscRndPauseMax(1..120)`, `domeEscRndMoveMs(500..10000)`
-- domeEsc full turn, the Dome Bearing's calibration (#445): `domeEscFullTurnMs(0..60000)`
-  - how long one full turn takes; `domeEscFullTurnPct(0..100)` - the speed it was
+- Dome Rotation random: `domeRotationRndEnable(bool)`, `domeRotationRndSpeedPct(5..100)`, `domeRotationRndPauseMin(1..120)`, `domeRotationRndPauseMax(1..120)`, `domeRotationRndMoveMs(500..10000)`
+- Dome Rotation full turn, the Dome Bearing's calibration (#445): `domeRotationFullTurnMs(0..60000)`
+  - how long one full turn takes; `domeRotationFullTurnPct(0..100)` - the speed it was
   timed at, as a share of the ESC's full pulse range, not of the speed limit;
-  `domeEscPositiveTurn(unset|cw|ccw)` - which way a positive command turns the
+  `domeRotationPositiveTurn(unset|cw|ccw)` - which way a positive command turns the
   dome, seen from above. `0` and `unset` are "never recorded", and the bearing
   cannot be believed until all three are set.
+- **Renamed in #504, accepted until the next release.** Each Dome Rotation
+  field above was named `domeEsc...` before (`enableDomeEsc`,
+  `domeEscNeutralUs` ... `domeEscPositiveTurn`), and its GET path
+  `domeEsc.<key>` or `components.domeEsc.enabled`. Either old name is still
+  taken on input - a form field, a JSON body, the Controller Console's
+  `enableDomeEsc=` - and read as the new one; when a request carries both, the
+  new name wins. A request that used an old name is answered with `warnings`
+  (below) and logged.
 - protoR2link: `protoR2linkWifiPeerIp(valid IPv4 or empty)`
 - seq: `standDownSequence(DM:<NAME> or empty)` — the Stand Down Sequence (#451),
   read back on GET as `seq.standDown`. Empty means never chosen, and the
@@ -2265,8 +2274,8 @@ Updates supported config fields and persists to NVS.
 - A JSON body is the **GET shape** (ADR 0068): every setting above that
   `GET /api/config` reports can be sent back where GET puts it, so a restore
   posts back what a backup holds. `drive.speedLimitMax`, `rc.member`,
-  `rc.sbus.recvCh2`, `components.audio.member`, `components.domeEsc.enabled`,
-  `domeEsc.rndMoveMs`, `protoR2link.wifiPeerIp`, `system.logLevel`,
+  `rc.sbus.recvCh2`, `components.audio.member`, `components.domeRotation.enabled`,
+  `domeRotation.rndMoveMs`, `protoR2link.wifiPeerIp`, `system.logLevel`,
   `droidBuild.fitted` (an array of Part ids), `guidedSetup.visited` (an array of
   step keys) and the rest each reach **the same check** as their form name, so a
   value is refused in the same words and names the form field
@@ -2285,6 +2294,11 @@ Updates supported config fields and persists to NVS.
   `{"ledc:4":{"openUs":2000,"closeUs":1000}}`. A type change that pulls ends
   the request did not name into the new component's band lists those too.
   Absent when nothing was clamped, and never on `GET /api/config`.
+  When the request named a renamed Setting by its old name (above), the answer
+  also carries `warnings`, one sentence per name:
+  `"warnings":["domeEscNeutralUs is now domeRotationNeutralUs; the old name is accepted until the next release"]`
+  (an old GET path is answered with the new path). Absent otherwise, and never
+  on `GET /api/config`.
   `components.audio` carries `member` (the saved choice) and `activeMember` (the
   module running since the last boot). The two differ exactly while a member
   change is staged and the controller has not rebooted. Beside them,
@@ -2315,13 +2329,13 @@ Updates supported config fields and persists to NVS.
 
 ```bash
 curl -s -X POST http://artoo.local/api/config \
-  -d 'speedLimitMax=400&webDriveTimeoutMs=750&enableDomeEsc=true&domeEscNeutralUs=1500'
+  -d 'speedLimitMax=400&webDriveTimeoutMs=750&enableDomeRotation=true&domeRotationNeutralUs=1500'
 ```
 
 #### Example response (abridged)
 
 ```json
-{"drive":{"speedLimitMax":400,"webDriveTimeoutMs":750},"components":{"domeEsc":{"enabled":true}},"domeEsc":{"neutralUs":1500},"protoR2link":{"wifiPeerIp":""}}
+{"drive":{"speedLimitMax":400,"webDriveTimeoutMs":750},"components":{"domeRotation":{"enabled":true}},"domeRotation":{"neutralUs":1500},"protoR2link":{"wifiPeerIp":""}}
 ```
 
 #### Example request (json)
@@ -2871,7 +2885,7 @@ Returns controller status snapshot.
   `GET /api/config` names it under `components` (`aux1`), each carrying `r`,
   `g`, `b`, `effect` and `available`. A droid with no light answers `{}`. There
   is no pin here: where a wire plugs in is Wiring's answer (ADR 0067, #413)
-- Additional component objects are conditionally present when enabled: each Output under its stored id (`arm1`..`aux3`, the `components{}` keys of `GET /api/config`, never shown - its name is that entry's `label`), and `domeEsc`, `rcCh1..rcCh6`, `drive`, `audio`, `protoR2link`.
+- Additional component objects are conditionally present when enabled: each Output under its stored id (`arm1`..`aux3`, the `components{}` keys of `GET /api/config`, never shown - its name is that entry's `label`), and `domeRotation` (named `domeEsc` before #504), `rcCh1..rcCh6`, `drive`, `audio`, `protoR2link`.
   Each carries `state` and `detail`; `audio` adds `driver`, `output`,
   `link_ok`, `rx_status` and `rx_detail`, as on `GET /api/audio`
 - Top-level `dome_link` object, always present: `state` (`disabled`,
