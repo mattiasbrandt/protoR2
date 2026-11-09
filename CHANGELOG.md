@@ -49,8 +49,8 @@ the patch releases, whose notes live on their own GitHub Release.
   a random turn send, beside Speed limit and the random Speed, so a setting
   too low to move the dome shows before you blame the ring.
 - **Pause before reversing.** An optional stop held between one direction
-  and the other, for every source: the stick, sequences, the Dome Controller
-  and random moves. A timed turn that waits for it still turns as far as it
+  and the other, for every source: the stick, sequences, the Dome Controller,
+  random moves and turns to a bearing such as Go home. A timed turn that waits for it still turns as far as it
   asked. Off until you set it (`domeRotationReversePauseMs`, 0 = off).
 
 ### Changed

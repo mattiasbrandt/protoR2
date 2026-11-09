@@ -19,7 +19,7 @@
 #include "component_registry.h"
 #include "config.h"               // SPEED_*, SBUS_TIMEOUT_MS, WEB_DRIVE_TIMEOUT_MS, PA_LOG_LEVEL*
 #include "dome_bearing.h"         // DomeTurnDirection - the dome's calibration words
-#include "dome_math.h"            // kDomePulseSetting*Us - the Dome ESC pulse bounds
+#include "dome_math.h"            // kDomePulseSetting*Us, DOME_REVERSE_PAUSE_MAX_MS - Dome Rotation bounds
 #include "mood_sound_mapping.h"   // MOOD_CATEGORY_MASK_MAX - a mood mask's bits
 #include "pca9685.h"              // PCA9685_ADDRESS_* - where one expander board may answer
 #include "protocol_check.h"       // PC_SM_MOVE_MIN/MAX - what bounds the Cadence Floor
