@@ -2,9 +2,11 @@
 // does not answer, for every script under test/playwright/ that takes FIXTURE=1:
 // the rule scripts through ./checks.js runCheck(), and the older scripts
 // (shell/stop-every-surface.js, shell/status-plate-truth.js,
-// parts/parts-surface.js, console-sweep.js) that install it themselves.
+// parts/parts-surface.js, console-sweep.js) that install it themselves, and
+// for ../fixture-look.js, which opens a fixture droid for a live look.
 //
-// Loaded ONLY when FIXTURE=1. Against the live controller nothing here runs,
+// Loaded ONLY when FIXTURE=1, or by fixture-look.js, which is always offline.
+// Against the live controller nothing here runs,
 // so a live run is the script and the droid and nothing in between.
 //
 // Why a module and not a fixture-server edit: the fixture server is shared by
@@ -12,8 +14,8 @@
 // (its header, #261). These answers are shaped for these scripts' needs, so
 // they live beside them and ride on Playwright's routing instead.
 //
-// THE TWO DROIDS. install(context, { droid }) answers as one of two droids.
-// Every route below is answered for both; only the shapes of four answers
+// THE THREE DROIDS. install(context, { droid }) answers as one of three droids.
+// Every route below is answered for each; only the shapes of a few answers
 // differ, and each script keeps the droid its checks were proved against.
 //   'artoo' (the default) - five Artoo-style Outputs from include/board_outputs.h
 //       (ARM1 carrying two body panels, calibrated; ARM2 wired with nothing on
@@ -29,6 +31,14 @@
 //       Parts picture draws every marker; the status frame carries the six
 //       fields data/live_reading.js requires and just enough for every Status
 //       Plate chip to read a value.
+//   'dome' - the artoo droid with Dome Rotation on, for a live look at what
+//       #504 built (test/playwright/fixture-look.js starts it): switched on and
+//       started with (`activeToggles`), its Settings at the firmware's
+//       defaults (src/config_settings.cpp) but for Positive turns, set to
+//       clockwise, and a Dome ESC that reports a pulse - neutral from the
+//       first frame, as the droid does from start-up. It answers
+//       POST /api/dome and the Dome Rotation Settings on POST /api/config
+//       (below). Nothing else differs from artoo.
 //
 // Other options: `estop: true` starts the droid latched (and its enabled
 // Outputs already let go); `textPlainPhotos: [ids]` answers those registry
@@ -86,8 +96,26 @@
 //     is `outputs` saves a row's ledCount and its release time (0..60000 ms,
 //     #443) and answers the config (sendConfigSnapshot()). A body that is
 //     nothing but guidedSetupVisited=<step> (data/setup.js saveVisited) is
-//     taken and kept in `state.accepted`. Any other POST /api/config,
-//     including a Part move, is refused. The fixture droid does not move Parts.
+//     taken and kept in `state.accepted`. On the dome droid only, a form
+//     body whose every field is a Dome Rotation Setting is taken too, held
+//     to the Setting's range, words or true/false and to the pulse order and
+//     the random pauses' order, refused in the firmware's envelope (field,
+//     reason, accepts; src/config_settings.cpp, src/web/api_config_apply.cpp),
+//     and kept in `state.accepted`. Any other POST /api/config, including a
+//     Part move, is refused. The fixture droid does not move Parts.
+//   - POST /api/dome, on the dome droid only (src/web/api_drive.cpp
+//     handleDomeSpeedPost, src/tasks/dome_rotation_task.cpp): `speed` and an
+//     optional `durationMs` refused as the droid refuses them, 423 asleep, and
+//     taken and discarded under the estop. A turn puts out the pulse
+//     domeSpeedToPulseUs() gives under the saved pulses, Speed limit and
+//     Smallest turn, and reports the share domePulseToShare() gives
+//     (include/dome_math.h) as domeRotationSentPct, domeRotationPulseUs and the
+//     domeRotation entry, and pushes a status. It stops after `durationMs`, or
+//     0.5 s after an untimed command; the estop and Sleep Mode stop it at once.
+//     A stop reports neutral as it was at the last write, so a pulse saved
+//     while stopped shows from the next turn, as on the droid. Not modelled:
+//     Pause before reversing (a turn the other way goes at once here), random
+//     movement, and the Dome Bearing, which stays unknown.
 //   - POST /api/sleep and /api/wake answer {ok, sleepMode, changed}
 //     (docs/api.md) and push a status only when the posture changed
 //     (src/web/api_system.cpp).
@@ -116,7 +144,69 @@ const vm = require('node:vm');
 const REPO = path.resolve(__dirname, '..', '..', '..');
 const ASSETS = path.join(REPO, 'data', 'asset-sets', 'default');
 const HOLD_EXPIRY_MS = 3000;
-const DROIDS = ['artoo', 'bench'];
+const DROIDS = ['artoo', 'bench', 'dome'];
+// How long an untimed dome turn runs with no command behind it
+// (DOME_COMMAND_TIMEOUT_MS, src/tasks/dome_rotation_task.cpp).
+const DOME_COMMAND_TIMEOUT_MS = 500;
+// The longest timed dome turn (DOME_TIMED_TURN_MAX_MS, include/robot_state.h).
+const DOME_TIMED_TURN_MAX_MS = 30000;
+
+// The Dome Rotation Settings as src/config_settings.cpp declares them, in its
+// order: form name, key under GET /api/config's `domeRotation`, and the rule
+// with the firmware's default. A dome droid's GET carries every one.
+const DOME_ROTATION_SETTINGS = [
+  ['domeRotationNeutralUs', 'neutralUs', { lo: 1000, hi: 2000, def: 1500 }],
+  ['domeRotationMinPulseUs', 'minPulseUs', { lo: 1000, hi: 2000, def: 1000 }],
+  ['domeRotationMaxPulseUs', 'maxPulseUs', { lo: 1000, hi: 2000, def: 2000 }],
+  ['domeRotationSpeedLimitPct', 'speedLimitPct', { lo: 0, hi: 100, def: 100 }],
+  ['domeRotationSmallestTurnUs', 'smallestTurnUs', { lo: 0, hi: 1000, def: 0 }],
+  ['domeRotationReversePauseMs', 'reversePauseMs', { lo: 0, hi: 2000, def: 0 }],
+  ['domeRotationRndEnable', 'rndEnable', { bool: true, def: false }],
+  ['domeRotationRndSpeedPct', 'rndSpeedPct', { lo: 5, hi: 100, def: 30 }],
+  ['domeRotationRndPauseMin', 'rndPauseMin', { lo: 1, hi: 120, def: 6 }],
+  ['domeRotationRndPauseMax', 'rndPauseMax', { lo: 1, hi: 120, def: 12 }],
+  ['domeRotationRndMoveMs', 'rndMoveMs', { lo: 500, hi: 10000, def: 2500 }],
+  ['domeRotationFullTurnMs', 'fullTurnMs', { lo: 0, hi: 60000, def: 0 }],
+  ['domeRotationFullTurnPct', 'fullTurnPct', { lo: 0, hi: 100, def: 0 }],
+  ['domeRotationPositiveTurn', 'positiveTurn', { words: ['unset', 'cw', 'ccw'], def: 'unset' }],
+];
+
+// include/dome_math.h domeSpeedToPulseUs(), in the float steps the droid
+// takes and truncated as it truncates: the same port data/dome.js makes for
+// its hints (sentPulseUs), which cannot be required from here.
+const domeSpeedToPulseUs = (speed, neutralUs, minUs, maxUs, limitPct, smallestUs) => {
+  const f = Math.fround;
+  if (!(minUs <= neutralUs && neutralUs <= maxUs)) return neutralUs;
+  const s = Math.max(-1, Math.min(1, speed));
+  const scale = f(limitPct / 100);
+  const range = f((s > 0 ? maxUs - neutralUs : neutralUs - minUs) * scale);
+  if (s === 0) return neutralUs;
+  let pulse;
+  if (smallestUs === 0) {
+    pulse = Math.trunc(f(neutralUs + f(s * range)));
+  } else {
+    const edge = Math.min(f(smallestUs), range);
+    const start = f(range - edge) >= 1 ? f(edge + 1) : edge;
+    const dist = Math.trunc(f(start + f(Math.abs(s) * f(range - start))));
+    pulse = s > 0 ? neutralUs + dist : neutralUs - dist;
+  }
+  return Math.max(minUs, Math.min(maxUs, pulse));
+};
+
+// include/dome_math.h domePulseToShare(): the pulse as a signed share of the
+// ESC's full output, measured from Smallest turn's edge. This, not the speed
+// asked for, is what the droid reports it sent.
+const domePulseToShare = (pulseUs, neutralUs, minUs, maxUs, smallestUs) => {
+  const ofSide = (distUs, sideUs) => {
+    if (distUs >= sideUs) return 1;
+    const edgeUs = Math.min(smallestUs, sideUs);
+    if (distUs <= edgeUs) return 0;
+    return Math.fround((distUs - edgeUs) / (sideUs - edgeUs));
+  };
+  if (pulseUs > neutralUs && maxUs > neutralUs) return ofSide(pulseUs - neutralUs, maxUs - neutralUs);
+  if (pulseUs < neutralUs && neutralUs > minUs) return -ofSide(neutralUs - pulseUs, neutralUs - minUs);
+  return 0;
+};
 
 // The Component Registry, read from the one file the firmware builds it from.
 const readRegistry = () => {
@@ -249,6 +339,17 @@ const initialConfig = (droid) => {
   // No droidBuild key: the older-firmware answer, so the Parts picture falls
   // back to drawing every marker rather than only the fitted ones.
   if (droid === 'bench') return { system: { logLevel: 3 } };
+  // The artoo droid with Dome Rotation switched on and started with, every
+  // Dome Rotation Setting at its default, and Positive turns clockwise so the
+  // readout names a direction.
+  if (droid === 'dome') {
+    const config = initialConfig('artoo');
+    config.activeToggles.push('domeRotation');
+    config.components.domeRotation.enabled = true;
+    config.domeRotation = Object.fromEntries(DOME_ROTATION_SETTINGS.map(([, key, rule]) => [key, rule.def]));
+    config.domeRotation.positiveTurn = 'cw';
+    return config;
+  }
   return {
     drive: { speedLimitMax: 40, speedPreset: 'normal', webDriveTimeoutMs: 500, stationary: false },
     rc: { inputMode: 'standard_pwm', activeInputMode: 'standard_pwm', sbusTimeoutMs: 300, sbus: { recvCh2: false }, member: 'rc_radio' },
@@ -375,7 +476,29 @@ const install = async (context, options = {}) => {
     // (src/sequence_run_evidence.cpp).
     seqRun: null,
     config: withFitted(initialConfig(droid), initialOutputs(droid), process.env.FIXTURE_FITTED),
+    // What the dome droid's Dome Rotation last put on the wire, null on the
+    // other droids: {targetSpeed, share, pulseUs}, set by domeWrite() below.
+    dome: null,
   };
+
+  // The dome droid's one output, written the way setDomeSpeed() writes it
+  // (src/tasks/dome_rotation_task.cpp): the pulse from the saved Settings at
+  // the moment of the write, and the share the backend reports for it. Speed
+  // 0 is neutral, which is also setDomeNeutral()'s answer.
+  let domeStopTimer = null;
+  const domeWrite = (speed) => {
+    const cfg = state.config.domeRotation;
+    const pulseUs = domeSpeedToPulseUs(speed, cfg.neutralUs, cfg.minPulseUs, cfg.maxPulseUs, cfg.speedLimitPct, cfg.smallestTurnUs);
+    const share = domePulseToShare(pulseUs, cfg.neutralUs, cfg.minPulseUs, cfg.maxPulseUs, cfg.smallestTurnUs);
+    state.dome = { targetSpeed: speed, share, pulseUs };
+  };
+  // A stop, and the end of whatever timer would have stopped the turn.
+  const domeStop = () => {
+    clearTimeout(domeStopTimer);
+    domeStopTimer = null;
+    domeWrite(0);
+  };
+  if (droid === 'dome') domeWrite(0);
 
   const status = () => {
     if (droid === 'bench') {
@@ -432,6 +555,25 @@ const install = async (context, options = {}) => {
       if (isEnabledOutput(row)) frame[row.id] = { state: 'ready', detail: 'Servo channel enabled' };
       if (row.wired && row.component === 'rgb') frame.lights[row.id] = { r: 0, g: 0, b: 0, effect: 'off', available: true };
     });
+    // The dome droid's Dome Rotation, as src/web/status_json.cpp writes it:
+    // the sent share at one decimal, the pulse, and the entry whose token is
+    // `idle` on a share of exactly 0 and whose detail is the same figure.
+    if (state.dome) {
+      const { targetSpeed, share, pulseUs } = state.dome;
+      const sentPct = Number(Math.fround(share * 100).toFixed(1));
+      Object.assign(frame, {
+        domeTargetSpeed: Number(targetSpeed.toFixed(3)),
+        domeRotationSentPct: sentPct,
+        domeRotationPulseUs: pulseUs,
+        domeEnabled: true,
+        domeBearing: 'unknown',
+        domeBearingDeg: null,
+      });
+      frame.domeRotation = {
+        state: share === 0 ? 'idle' : 'spinning',
+        detail: `${sentPct.toFixed(1)}%${pulseUs > 0 ? `, ${pulseUs} µs` : ''}`,
+      };
+    }
     return frame;
   };
 
@@ -472,6 +614,8 @@ const install = async (context, options = {}) => {
     const was = state.estop;
     state.estop = true;
     releaseAll('estop');
+    // DomeRotationTask puts neutral out under the estop.
+    if (state.dome) domeStop();
     if (!was) push();
   };
   const unlatch = () => {
@@ -546,6 +690,8 @@ const install = async (context, options = {}) => {
   const setSleep = (route, sleeping) => {
     const changed = state.sleep !== sleeping;
     state.sleep = sleeping;
+    // DomeRotationTask puts neutral out in Sleep Mode.
+    if (sleeping && state.dome) domeStop();
     if (changed) push();
     return json(route, { ok: true, sleepMode: sleeping, changed });
   };
@@ -594,6 +740,94 @@ const install = async (context, options = {}) => {
     return refuse(route, 'POST', '/api/servo', body);
   };
 
+  // POST /api/dome on the dome droid (header), refused in the words
+  // handleDomeSpeedPost() uses.
+  const domePost = (route, body) => {
+    const form = parseForm(body);
+    if (!('speed' in form)) return json(route, { ok: false, error: 'missing speed' }, 400);
+    // strtof() over the whole value: a decimal number and nothing after it.
+    const speedText = form.speed;
+    const speed = /^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(speedText) ? Math.fround(Number(speedText)) : NaN;
+    if (!(speed >= -1 && speed <= 1)) return json(route, { ok: false, error: 'speed must be a float in range -1.0..1.0' }, 400);
+    let durationMs = 0;
+    if ('durationMs' in form) {
+      durationMs = /^\d+$/.test(form.durationMs) ? Number(form.durationMs) : NaN;
+      if (!(durationMs <= DOME_TIMED_TURN_MAX_MS)) {
+        return json(route, { ok: false, error: 'durationMs must be an integer in range 0..30000' }, 400);
+      }
+    }
+    if (state.sleep) return json(route, { ok: false, error: 'sleeping', hint: 'POST /api/wake' }, 423);
+    if (!state.config.activeToggles.includes('domeRotation')) {
+      return json(route, { ok: false, error: 'dome output is disabled' }, 409);
+    }
+    // Queued, and discarded by the task while the estop is latched.
+    if (state.estop) return json(route, { ok: true });
+    // A command replaces the one before it, and its own end replaces that
+    // one's: a timed turn ends after its time, an untimed one when nothing
+    // has followed it for the silence stop.
+    clearTimeout(domeStopTimer);
+    domeWrite(speed);
+    domeStopTimer = setTimeout(() => {
+      domeStop();
+      push();
+    }, durationMs > 0 ? durationMs : DOME_COMMAND_TIMEOUT_MS);
+    push();
+    return json(route, { ok: true });
+  };
+
+  // The Dome Rotation Settings on the dome droid (header): every field of the
+  // form one of them, or this is not a write this droid takes (null). Judged
+  // in the settings table's order and merged over what is saved, as
+  // configApply() judges a request, so the first refusal is the one the droid
+  // gives and nothing is saved beside it.
+  const domeConfigPost = (route, body) => {
+    const form = parseForm(body);
+    const sent = DOME_ROTATION_SETTINGS.filter(([name]) => name in form);
+    if (sent.length === 0 || sent.length !== Object.keys(form).length) return null;
+    const next = { ...state.config.domeRotation };
+    for (const [name, key, rule] of sent) {
+      const raw = form[name];
+      if (rule.bool) {
+        if (!['true', 'false', '1', '0'].includes(raw)) {
+          return json(route, { ok: false, error: `${name} must be true/false or 1/0`, field: name, reason: 'out-of-range', accepts: 'true,false,1,0' }, 400);
+        }
+        next[key] = raw === 'true' || raw === '1';
+      } else if (rule.words) {
+        if (!rule.words.includes(raw)) {
+          const sentence = `${rule.words.slice(0, -1).join(', ')} or ${rule.words[rule.words.length - 1]}`;
+          return json(route, { ok: false, error: `${name} must be ${sentence}`, field: name, reason: 'out-of-range', accepts: rule.words.join(',') }, 400);
+        }
+        next[key] = raw;
+      } else {
+        const value = /^\d+$/.test(raw) ? Number(raw) : NaN;
+        if (!(value >= rule.lo && value <= rule.hi)) {
+          return json(route, { ok: false, error: `${name} must be ${rule.lo}..${rule.hi}`, field: name, reason: 'out-of-range', accepts: `${rule.lo}..${rule.hi}` }, 400);
+        }
+        next[key] = value;
+      }
+    }
+    // The two rules across Settings, only when the request named one of
+    // theirs (src/web/api_config_apply.cpp): the pulses in order, and the
+    // random pauses' shortest no longer than their longest.
+    const firstSent = (names) => names.find((name) => name in form);
+    const pulseSent = firstSent(['domeRotationNeutralUs', 'domeRotationMinPulseUs', 'domeRotationMaxPulseUs']);
+    if (pulseSent && !(next.minPulseUs <= next.neutralUs && next.neutralUs <= next.maxPulseUs)) {
+      return json(route, {
+        ok: false,
+        error: `domeRotationMinPulseUs ${next.minPulseUs}, domeRotationNeutralUs ${next.neutralUs}, domeRotationMaxPulseUs ${next.maxPulseUs}: must be min <= neutral <= max`,
+        field: pulseSent,
+        reason: 'conflict',
+      }, 400);
+    }
+    const pauseSent = firstSent(['domeRotationRndPauseMin', 'domeRotationRndPauseMax']);
+    if (pauseSent && next.rndPauseMin > next.rndPauseMax) {
+      return json(route, { ok: false, error: 'domeRotationRndPauseMin must be at most domeRotationRndPauseMax', field: pauseSent, reason: 'conflict' }, 400);
+    }
+    state.config.domeRotation = next;
+    state.accepted.push(`POST /api/config ${body}`);
+    return json(route, state.config);
+  };
+
   const configPost = (route, request, body) => {
     // Guided Setup's visit record (data/setup.js saveVisited): taken, and kept.
     if (/^guidedSetupVisited=[^&]*$/.test(body)) {
@@ -601,6 +835,10 @@ const install = async (context, options = {}) => {
       return json(route, { ok: true });
     }
     const type = request.headers()['content-type'] || '';
+    if (state.dome && !type.includes('application/json')) {
+      const answered = domeConfigPost(route, body);
+      if (answered) return answered;
+    }
     if (!type.includes('application/json')) return refuse(route, 'POST', '/api/config', body);
     let parsed;
     try {
@@ -692,6 +930,7 @@ const install = async (context, options = {}) => {
     if (method === 'POST' && apiPath === '/api/wake') return setSleep(route, false);
     if (method === 'POST' && apiPath === '/api/servo') return servoPost(route, body);
     if (method === 'POST' && apiPath === '/api/config') return configPost(route, request, body);
+    if (method === 'POST' && apiPath === '/api/dome' && state.dome) return domePost(route, body);
     return refuse(route, method, apiPath, body);
   };
 
@@ -718,6 +957,7 @@ const install = async (context, options = {}) => {
     close: () =>
       new Promise((resolve) => {
         clearInterval(expiryTimer);
+        clearTimeout(domeStopTimer);
         clients.forEach((res) => res.end());
         server.close(() => resolve());
         // A browser that is gone may leave its socket half-open; do not let
