@@ -928,15 +928,17 @@ products:
       wires:
         - { from: "Throttle wire, signal", to: "the board's dome ESC pin" }
         - { from: "Throttle wire, ground", to: "the board's ground" }
-        - { from: "Throttle wire, centre", to: "nothing", note: "it is the BEC's 5.0-7.5 V out: cut it or tape it back" }
+        - { from: "Throttle wire, centre", to: "nothing", note: "it is the BEC's 5.0-7.5 V out: pull its pin from the plug and tape it back. Set the BEC to 5.0 V before anything is wired to it" }
         - { from: "Motor wires", to: "the dome motor", note: "either way round" }
         - { from: "Battery wires", to: "a 2-3S pack or a 12 V step-down", note: "polarity matters" }
       hazards:
-        - "The throttle wire's centre conductor is 5.0-7.5 V out. Plugged onto a FireBeetle 2 row it lands on the 3.3 V plane and kills the board."
+        - "Unless you have metered the board's dome pin header, wire signal and ground only. The throttle wire's centre conductor is 5.0-7.5 V out: on a FireBeetle 2 row it lands on the 3.3 V plane and kills the board."
+        - "After calibration the ESC is in Forward/Reverse with brake: the first reverse only brakes, so the dome turns one way. Set Running mode to Forward and Reverse in ISD Go."
+        - "The factory Novice throttle curve caps output at 70 %. Set the curve endpoints to +/-100."
         - "Over 12.6 V destroys it at once. A 36 V hoverboard pack does, and so does a 4S pack."
         - "Battery wires the wrong way round damage the ESC."
         - "A jammed dome is not protected. Its 120 A limit is out of a dome motor's reach."
-      source: "4.1, 4.2, 4.3, 4.4, 4.5, 5.2"
+      source: "4.1, 4.2, 4.3, 4.4, 4.5, 5.2, 7, 8.1"
     notes: |
       The ISD Go baseline below is the operator's own tuning, locked on the bench on
       2026-03-21 against a real dome ring on the Artoo PCB. For tuning it outranks a
@@ -974,6 +976,14 @@ products:
       wrong number. The bench record reads "1 kHz PWM, Start force MAX, Brake 1,
       drag/active brake off".
 
+      The curve and the speed bend the Dome Bearing. The droid follows a turn by
+      time, from one full turn timed at one speed, and counts as if the dome's speed
+      were proportional to the pulse. A shaped curve, a dead zone near neutral, the
+      start force and the PWM frequency all break that proportion, so a turn at any
+      other speed drifts. Time the full turn at the speed the dome is driven at most,
+      and time it again after changing the curve, the start force, the PWM frequency
+      or the speed limit.
+
       Calibration and verification checklist:
       1. Complete throttle calibration (max, min, neutral) in ISD Go. Nothing else can
          be set until this is done.
@@ -993,6 +1003,22 @@ products:
       - If the dome turns one way and not the other, check the running mode before
         suspecting the mechanics.
 
+      Symptom to cause. The ESC's own state shows in two places only, its switch
+      module's LED and the ISD Go app; the droid knows only the pulse it sent.
+      - Turns one way only: running mode. Forward/Reverse with brake, the default
+        after calibration, only brakes on the first reverse (sheet 7). Set Forward
+        and Reverse.
+      - Never moves at any setting: the throttle is not calibrated (it blocks every
+        other setting, sheet 6.1), or the speed limit keeps every pulse inside the
+        ESC's dead zone near neutral (below).
+      - Turns, but weak: the Novice throttle curve caps output at 70 % (sheet 8.1).
+        Set the endpoints to +/-100 before reaching for start force.
+      - Red LED after switching the ESC on mid-session: an error, most likely
+        Receiver Lost or Receiver Waiting (sheet 9.1). The app says which; see
+        Arming below.
+      - Nothing at all, no LED: the ESC has no power, or its switch is off. LED
+        green and still nothing: the signal wire, its ground, or the pin it is on.
+
       Calibrating against the droid instead of a transmitter. The droid is a legitimate
       throttle source: it emits exactly the 1000 / 1500 / 2000 us the procedure wants.
       Two steps are awkward from a web page:
@@ -1010,9 +1036,10 @@ products:
       1000 / 2000, and those two fields are the trim that fixes it without
       recalibrating. That is what they are for, not direction.
 
-      Direction has three inversion points: the motor wires, the app's Motor rotation
-      setting, and swapping `dome_min_pulse_us` / `dome_max_pulse_us` on the Dome page.
-      Pick the app setting, record it, and leave the other two alone.
+      Direction has two inversion points: the motor wires and the app's Motor rotation
+      setting. Pick the app setting, record it, and leave the wires alone. Swapping
+      `dome_min_pulse_us` / `dome_max_pulse_us` is not a third: a set out of order is
+      refused, because it cannot put neutral out for a stop (#417).
 
       The neutral deadband and `dome_speed_limit_pct`. The droid's neutral is a fixed
       1500 us from a hardware timer, so the drift the ESC's deadband exists to absorb
@@ -1077,9 +1104,10 @@ products:
 
       Findings against the code (2026-09-12 research, re-checked 2026-10-06):
       - The brushless comment: `include/ledc_pwm.h` was fixed and now says a BRUSHED
-        ESC, but `include/config.h` (the DOME channel comment, "drives brushless
-        motor") and `include/servo_backend.h` ("LEDC_CH_DOME (a brushless ESC") still
-        say brushless. The ESC70 is brushed only and cannot run a brushless motor.
+        ESC, but `include/servo_output_row.h` (why the DOME channel is not an
+        addressable Output) and `include/sequence_body_step.h` (why a body step
+        cannot name it) still say it carries a brushless ESC. The ESC70 is brushed
+        only and cannot run a brushless motor.
       - Stack sizes (resolved): docs/failsafe.md once carried a Chip-Specific column
         reading No for DomeTask at 3072 B, while config.h had 3072 B on artoo-esp32
         and 4608 B on P4, with an 80 B lower-bound floor recorded on artoo-esp32 as a
@@ -1097,8 +1125,8 @@ products:
         Open.
       - The dome is write-only. `robotState.domeTargetSpeed` is what was commanded,
         not what the dome is doing. The Dome ESC health row (`data/health_signals.js`)
-        now reads Idle or Spinning in grey as a commanded word, never green. The Dome page's own
-        rotation-state word still reads Idle / Spinning from the commanded target, so a
+        now reads Idle or Spinning in grey as a commanded word, never green. The Dome
+        page's own rotation word is drawn from the commanded target too, so a
         dome whose ESC is in protection, unpowered, uncalibrated or in the wrong
         running mode shows the same page as a turning dome: the same shape as the old
         optimistic audio "Playing" badge, with no wire to read. Open: word that state
