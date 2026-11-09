@@ -117,11 +117,11 @@ const HEADLESS = process.env.HEADLESS === 'true';
     // become enabled' sit here passing against a pill that has never contained
     // the word 'enabled' (#399 slice 3).
     if (reverse.hardwareState !== 'on in Configuration') throw new Error('Dome hardware state not rendered');
-    if (reverse.rotationState !== 'Anticlockwise' || reverse.speedText !== '-55%' || reverse.pulseText !== '1225 \u00b5s') {
+    if (reverse.rotationState !== 'Anticlockwise' || reverse.speedText !== '-55.0%' || reverse.pulseText !== '1225 \u00b5s') {
       throw new Error('Anticlockwise status not rendered');
     }
-    if (idle.rotationState !== 'Stopped' || idle.speedText !== '0%') throw new Error('Stopped status not rendered');
-    if (forward.rotationState !== 'Clockwise' || forward.speedText !== '72%') throw new Error('Clockwise status not rendered');
+    if (idle.rotationState !== 'Stopped' || idle.speedText !== '0.0%') throw new Error('Stopped status not rendered');
+    if (forward.rotationState !== 'Clockwise' || forward.speedText !== '72.0%') throw new Error('Clockwise status not rendered');
     // A direction is a value, not a symptom: neither the word nor the bar may
     // take a signal color, and the bar is one color whichever way it goes
     // (GLOSSARY.md 'Status Color').
