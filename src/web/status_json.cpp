@@ -347,14 +347,18 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
             // threshold is needed (#504). The Dome page reads the same share.
             // The tokens stay `spinning` / `idle` for the readers that key on
             // them; the words a page shows are its own.
+            // The detail is the sent figure as the Dome page prints it
+            // (data/dome.js sentPercentText): whole percent, with the decimal
+            // kept under 1 % so the smallest turn never reads as 0 %; then the
+            // pulse where the product sends one.
             const bool stopped = in.domeRotationSentShare == 0.0f;
-            if (in.domeRotationPulseUs > 0) {
-                snprintf(detail, sizeof(detail), "Sent %.1f%%, %u us",
-                         (double)(in.domeRotationSentShare * 100.0f),
+            const float sentPct = in.domeRotationSentShare * 100.0f;
+            const bool wholePct = stopped || sentPct >= 1.0f || sentPct <= -1.0f;
+            const int n = snprintf(detail, sizeof(detail), wholePct ? "%.0f%%" : "%.1f%%",
+                                   (double)sentPct);
+            if (in.domeRotationPulseUs > 0 && n > 0 && n < (int)sizeof(detail)) {
+                snprintf(detail + n, sizeof(detail) - (size_t)n, ", %u us",
                          (unsigned)in.domeRotationPulseUs);
-            } else {
-                snprintf(detail, sizeof(detail), "Sent %.1f%%",
-                         (double)(in.domeRotationSentShare * 100.0f));
             }
             ok = appendPeripheralStatus(pos, remaining, "domeRotation",
                                         stopped ? "idle" : "spinning", detail) &&
