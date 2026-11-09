@@ -21,6 +21,7 @@ also stand down: a lost or stale PWM signal zeroes the RC drive command
 - [Layer 4 - Watchdog reset](#layer-4---watchdog-reset)
 - [Layer 5 - Latching estop](#layer-5---latching-estop)
 - [Foot Drive backstop - hoverboard UART timeout](#foot-drive-backstop---hoverboard-uart-timeout)
+- [Dome Rotation stop rules](#dome-rotation-stop-rules)
 - [Boot safety defaults](#boot-safety-defaults)
 - [Implementation notes](#implementation-notes)
 
@@ -138,6 +139,26 @@ the hoverboard with hacked firmware, and runs outside protoR2:
 protoR2 supports it by following the zero-frame rule: it never goes silent
 intentionally. Even when stopped, it keeps transmitting zero commands.
 
+## Dome Rotation stop rules
+
+Dome Rotation is not a Failsafe Layer: the five layers hold drive. These are
+the rules that keep the dome from turning on its own:
+
+- **Neutral, never released.** Every stop puts the neutral pulse on the wire.
+  The pulse is never switched off: a signal line left floating reads to the
+  ESC as a lost receiver, not as a stop.
+- **0.5 s silence stop.** A turn with no duration lasts only while its sender
+  keeps sending: after 0.5 s with no new command the dome goes to neutral.
+- **Estop.** While the estop is latched the dome is held at neutral, and every
+  turn sent during it is thrown away, so clearing the estop never starts the
+  dome by itself. The Dome Bearing is forgotten.
+- **Sleep Mode.** The same as the estop: neutral, every queued turn thrown
+  away, the Dome Bearing forgotten.
+- **30 s cap on timed turns.** A timed turn from a sender (a Dome Controller
+  line, a sequence step) is cut to 30 s and the cut is logged. A turn to a
+  Dome Bearing is exempt: the droid plans it from its own calibration, and half
+  a turn can take longer than 30 s.
+
 ## Boot safety defaults
 
 The system boots with conservative defaults:
@@ -187,8 +208,8 @@ from, generated into `include/task_stack_figures.h` (ADR 0040).
 |------|----------|------|
 | **DriveTask** | 5 | 50 Hz Foot Drive frame transmission + TWDT reset. Core-critical. Must complete within its 20 ms period, or the hoverboard keeps acting on its last frame. |
 | **RCInputTask** | 5 | RC poll (SBUS or PWM). Decodes frames and routes to failsafe/arbiter. Core-critical. Not created when the receiver mode reads no input (`elrs`, `not_fitted`). |
-| **ServoTask** | 4 | 50 Hz servo/ESC PWM updates for arms and dome ESC. Processes its queue without blocking. |
-| **DomeTask** | 4 | 50 Hz dome ESC command application. Applies speed presets, respects estop. Not created when the Dome ESC is off at boot. |
+| **ServoTask** | 4 | 50 Hz servo PWM updates for the servo Outputs. Processes its queue without blocking. It never writes the Dome ESC's channel. |
+| **DomeTask** | 4 | 50 Hz Dome Rotation: the only writer of the Dome ESC's pulse. Applies the speed limit and the dome rules under [Dome Rotation stop rules](#dome-rotation-stop-rules). Not created when Dome Rotation is off at boot. |
 | **DomeLinkTask** | 3 | protoR2link to the Dome Controller over UART2, including the protoR2link Arbiter (UART slip ring vs WiFi fallback). Non-blocking I/O. |
 
 **Core 0 (Housekeeping, Web, OTA):**
