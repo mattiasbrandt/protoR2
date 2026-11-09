@@ -377,6 +377,28 @@ void forEachSetting(Fn fn) {
 
 constexpr size_t kConfigSettingCount = sizeof(kConfigSettings) / sizeof(kConfigSettings[0]);
 
+// The Dome Rotation rename (#504, operator 2026-11-09): every name these
+// Settings answered to as the Dome ESC's. Input only, until the next release
+// (include/config_settings.h, "Renamed Settings").
+const RenamedSetting kRenamedSettings[] = {
+    {"enableDomeEsc", "components.domeEsc.enabled", "enableDomeRotation"},
+    {"domeEscNeutralUs", "domeEsc.neutralUs", "domeRotationNeutralUs"},
+    {"domeEscMinPulseUs", "domeEsc.minPulseUs", "domeRotationMinPulseUs"},
+    {"domeEscMaxPulseUs", "domeEsc.maxPulseUs", "domeRotationMaxPulseUs"},
+    {"domeEscSpeedLimitPct", "domeEsc.speedLimitPct", "domeRotationSpeedLimitPct"},
+    {"domeEscRndEnable", "domeEsc.rndEnable", "domeRotationRndEnable"},
+    {"domeEscRndSpeedPct", "domeEsc.rndSpeedPct", "domeRotationRndSpeedPct"},
+    {"domeEscRndPauseMin", "domeEsc.rndPauseMin", "domeRotationRndPauseMin"},
+    {"domeEscRndPauseMax", "domeEsc.rndPauseMax", "domeRotationRndPauseMax"},
+    {"domeEscRndMoveMs", "domeEsc.rndMoveMs", "domeRotationRndMoveMs"},
+    {"domeEscFullTurnMs", "domeEsc.fullTurnMs", "domeRotationFullTurnMs"},
+    {"domeEscFullTurnPct", "domeEsc.fullTurnPct", "domeRotationFullTurnPct"},
+    {"domeEscPositiveTurn", "domeEsc.positiveTurn", "domeRotationPositiveTurn"},
+};
+constexpr size_t kRenamedSettingCount = sizeof(kRenamedSettings) / sizeof(kRenamedSettings[0]);
+static_assert(kRenamedSettingCount <= RENAMED_SETTING_MAX,
+              "a request's renamed inputs are one bit each (ConfigApplyResult)");
+
 // -----------------------------------------------------------------------------
 // Settings of an Output
 //
@@ -741,6 +763,40 @@ const ConfigSetting* configSettingByForm(const char* form) {
     for (const ConfigSetting& setting : kConfigSettings) {
         if (strcmp(setting.form, form) == 0) {
             return &setting;
+        }
+    }
+    return nullptr;
+}
+
+// =============================================================================
+// Renamed Settings
+// =============================================================================
+size_t renamedSettingCount() { return kRenamedSettingCount; }
+
+const RenamedSetting& renamedSettingAt(size_t index) { return kRenamedSettings[index]; }
+
+const RenamedSetting* renamedSettingByForm(const char* form, size_t* index) {
+    if (form == nullptr) {
+        return nullptr;
+    }
+    for (size_t i = 0; i < kRenamedSettingCount; ++i) {
+        if (strcmp(kRenamedSettings[i].form, form) == 0) {
+            if (index != nullptr) {
+                *index = i;
+            }
+            return &kRenamedSettings[i];
+        }
+    }
+    return nullptr;
+}
+
+const RenamedSetting* renamedSettingByOldForm(const char* oldForm) {
+    if (oldForm == nullptr) {
+        return nullptr;
+    }
+    for (const RenamedSetting& renamed : kRenamedSettings) {
+        if (strcmp(renamed.oldForm, oldForm) == 0) {
+            return &renamed;
         }
     }
     return nullptr;

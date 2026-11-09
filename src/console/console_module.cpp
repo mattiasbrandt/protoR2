@@ -2034,11 +2034,17 @@ static const char* consoleScalarConfigParamGet(void* ctx, const char* name) {
 // comment above). Any other supplied key is unknown, matching criterion 2's
 // "unknown key -> invalid with the key named" for every other operation
 // type in this module.
+//
+// A renamed Setting's old form name (include/config_settings.h, "Renamed
+// Settings") is its own named key too, until the next release; configApply()
+// reads it under that name when the new one is absent, and the commit logs it.
 static bool consoleScalarConfigArgsValid(const ConsoleArgs& args, const char* fieldKey,
                                          const char** badKeyOut) {
+    const RenamedSetting* renamed = renamedSettingByForm(fieldKey);
     for (size_t i = 0; i < args.count; ++i) {
         if (strcmp(args.items[i].key, "value") != 0 &&
-            strcmp(args.items[i].key, fieldKey) != 0) {
+            strcmp(args.items[i].key, fieldKey) != 0 &&
+            (renamed == nullptr || strcmp(args.items[i].key, renamed->oldForm) != 0)) {
             *badKeyOut = args.items[i].key;
             return false;
         }
@@ -2163,7 +2169,12 @@ static void consoleWriteScalarConfigField(uint32_t requestId, const char* operat
     // The refusal names the core's field (the POST field, `speedLimitMax`),
     // which no Console builder types: they typed `value=` or the field's own
     // key, and that is the argument named back.
+    const RenamedSetting* renamed = renamedSettingByForm(fieldKey);
     const char* argument = consoleArgsFind(parsedArgs, "value") != nullptr ? "value" : fieldKey;
+    if (argument == fieldKey && consoleArgsFind(parsedArgs, fieldKey) == nullptr &&
+        renamed != nullptr) {
+        argument = renamed->oldForm;  // the only other key the check above lets through
+    }
     consoleWriteConfig(requestId, operationName, params, fieldKey, argument, source, successOutcome,
                        sink);
 }

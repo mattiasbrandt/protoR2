@@ -31,7 +31,7 @@
 // that rule to commandedSetStationary() (state-derived), once the later
 // Z2 commanded_modes feature lands. Until then the shell keeps its existing
 // inline stationary-release cue logic unchanged. playDomeOnCue stays a core
-// action because it is config-derived (enable_dome_esc false->true).
+// action because it is config-derived (enableDomeRotation false->true).
 //
 // Defined in src/web/api_config_apply.cpp.
 // =============================================================================
@@ -136,11 +136,18 @@ struct ConfigApplyResult {
     // Records' own checks stage it here and the Commit Step merges it.
     ConfigRecordEdits records;
     ConfigPartMove partMove;
+    // The renamed Settings (include/config_settings.h, "Renamed Settings") the
+    // request named by a name they had before, one bit per entry of that
+    // table: under its old form name, and at its old GET path. The value is
+    // taken as if it came under the new name; the shell logs each one and the
+    // reply says what it is called now (#504).
+    uint32_t renamedByForm = 0;
+    uint32_t renamedByPath = 0;
 };
 
 // `working` must already hold the current cached snapshot (shell reads it
 // via configCacheRead before calling). `domeEnabledBefore` is the live
-// enable_dome_esc value snapshotted by the shell before the call, per ADR 0011's
+// enableDomeRotation value snapshotted by the shell before the call, per ADR 0011's
 // "snapshot live inputs before calling the core." `result` is fully
 // reinitialized on entry (safe to reuse a static instance across calls).
 void configApply(const ConfigParamSource& params, ConfigSnapshot* working, bool domeEnabledBefore,

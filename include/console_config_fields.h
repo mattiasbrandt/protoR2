@@ -50,7 +50,7 @@ inline constexpr ComponentToggleField kComponentToggleFields[] = {
     {"system.config.enable_aux1", "enableAux1", &SystemConfig::enable_aux1},
     {"system.config.enable_aux2", "enableAux2", &SystemConfig::enable_aux2},
     {"system.config.enable_aux3", "enableAux3", &SystemConfig::enable_aux3},
-    {"system.config.enable_dome_esc", "enableDomeEsc", &SystemConfig::enable_dome_esc},
+    {"system.config.enable_dome_esc", "enableDomeRotation", &SystemConfig::enable_dome_esc},
     {"system.config.enable_rc_ch1", "enableRcCh1", &SystemConfig::enable_rc_ch1},
     {"system.config.enable_rc_ch2", "enableRcCh2", &SystemConfig::enable_rc_ch2},
     {"system.config.enable_rc_ch3", "enableRcCh3", &SystemConfig::enable_rc_ch3},

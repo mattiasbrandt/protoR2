@@ -223,9 +223,9 @@ struct ComponentLabel {
 };
 
 constexpr ComponentLabel kComponentLabels[] = {
-    {"domeEsc", "enable_dome_esc"}, {"rcCh1", "enable_rc_ch1"}, {"rcCh2", "enable_rc_ch2"},
-    {"rcCh3", "enable_rc_ch3"},     {"rcCh4", "enable_rc_ch4"}, {"rcCh5", "enable_rc_ch5"},
-    {"rcCh6", "enable_rc_ch6"},     {"drive", "enable_drive"},  {"audio", "enable_audio"},
+    {"domeRotation", "enable_dome_esc"}, {"rcCh1", "enable_rc_ch1"}, {"rcCh2", "enable_rc_ch2"},
+    {"rcCh3", "enable_rc_ch3"},          {"rcCh4", "enable_rc_ch4"}, {"rcCh5", "enable_rc_ch5"},
+    {"rcCh6", "enable_rc_ch6"},          {"drive", "enable_drive"},  {"audio", "enable_audio"},
     {"protoR2link", "enable_protor2link"},
 };
 
@@ -363,9 +363,9 @@ void addActiveMemberFields(JsonDocument& doc) {
 // page load reads.
 //
 // The id is the payload's own component key: the param name without its
-// "enable" and with the first letter lowered (enableDomeEsc -> domeEsc), so the
-// list names exactly the entries under "components" and nothing keeps a second
-// spelling of them. An Output's tick is left out for the same reason: an Output
+// "enable" and with the first letter lowered (enableDomeRotation ->
+// domeRotation), so the list names exactly the entries under "components" and
+// nothing keeps a second spelling of them. An Output's tick is left out for the same reason: an Output
 // is not under "components" but on its row (ADR 0068), and a page reads what
 // it was first reported with from there.
 // -----------------------------------------------------------------------------
@@ -508,8 +508,35 @@ void addClampedEndpointFields(JsonDocument& doc, const ConfigCommitOutcome& comm
 // populateConfigJson(): they are runtime state (is a Staged Network Switch
 // outstanding, was Network Recovery Mode the posture actually entered at boot,
 // what did the droid start with) that a pure snapshot serializer cannot see.
+// What a renamed Setting is called now, for each one the request named by an
+// old name (#504, include/config_settings.h "Renamed Settings"): one sentence
+// per name, the name the request used and the one to send instead. Absent on a
+// request that used none, which is every request from this firmware's pages.
+void addRenamedFieldWarnings(JsonDocument& doc, const ConfigApplyResult& result) {
+    if (result.renamedByForm == 0 && result.renamedByPath == 0) {
+        return;
+    }
+    JsonArray warnings = doc["warnings"].to<JsonArray>();
+    for (size_t i = 0; i < renamedSettingCount(); ++i) {
+        const uint32_t bit = (uint32_t)1u << i;
+        const RenamedSetting& renamed = renamedSettingAt(i);
+        const bool byForm = (result.renamedByForm & bit) != 0;
+        if (!byForm && (result.renamedByPath & bit) == 0) {
+            continue;
+        }
+        const ConfigSetting* setting = configSettingByForm(renamed.form);
+        const char* now = byForm || setting == nullptr ? renamed.form : setting->path;
+        char sentence[128];
+        snprintf(sentence, sizeof(sentence),
+                 "%s is now %s; the old name is accepted until the next release",
+                 byForm ? renamed.oldForm : renamed.oldPath, now);
+        warnings.add(sentence);  // char[], so the document copies it
+    }
+}
+
 void sendConfigSnapshot(WebRequest& req, const ConfigSnapshot& snap,
-                        const ConfigCommitOutcome* commit = nullptr) {
+                        const ConfigCommitOutcome* commit = nullptr,
+                        const ConfigApplyResult* applied = nullptr) {
     JsonDocument doc;
     if (!populateConfigJson(doc, snap)) {
         webSendJsonError(req, 500, "config json build failed");
@@ -517,6 +544,9 @@ void sendConfigSnapshot(WebRequest& req, const ConfigSnapshot& snap,
     }
     if (commit != nullptr) {
         addClampedEndpointFields(doc, *commit);
+    }
+    if (applied != nullptr) {
+        addRenamedFieldWarnings(doc, *applied);
     }
     addActiveMemberFields(doc);
     addActiveFields(doc);
@@ -568,6 +598,16 @@ ConfigCommitOutcome configCommitApplied(ConfigSnapshot* working, const ConfigApp
 
     for (size_t i = 0; i < result.applied.count; ++i) {
         PA_LOG_INFO(TAG, "%s", result.applied.lines[i]);
+    }
+    for (size_t i = 0; i < renamedSettingCount(); ++i) {
+        const uint32_t bit = (uint32_t)1u << i;
+        if (((result.renamedByForm | result.renamedByPath) & bit) != 0) {
+            const RenamedSetting& renamed = renamedSettingAt(i);
+            const char* used =
+                (result.renamedByForm & bit) != 0 ? renamed.oldForm : renamed.oldPath;
+            PA_LOG_WARN(TAG, "[CFG] %s sent as %s, its old name: accepted until the next release",
+                        renamed.form, used);
+        }
     }
     if (result.applied.dropped > 0) {
         PA_LOG_INFO(TAG, "[CFG] and %u more field(s) updated", (unsigned)result.applied.dropped);
@@ -819,7 +859,7 @@ void handleConfigPost(WebRequest& req) {
         return;
     }
 
-    sendConfigSnapshot(req, working, &commit);
+    sendConfigSnapshot(req, working, &commit, &result);
 }
 
 // GET /api/servo/outputs - every live Servo Output row, the Parts each drives,
