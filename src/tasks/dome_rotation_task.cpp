@@ -55,13 +55,9 @@ static const char* TAG = "DomeRotation";
 // Constants
 // -----------------------------------------------------------------------------
 #define DOME_COMMAND_TIMEOUT_MS 500  // Zero speed if no command for 500ms
-// The longest timed turn taken from a sender (#504): a Dome Controller
-// `dome=rot` line or a sequence step. A longer one is cut to this and logged.
-// A turn to a Dome Bearing is exempt: it is planned here from the droid's own
-// calibration (bearingPlanTurn()), and half a turn can take longer
-// (DOME_FULL_TURN_MS_MAX), so the cap is applied to the command as it arrives,
-// before that plan replaces it.
-#define DOME_TIMED_TURN_MAX_MS 30000
+// The 30 s cap on a timed turn from a sender is DOME_TIMED_TURN_MAX_MS
+// (include/robot_state.h, beside the command it bounds), so the web route that
+// refuses a longer one and this task that cuts it read one number.
 
 // -----------------------------------------------------------------------------
 // The Dome Bearing (include/dome_bearing.h, ADR 0051 as amended 2026-09-30,

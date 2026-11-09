@@ -332,9 +332,19 @@ enum DomeRotationCommandKind : uint8_t {
     DOME_ROTATION_CMD_TURN_TO = 2,        // turn the short way to targetTenths of Dome Bearing
 };
 
+// The longest timed turn taken from a sender (#504): a Dome Controller
+// `dome=rot` line, a sequence step, or a timed POST /api/dome (the Dome page's
+// calibration helper). DomeRotationTask cuts a longer one to this and logs it;
+// the web route refuses one outright. A turn to a Dome Bearing is exempt: it
+// is planned in the task from the droid's own calibration (bearingPlanTurn()),
+// and half a turn can take longer (DOME_FULL_TURN_MS_MAX), so the task applies
+// the cap to the command as it arrives, before that plan replaces it.
+#define DOME_TIMED_TURN_MAX_MS 30000
+
 struct DomeRotationCommand {
     float speed;         // -1.0 (full reverse) .. +1.0 (full forward), 0 = stop
     uint32_t durationMs; // 0 = indefinite (RC/web), >0 = auto-stop after this many ms
+                         // (DOME_TIMED_TURN_MAX_MS at most, unless a TURN_TO)
     CommandSource source;
     // These two sit in the padding after `source`, so the struct is the size
     // it always was and no sender's frame grows - RC input's measured stack
