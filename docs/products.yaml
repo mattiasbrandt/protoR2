@@ -1025,7 +1025,11 @@ products:
       1. Set Speed limit to 100 % first. The helper waits for it: every turn goes
          through the speed limit, and calibrated under a lower one the ESC learns
          ends that are too narrow.
-      2. With the ESC switched off, hold full one way, then switch the ESC on.
+      2. With the ESC switched off, and the transmitter off or its dome channel
+         unbound (a live dome channel sends untimed turns that replace a hold),
+         hold full one way, then switch the ESC on. If that hold runs out before
+         the ESC is on, switch the ESC off and start again: it then boots
+         normally, not into calibration.
       3. At each beep, move to the next hold in the vendor's order: neutral, full
          one way, neutral, full the other way, neutral. The ESC counts its own
          beeps; somebody has to listen next to the droid.
