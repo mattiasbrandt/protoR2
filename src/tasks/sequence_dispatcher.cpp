@@ -16,8 +16,8 @@
 // Dispatch decision logic is extracted to sequence_dispatcher_step (ADR 0014):
 // a pure decision module that takes a SeqAction and returns the target queue
 // and command format. The task adapter executes those decisions. The pure
-// functions (sequenceStart, sequenceLookup, sequenceActionToDomeRotationCommand) are
-// testable in the native environment without FreeRTOS/Arduino dependencies.
+// functions (sequenceStart, sequenceLookup, sequenceActionToDomeRotationCommand)
+// are testable in the native environment without FreeRTOS/Arduino dependencies.
 // The task adapter compiles with native test stubs for FreeRTOS. The task
 // waits on its queue and calls sequenceDispatcherTick() once per wake; a
 // native test calls the same tick with the request in hand, because the
@@ -79,7 +79,7 @@ void sequenceDispatcherInit() {
 static const char* TAG = "SEQ";
 
 bool sequenceActionToDomeRotationCommand(const SeqAction& act, uint32_t nowMs,
-                                 DomeRotationCommand& out) {
+                                         DomeRotationCommand& out) {
     if (act.kind != SEQ_ACT_DOME_ROTATE) {
         return false;
     }

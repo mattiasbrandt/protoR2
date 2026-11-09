@@ -20,7 +20,7 @@
 // Dispatch targets  --  what queue/function the action should route to
 enum SequenceDispatchTarget : uint8_t {
     SEQ_DISPATCH_DOME_CMD,         // domeQueueTx(payload)
-    SEQ_DISPATCH_DOME_ROTATE,      // domeRotateQueue: converted to DomeRotationCommand
+    SEQ_DISPATCH_DOME_ROTATE,      // domeRotationCmdQueue: converted to DomeRotationCommand
     SEQ_DISPATCH_AUDIO_DOLLAR,     // audioQueueDollar(payload, SRC_SEQ)
     SEQ_DISPATCH_AUDIO_CATEGORY,   // audioQueuePlayCategory(...)
     SEQ_DISPATCH_AUDIO_STOP,       // audioQueueTrackStop(SRC_SEQ)

@@ -106,7 +106,7 @@ SequenceLookupResult sequenceLookup(const char* name);
 // for SEQ_ACT_DOME_ROTATE and fills the DomeRotationCommand that production dispatch
 // sends to domeRotationCmdQueue.
 bool sequenceActionToDomeRotationCommand(const SeqAction& act, uint32_t nowMs,
-                                 DomeRotationCommand& out);
+                                         DomeRotationCommand& out);
 
 // Catalog lookup  --  returns the body-owned entry or nullptr.
 const SequenceEntry* sequenceCatalogFind(const char* name);

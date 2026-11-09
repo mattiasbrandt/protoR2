@@ -71,7 +71,7 @@ Safety and architecture guardrails:
 Performance evidence baseline:
 - Heap pressure is burst-dominated by SSE connect/disconnect behavior.
 - Critical historical floor: heapMin around 31 KB during SSE bursts.
-- DomeTask had near-overflow risk (free stack reached ~108 B before remediation).
+- DomeRotationTask (then DomeTask) had near-overflow risk (free stack reached ~108 B before remediation).
 - Oversized stacks were a significant recoverable heap source (DriveTask, loopTask, async_tcp).
 - Logging macro stack overhead was a major hidden contributor in small-stack tasks.
 - Large local stack buffers in cross-task helpers are forbidden on small stack tasks.
