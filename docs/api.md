@@ -459,14 +459,23 @@ curl -s -X POST http://artoo.local/api/drive \
 
 ### POST /api/dome
 
-Queues dome speed command.
+Queues a Dome Rotation speed command. It goes through the same speed limit as
+every other turn. Not gated by web control, as `POST /api/dome/home` is not.
+While the estop is latched the command is accepted and then discarded, so it
+never runs once the estop clears.
 
 - Body fields:
 - `speed`: float in `-1.0..1.0`
+- `durationMs` (optional): integer in `0..30000`. Above `0` the turn holds
+  that long and then stops by itself; it is never refreshed. Absent or `0`:
+  an untimed turn, which stops 0.5 s after the last command unless the
+  sender repeats it. The Dome page's calibration helper sends its holds this
+  way (#504)
 - Success: `200` `{"ok":true}`
 - Errors:
 - `400` `{"ok":false,"error":"missing speed"}`
 - `400` `{"ok":false,"error":"speed must be a float in range -1.0..1.0"}`
+- `400` `{"ok":false,"error":"durationMs must be an integer in range 0..30000"}`
 - `423` `{"ok":false,"error":"sleeping","hint":"POST /api/wake"}`
 - `409` `{"ok":false,"error":"dome output is disabled"}` -- the Dome ESC is off for this boot. A switch saved since takes effect at the restart, in both directions
 - `503` `{"ok":false,"error":"dome command queue full"}`
@@ -476,6 +485,8 @@ Queues dome speed command.
 ```bash
 curl -s -X POST http://artoo.local/api/dome \
   -d 'speed=0.5'
+curl -s -X POST http://artoo.local/api/dome \
+  -d 'speed=1.0&durationMs=30000'
 ```
 
 #### Example response

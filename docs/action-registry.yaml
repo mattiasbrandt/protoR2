@@ -836,7 +836,7 @@ entries:
   - domeBearingDeg
 - name: dome.action.move
   display_name: Dome Speed (Web)
-  description: Turn the dome from the browser. Refused while asleep or with the dome motor off.
+  description: Turn the dome from the browser. Refused while asleep or with the dome motor off. The REST route also takes an optional durationMs up to 30000, a timed turn the Console does not offer.
   domain: dome
   type: action
   marcduino_cmd: null

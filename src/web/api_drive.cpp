@@ -568,7 +568,7 @@ void handleDomeCmdPost(WebRequest& req) {
     req.send(200, "application/json", "{\"ok\":true}");
 }
 
-DomeMoveOutcome domeMoveRequest(float speed, CommandSource source) {
+DomeMoveOutcome domeMoveRequest(float speed, CommandSource source, uint32_t durationMs) {
     if (sleepModeActive()) {
         return DomeMoveOutcome::Asleep;
     }
@@ -582,6 +582,7 @@ DomeMoveOutcome domeMoveRequest(float speed, CommandSource source) {
 
     DomeRotationCommand cmd = {};
     cmd.speed = constrain(speed, -1.0f, 1.0f);
+    cmd.durationMs = durationMs;
     cmd.source = source;
     cmd.timestampMs = millis();
     if (xQueueSend(domeRotationCmdQueue, &cmd, 0) != pdTRUE) {
@@ -606,7 +607,25 @@ void handleDomeSpeedPost(WebRequest& req) {
         return;
     }
 
-    switch (domeMoveRequest(speed, SRC_WEB_API)) {
+    // Optional: how long the turn holds before it stops by itself (#504), the
+    // Dome page's calibration helper's hold. Absent or 0 is the untimed move
+    // this route always sent. Above the 30 s cap it is refused here rather
+    // than cut later, so the answer never says "ok" to a shorter turn than
+    // the one asked for; the task's own cut stays as the backstop. A hold is
+    // bounded by its own duration and never refreshed, so it cannot outlive
+    // the page that asked for it by more than that.
+    // Borrowed, not copied: a copy-out buffer would cut an over-long value to
+    // a valid-looking prefix (a run of zeros before a real number reads as 0).
+    uint32_t durationMs = 0;
+    if (const char* durationRaw = req.paramRef("durationMs")) {
+        if (!parseUint32Value(durationRaw, &durationMs) || durationMs > DOME_TIMED_TURN_MAX_MS) {
+            static_assert(DOME_TIMED_TURN_MAX_MS == 30000, "the refusal below names the cap");
+            webSendJsonError(req, 400, "durationMs must be an integer in range 0..30000");
+            return;
+        }
+    }
+
+    switch (domeMoveRequest(speed, SRC_WEB_API, durationMs)) {
         case DomeMoveOutcome::Asleep:
             webSendJsonError(req, 423, "sleeping", "POST /api/wake");
             return;
@@ -620,7 +639,8 @@ void handleDomeSpeedPost(WebRequest& req) {
             break;
     }
 
-    PA_LOG_INFO(TAG, "[WEB] POST /api/dome speed=%.2f", (double)speed);
+    PA_LOG_INFO(TAG, "[WEB] POST /api/dome speed=%.2f durationMs=%u", (double)speed,
+                (unsigned)durationMs);
     req.send(200, "application/json", "{\"ok\":true}");
 }
 

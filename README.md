@@ -120,8 +120,9 @@ it from any web browser, with no app and no rebuild. Every source line is open.
 
 ### Dome and lights
 
-- **Dome Rotation** by RC or a slider, with a speed cap and random idle turns.
+- **Dome Rotation** by RC or a sequence, with a speed cap and random idle turns.
   Time one turn and the droid tracks where it believes the dome points.
+  Calibrate a Dome ESC from the web page.
 - **Lights, on one page.** Logic displays, PSIs and Magic Panel in the dome,
   and an LED strip on as many body wires as your board has.
 - **Two-way protoR2link** to the Dome Controller, so the dome can fire body
