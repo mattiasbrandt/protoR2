@@ -110,9 +110,10 @@
 
   // The one rule every surface prints the sent figure by: one decimal, as the
   // droid sends it in domeRotationSentPct and writes it in its own Dome
-  // Rotation detail (src/web/status_json.cpp). One us past neutral, or past
-  // Smallest turn, is at least 0.1 %, so a turning dome never reads 0.0 %; a
-  // pulse exactly at Smallest turn does, as the droid counts it (dome_math.h).
+  // Rotation detail (src/web/status_json.cpp). Every turn goes out at least
+  // one us past neutral, or one past Smallest turn, which is at least 0.1 %,
+  // so a turning dome never reads 0.0 %. The exception is a Speed limit no
+  // wider than Smallest turn, which the Speed limit hint names.
   const sentPercentText = (pct) => `${pct.toFixed(1)}%`;
 
   // The gauge's ends say which way each side turns once Positive turns is
@@ -284,7 +285,9 @@
   // moves nothing. While Smallest turn is 0 the two hints say the pulse each
   // sends, and point at Smallest turn; no floor is guessed and nothing is
   // colored. Once Smallest turn is set every turn starts outside it, and the
-  // hints go back to their words.
+  // hints go back to their words - unless Speed limit sits inside Smallest
+  // turn on a side, when every turn there is one pulse inside the dead band,
+  // and the Speed limit hint says that instead.
   //
   // The maths is domeSpeedToPulseUs() (include/dome_math.h), in the float
   // steps the droid takes and truncated as it truncates, from the numbers in
@@ -301,19 +304,45 @@
     const scale = f(limitPct / 100);
     const range = f((s > 0 ? maxUs - neutralUs : neutralUs - minUs) * scale);
     if (s === 0) return neutralUs;
-    const edge = Math.min(f(smallestUs), range);
-    const pulse = s > 0
-      ? Math.trunc(f(f(neutralUs + edge) + f(s * f(range - edge))))
-      : Math.trunc(f(f(neutralUs - edge) + f(s * f(range - edge))));
+    let pulse;
+    if (smallestUs === 0) {
+      pulse = Math.trunc(f(neutralUs + f(s * range)));
+    } else {
+      // One us past the edge where there is room, the distance truncated
+      // alike on both sides.
+      const edge = Math.min(f(smallestUs), range);
+      const start = f(range - edge) >= 1 ? f(edge + 1) : edge;
+      const dist = Math.trunc(f(start + f(Math.abs(s) * f(range - start))));
+      pulse = s > 0 ? neutralUs + dist : neutralUs - dist;
+    }
     return Math.max(minUs, Math.min(maxUs, pulse));
+  };
+
+  // The five boxes as numbers, or null when one holds no number.
+  const pulseBoxes = () => {
+    const boxes = [domeNeutral, domeMinPulse, domeMaxPulse, domeSpeedLimit, domeSmallestTurn].map(typed);
+    if (boxes.some((text) => text === "" || !Number.isFinite(Number(text)))) return null;
+    return boxes.map(Number);
+  };
+
+  // Speed limit leaves a side no wider than Smallest turn: every turn on it
+  // is the same pulse, inside the dead band (domeSpeedToPulseUs()).
+  const limitInsideSmallestTurn = () => {
+    const n = pulseBoxes();
+    if (n === null) return false;
+    const [neutralUs, minUs, maxUs, limitPct, smallestUs] = n;
+    if (smallestUs <= 0 || !(minUs <= neutralUs && neutralUs <= maxUs)) return false;
+    const scale = Math.fround(limitPct / 100);
+    return [maxUs - neutralUs, neutralUs - minUs]
+      .some((side) => Math.fround(side * scale) - smallestUs < 1);
   };
 
   // The pulse a speed sends on the side closer to neutral, or null when a box
   // holds no number.
   const nearerPulseUs = (speed) => {
-    const boxes = [domeNeutral, domeMinPulse, domeMaxPulse, domeSpeedLimit, domeSmallestTurn].map(typed);
-    if (boxes.some((text) => text === "" || !Number.isFinite(Number(text)))) return null;
-    const [neutralUs, minUs, maxUs, limitPct, smallestUs] = boxes.map(Number);
+    const n = pulseBoxes();
+    if (n === null) return null;
+    const [neutralUs, minUs, maxUs, limitPct, smallestUs] = n;
     const forward = sentPulseUs(speed, neutralUs, minUs, maxUs, limitPct, smallestUs);
     const reverse = sentPulseUs(-speed, neutralUs, minUs, maxUs, limitPct, smallestUs);
     return Math.abs(reverse - neutralUs) < Math.abs(forward - neutralUs) ? reverse : forward;
@@ -322,10 +351,14 @@
   const paintSlowHints = () => {
     const off = typed(domeSmallestTurn) !== "" && Number(typed(domeSmallestTurn)) === 0;
     const full = off ? nearerPulseUs(1) : null;
-    setText(domeSpeedLimitHint, full === null ? SPEED_LIMIT_WORDS
-      : `Full stick sends ${full} \u00b5s. Dome still? Set Smallest turn.`);
+    setText(domeSpeedLimitHint, full !== null
+      ? `Full stick sends ${full} \u00b5s. Dome still? Set Smallest turn.`
+      : limitInsideSmallestTurn() ? "Speed limit sits inside Smallest turn."
+      : SPEED_LIMIT_WORDS);
     const rndPct = Number(typed(domeRndSpeed));
-    const rnd = off && typed(domeRndSpeed) !== "" && Number.isFinite(rndPct) ? nearerPulseUs(rndPct / 100) : null;
+    // The droid's float: (float)pct / 100.0f (src/tasks/dome_rotation_task.cpp).
+    const rnd = off && typed(domeRndSpeed) !== "" && Number.isFinite(rndPct)
+      ? nearerPulseUs(Math.fround(rndPct / 100)) : null;
     setText(domeRndSpeedHint, rnd === null ? RND_SPEED_WORDS
       : `A random turn sends ${rnd} \u00b5s. Dome still? Set Smallest turn.`);
   };
