@@ -27,7 +27,8 @@
 // answers our pulse correctly.
 //
 // Feature toggle: the enableDomeRotation Setting (SystemConfig.enable_dome_esc,
-// staged at reboot per ADR 0027) gates whether the task is spawned at all. When disabled at boot, DomeRotationTask does not run.
+// staged at reboot per ADR 0027) gates whether the task is spawned at all.
+// When disabled at boot, DomeRotationTask does not run.
 //
 // It also holds the Dome Bearing, the angle the dome believes it points at,
 // integrated from what the backend reports it wrote (the section below
@@ -205,9 +206,11 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeRotationComma
 // goes through setDomeSpeed() or setDomeNeutral(), which keep the first part
 // and drop the second: a written output replaces a waiting turn, and every
 // stop - the estop, Sleep Mode, the 0.5 s silence stop, a timed turn's end, a
-// random move's end - drops it at once. The wire's sign is the share the
-// backend reports, so a turn the speed limit or Smallest turn leaves standing
-// still counts as the stop it is. File-static, like s_bearing; the helpers
+// random move's end - drops it at once. The wait does not hold off the silence
+// stop: only a timed turn and a random move keep themselves alive through it,
+// so an untimed waiting turn whose sender goes quiet is dropped after 0.5 s.
+// The wire's sign is the share the backend reports, so a turn the speed limit
+// leaves inside Smallest turn counts as the stop it is. File-static, like s_bearing; the helpers
 // that keep it are leaves that never log, and the one log, a pause starting,
 // is in the loop (sendDomeSpeed()).
 // -----------------------------------------------------------------------------
@@ -519,14 +522,16 @@ void domeRotationTask(void* pvParameters) {
         }
 
         // A turn waiting out Pause before reversing goes out once the pause is
-        // over. The pause is not silence: the 0.5 s stop counts from when the
-        // turn reaches the wire, not from when it was sent.
+        // over. Silence is judged as for any turn, not paused with it: a timed
+        // turn and a random move keep themselves alive (below), and an
+        // untimed turn whose sender goes quiet falls to the 0.5 s silence
+        // stop while it waits, as it would on the wire. A stick resends every
+        // tick, so it is unaffected; a one-shot untimed reverse under a pause
+        // over 0.5 s does not run (#504, accepted by the coordinator).
         if (s_reverse.waiting) {
-            const uint32_t tNow = millis();
-            if ((int32_t)(tNow - s_reverse.waitingUntilMs) >= 0) {
+            if ((int32_t)(millis() - s_reverse.waitingUntilMs) >= 0) {
                 setDomeSpeed(s_reverse.waitingSpeed);
             }
-            lastCommandMs = tNow;
         }
 
         // Timed dome-seq rotation: keep lastCommandMs fresh (prevents 500 ms timeout)
