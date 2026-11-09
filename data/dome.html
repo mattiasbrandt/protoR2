@@ -130,13 +130,12 @@
 
       <section>
         <div class="sect"><h2>Random movement</h2><span class="sub">idle turns</span></div>
-        <p class="hint">Only while the sticks are still and no sequence runs. These pauses are Full-Awake's: Awake+ is quicker, Mid-Awake slower, Quiet never turns.</p>
         <form id="rnd-dome-form" class="setting-rows">
           <!-- The tick is drawn as a switch: it turns a behaviour on and off,
                and it stays an <input type="checkbox"> underneath, so dome.js
                reads .checked exactly as before. -->
           <label class="setting-row">
-            <span class="setting-name">Turn the dome on its own</span>
+            <span class="setting-name">Turn the dome on its own<span class="hint">With the sticks still and no sequence running. Never in Quiet.</span></span>
             <input id="dome-rnd-enable" class="switch" name="domeEscRndEnable" type="checkbox">
           </label>
           <label class="setting-row">
@@ -148,7 +147,7 @@
             <span class="setting-number"><input id="dome-rnd-move-ms" class="number-cell" name="domeEscRndMoveMs" type="number" step="100"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Shortest pause</span>
+            <span class="setting-name">Shortest pause<span class="hint">Full-Awake's. Awake+ is quicker, Mid-Awake slower.</span></span>
             <span class="setting-number"><input id="dome-rnd-pause-min" class="number-cell" name="domeEscRndPauseMin" type="number" step="1"><span class="setting-unit">s</span></span>
           </label>
           <label class="setting-row">
