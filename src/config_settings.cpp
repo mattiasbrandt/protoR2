@@ -790,18 +790,6 @@ const RenamedSetting* renamedSettingByForm(const char* form, size_t* index) {
     return nullptr;
 }
 
-const RenamedSetting* renamedSettingByOldForm(const char* oldForm) {
-    if (oldForm == nullptr) {
-        return nullptr;
-    }
-    for (const RenamedSetting& renamed : kRenamedSettings) {
-        if (strcmp(renamed.oldForm, oldForm) == 0) {
-            return &renamed;
-        }
-    }
-    return nullptr;
-}
-
 int32_t configSettingNumber(const ConfigSetting& setting, const ConfigSnapshot& snap) {
     return loadNumber(setting.storage, sectionOf(snap, setting.section) + setting.offset);
 }

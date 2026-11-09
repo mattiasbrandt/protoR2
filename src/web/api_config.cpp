@@ -500,14 +500,6 @@ void addClampedEndpointFields(JsonDocument& doc, const ConfigCommitOutcome& comm
     }
 }
 
-// The config snapshot response, shared by the read route and the write route's
-// echo. Both must return the same shape for the same device state, so they
-// build it the same way rather than twice.
-//
-// pendingApply, networkRecovery and the rest are added on top of
-// populateConfigJson(): they are runtime state (is a Staged Network Switch
-// outstanding, was Network Recovery Mode the posture actually entered at boot,
-// what did the droid start with) that a pure snapshot serializer cannot see.
 // What a renamed Setting is called now, for each one the request named by an
 // old name (#504, include/config_settings.h "Renamed Settings"): one sentence
 // per name, the name the request used and the one to send instead. Absent on a
@@ -534,6 +526,14 @@ void addRenamedFieldWarnings(JsonDocument& doc, const ConfigApplyResult& result)
     }
 }
 
+// The config snapshot response, shared by the read route and the write route's
+// echo. Both must return the same shape for the same device state, so they
+// build it the same way rather than twice.
+//
+// pendingApply, networkRecovery and the rest are added on top of
+// populateConfigJson(): they are runtime state (is a Staged Network Switch
+// outstanding, was Network Recovery Mode the posture actually entered at boot,
+// what did the droid start with) that a pure snapshot serializer cannot see.
 void sendConfigSnapshot(WebRequest& req, const ConfigSnapshot& snap,
                         const ConfigCommitOutcome* commit = nullptr,
                         const ConfigApplyResult* applied = nullptr) {
@@ -824,7 +824,7 @@ void handleConfigPost(WebRequest& req) {
 
     ConfigSnapshot working;
 
-    // ConfigApplyResult is 2,088 B on artoo-esp32 (dominated by the
+    // ConfigApplyResult is 2,628 B on artoo-esp32 (dominated by the
     // applied-fields log record) - too large for the server task's stack, so
     // it lives in the web request scratch (include/web_request_scratch.h), as
     // api_seq.cpp's SeqRunEvidence does. The Write Window's lock is about the

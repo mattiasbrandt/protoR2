@@ -654,6 +654,11 @@
   // The markup is plain: a heading, a definition list, two lists. The saved
   // bench copy has no stylesheet, and this is what reads on paper without one.
   // ---------------------------------------------------------------------------
+  // Whose Outputs a body servo controller's card lists: the board's own, or an
+  // expander's channels (productPins() below, fittedProducts()).
+  const OWNS_BOARD_OUTPUTS = "board";
+  const OWNS_EXPANDER_OUTPUTS = "expander";
+
   const productPins = (product, model) => {
     const lane = product.lane ? loomRows(model).find((each) => each.key === product.lane) : null;
     // A lane that shares its UART says so here in the drawing's own words,
@@ -718,10 +723,6 @@
 
   // The family whose product is the board itself (Component Registry id).
   const BOARD_FAMILY = "body_controller";
-  // Whose Outputs a body servo controller's card lists: the board's own, or an
-  // expander's channels (productPins(), fittedProducts()).
-  const OWNS_BOARD_OUTPUTS = "board";
-  const OWNS_EXPANDER_OUTPUTS = "expander";
 
   // What is on an Output's wire, by its own name: the Light Type's or the
   // servo model's, as the table's row offers them.

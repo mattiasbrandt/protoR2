@@ -189,8 +189,6 @@ const RenamedSetting& renamedSettingAt(size_t index);
 // The entry for a Setting's current form name, or nullptr; `index`, when not
 // nullptr, takes its place in the table.
 const RenamedSetting* renamedSettingByForm(const char* form, size_t* index = nullptr);
-// The entry whose old form name is `oldForm`, or nullptr.
-const RenamedSetting* renamedSettingByOldForm(const char* oldForm);
 
 // The Setting's value, read out of its section of `snap`. Numbers, words and
 // members as their stored number; Bool as 0/1.
