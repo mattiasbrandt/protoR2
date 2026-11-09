@@ -4,6 +4,7 @@
 // Dome page controller.
 // - What the droid sent to Dome Rotation, after the speed limit (read-only)
 // - Where the dome believes it points, Front is here and Go home (#445)
+// - The calibration helper for a Dome ESC: full / neutral / full holds (#504)
 // - Dome motor configuration load/save, and the full turn the bearing is
 //   integrated against
 // - Shared API helper error handling
@@ -39,6 +40,12 @@
   const domeFrontButton = document.getElementById("dome-front-button");
   const domeHomeButton = document.getElementById("dome-home-button");
 
+  const domeCalibrate = document.getElementById("dome-calibrate");
+  const domeCalibrateGate = document.getElementById("dome-calibrate-gate");
+  const domeCalibrateButtons = Array.from(
+    document.getElementById("dome-calibrate-holds")?.querySelectorAll("button[data-speed]") || [],
+  );
+
   const domeTurnState = document.getElementById("dome-turn-state");
   const domeTurnMs = document.getElementById("dome-turn-ms");
   const domeTurnPct = document.getElementById("dome-turn-pct");
@@ -53,6 +60,14 @@
   let statusHeard = false;
   // What the feedback line last said about the dome itself (updateDomeControlsEnabled()).
   let feedbackState = null;
+  // The halts as the droid last reported them; the calibration helper waits
+  // out either.
+  let estopLatched = false;
+  let asleep = false;
+  // The Speed limit the droid holds: the loaded value, then each save it took.
+  // Never the box, which can hold a number the droid refused or has not been
+  // sent yet; a hold under a lower limit would teach the ESC narrow ends.
+  let savedSpeedLimitPct = null;
 
   const FEEDBACK_BASE_CLASS = "feedback";
 
@@ -105,6 +120,86 @@
     setText(domeTrackPositive, known ? words.domeRotationWord(1, turnDir) : "100%");
   };
 
+  // ---------------------------------------------------------------------------
+  // The calibration helper (#504). The ISDT procedure is "hold until you hear N
+  // beeps" at full one way, neutral and full the other way, and the ESC learns
+  // its ends from whatever it hears, so each full press is one ordinary timed
+  // turn at full throw through POST /api/dome: the same route and the same
+  // speed limit as every other turn, which is why it waits for 100 %. It needs
+  // no web control, as Go home does not; the estop and Sleep Mode stop it as
+  // they stop any turn.
+  //
+  // A hold is the droid's to end: it stops after CALIBRATE_HOLD_MS, the
+  // droid's 30 s cap on a timed turn (DOME_TIMED_TURN_MAX_MS,
+  // include/robot_state.h), and nothing here repeats it, so it can never
+  // outlive this page by more than that. Neutral ends it sooner.
+  // ---------------------------------------------------------------------------
+  const CALIBRATE_HOLD_MS = 30000;
+  const CALIBRATE_HOLD_WORDS = { "1": "Full one way", "-1": "Full the other way" };
+
+  // A Dome ESC is the Dome Rotation product that reports a pulse
+  // (kDomeRotationBackend.reportsPulse, include/dome_rotation_backend.h); the
+  // droid reports one from its first neutral at start-up, and firmware that
+  // cannot take a timed hold reports none.
+  const isDomeEsc = () => lastSent !== null && lastSent.pulseUs > 0;
+
+  // Which hold the droid is sending: full throw is the whole output, so at
+  // a 100 % limit it reads +/-100.0 exactly.
+  const sentHold = () => {
+    if (lastSent === null) return null;
+    if (lastSent.pct === 0) return "0";
+    if (lastSent.pct >= 100) return "1";
+    if (lastSent.pct <= -100) return "-1";
+    return null;
+  };
+
+  const paintCalibrate = () => {
+    if (!domeCalibrate) return;
+    const esc = isDomeEsc();
+    domeCalibrate.hidden = !esc;
+    const blocker = estopLatched ? "Estop latched. Clear it first."
+      : asleep ? "The droid is asleep. Wake it first."
+      : savedSpeedLimitPct !== 100 ? "Set Speed limit to 100 % to calibrate"
+      : "";
+    const open = domeHardwareEnabled && esc && blocker === "";
+    // Neutral stays pressable while the droid is still sending a turn, so a
+    // hold started before Speed limit moved off 100 can be ended at once.
+    const turning = lastSent !== null && lastSent.pct !== 0;
+    const neutralOpen = open || (domeHardwareEnabled && esc && !asleep && turning);
+    const lit = sentHold();
+    domeCalibrateButtons.forEach((button) => {
+      const isNeutral = button.dataset.speed === "0";
+      window.PAApi.gateControls([button], isNeutral ? neutralOpen : open);
+      const on = button.dataset.speed === lit;
+      button.classList.toggle("active", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    setText(domeCalibrateGate, blocker || "A hold stops after 30 s.");
+  };
+
+  const pressCalibrate = async (speed) => {
+    if (!window.PAApi) return;
+    const form = speed === "0"
+      ? { speed: "0" }
+      : { speed: `${speed}.0`, durationMs: String(CALIBRATE_HOLD_MS) };
+    try {
+      await window.PAApi.postForm("/api/dome", form, { timeoutMs: 3000 });
+      // What this page did, not what the dome is doing: the lit hold is the
+      // droid's report, and it goes back to Neutral when a hold runs out.
+      showFeedback(
+        domeFeedback,
+        speed === "0" ? "Neutral sent." : `${CALIBRATE_HOLD_WORDS[speed]} sent.`,
+        "success",
+      );
+    } catch (error) {
+      showFeedback(domeFeedback, window.PAApi.messageFor(error), "warning");
+    }
+  };
+
+  domeCalibrateButtons.forEach((button) => {
+    button.addEventListener("click", () => pressCalibrate(button.dataset.speed));
+  });
+
   const renderSent = (sent) => {
     lastSent = sent;
     paintTrackEnds();
@@ -113,6 +208,7 @@
       setText(domePulseDisplay, "");
       setText(domeRotationState, window.PALiveReading.UNKNOWN);
       if (domeLiveFill) domeLiveFill.style.opacity = "0";
+      paintCalibrate();
       return;
     }
     const percent = Math.max(-100, Math.min(100, sent.pct));
@@ -145,6 +241,7 @@
     // the plate twice. Stopped is a share of exactly 0, the rule the
     // Dashboard's Dome Rotation row reads too (#504).
     setText(domeRotationState, window.PAHealthSignals.domeRotationWord(percent, turnDir));
+    paintCalibrate();
   };
 
   const updateDomeControlsEnabled = () => {
@@ -157,6 +254,7 @@
     );
 
     domeDisabledCard?.classList.toggle("hidden", domeHardwareEnabled);
+    paintCalibrate();
 
     setText(
       domeHardwareState,
@@ -211,6 +309,8 @@
     if (typeof statusDomeEnabled === "boolean") {
       domeHardwareEnabled = statusDomeEnabled;
     }
+    estopLatched = payload?.estop === true;
+    asleep = payload?.sleepMode === true;
 
     renderSent(resolveSent(payload));
     updateDomeControlsEnabled();
@@ -336,6 +436,7 @@
     if (domeMinPulse && domeRotation.minPulseUs !== undefined) domeMinPulse.value = domeRotation.minPulseUs;
     if (domeMaxPulse && domeRotation.maxPulseUs !== undefined) domeMaxPulse.value = domeRotation.maxPulseUs;
     if (domeSpeedLimit && domeRotation.speedLimitPct !== undefined) domeSpeedLimit.value = domeRotation.speedLimitPct;
+    if (domeRotation.speedLimitPct !== undefined) savedSpeedLimitPct = Number(domeRotation.speedLimitPct);
 
     if (domeRndEnable && domeRotation.rndEnable !== undefined) domeRndEnable.checked = domeRotation.rndEnable;
     if (domeRndSpeed && domeRotation.rndSpeedPct !== undefined) domeRndSpeed.value = domeRotation.rndSpeedPct;
@@ -388,13 +489,16 @@
 
     showFeedback(escFeedback, "Saving...");
 
+    const payload = escPayload();
     try {
       await window.PAApi.postForm(
         "/api/config",
-        escPayload(),
+        payload,
         { timeoutMs: 3000 },
       );
 
+      savedSpeedLimitPct = Number(payload.domeRotationSpeedLimitPct);
+      paintCalibrate();
       showFeedback(escFeedback, `Saved at ${new Date().toLocaleTimeString()}`, "success");
     } catch (error) {
       showFeedback(escFeedback, `Failed to save motor settings: ${window.PAApi.messageFor(error)}`, "error");

@@ -2398,8 +2398,9 @@ body[data-page="firmware"] .form-grid {
    Dome (ADR 0066; redrawn by #399 from the #355 bench, 2026-09-28).
 
    What the dome is being told to do, as one wide gauge with its reading over
-   it, and the motor's numbers beside its idle turns. The gauge is a READOUT:
-   nothing on this surface turns the dome, so there is nothing here to drag.
+   it, and the motor's numbers beside its idle turns. The gauge is a READOUT,
+   so there is nothing here to drag: what turns the dome from this surface is
+   a press the droid bounds (Go home, the calibration helper's holds).
    --------------------------------------------------------------------------- */
 
 /* Switched off, the surface says so once: the disabled card, the Availability
@@ -2540,6 +2541,45 @@ body[data-page="firmware"] .form-grid {
   display: flex;
   gap: var(--space-sm);
   margin-left: auto;
+}
+
+/* The calibration helper (#504), under the bearing row and set off by the
+   same seam: its name, the three holds as one joined bar at card scale, and
+   what it is waiting for; the vendor's steps beneath in the list voice the
+   ESC's set-up list reads in. */
+.dome-calibrate {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.dome-calibrate[hidden] {
+  display: none;
+}
+
+.dome-calibrate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.dome-calibrate-name {
+  color: var(--text-dim);
+  font-size: var(--fs-cell);
+}
+
+.dome-calibrate-steps {
+  margin-bottom: 0;
+}
+
+/* A choice on this surface the droid will not take now - a hold before Speed
+   limit is 100 %, Positive turns while Dome Rotation is off - reads as shut,
+   as Foot Drive's speed presets do (.drive-preset-seg). */
+.dome-rotation .seg > button:disabled,
+.dome-settings .seg > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* The dome's three settings lists share one bay, side by side: the motor, its
