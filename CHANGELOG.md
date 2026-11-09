@@ -33,6 +33,14 @@ the patch releases, whose notes live on their own GitHub Release.
   settings that make a dome turn one way or crawl at 70 % are named before
   you blame the ring. A short list beside it says what a dome that will not
   turn is telling you.
+- **The dome readout says what the droid sent.** The Dome page and the
+  Dashboard show the speed that went out after your speed limit, with the
+  pulse for a Dome ESC, and name the turn in your droid's own direction once
+  Positive turns is set. They used to show the speed asked for, so a 10 %
+  limit read as full speed. The droid still cannot see the dome move: this is
+  what it sent. `GET /api/status` adds `domeRotationSentPct` and
+  `domeRotationPulseUs`, and the `domeRotation` entry's detail now carries the
+  sent figure.
 
 ### Changed
 

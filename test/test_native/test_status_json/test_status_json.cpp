@@ -16,7 +16,8 @@
 //     version stamps at STATUS_VERSION_STAMP_MAX - 1, OTA's last error at its
 //     buffer, the Sound name at the longest Sound part in the registry, the
 //     lit wires on every light-capable Output this board has;
-//   - domeTargetSpeed across its -1..1 domain (include/robot_state.h).
+//   - domeTargetSpeed and the Dome Rotation sent share across their -1..1
+//     domain, the sent pulse at its type's bound (include/robot_state.h).
 // The branches the document takes on state - RC mode and receiver states,
 // drive, sound, the dome link - are swept together rather than picked by
 // hand, so a branch that is longer than it looks cannot be missed.
@@ -255,6 +256,10 @@ void test_the_worst_case_status_document_fits_its_buffer(void) {
                 in.driveSpeed = (motion & 1u) ? INT16_MIN : 0;
                 in.driveSteer = (motion & 1u) ? INT16_MIN : 0;
                 in.domeTargetSpeed = (motion & 2u) ? -1.0f : 0.0f;
+                // What Dome Rotation sent (#504): the full share the other way
+                // and the pulse at its type's bound, the widest both print.
+                in.domeRotationSentShare = (motion & 2u) ? -1.0f : 0.0f;
+                in.domeRotationPulseUs = (motion & 2u) ? UINT16_MAX : 0u;
                 for (unsigned sound = 0; sound < 4; ++sound) {
                     in.sound.on = sound & 1u;
                     in.audioActive = sound & 2u;

@@ -49,6 +49,8 @@ const HEALTHY_PAYLOAD = Object.freeze({
   dome_link: { state: "connected", transport: "uart" },
   audio: { state: "idle", driver: "CHIRP Audio Trigger", output: "on", link_ok: true, rx_status: "available" },
   domeEnabled: true,
+  domeRotationSentPct: 0,
+  domeRotationPulseUs: 1500,
   domeRotation: { state: "idle" },
 });
 
@@ -229,16 +231,37 @@ test("dome esc reports OFF when disabled or missing", () => {
   assert.equal(disabled["h-dome-esc"].reason, "Disabled");
 });
 
-// Idle and spinning are what the droid commands; a PWM ESC answers nothing
-// back, so the row is grey and its word carries the command (#399).
-test("dome esc reads OFF for idle and spinning, saying what is commanded", () => {
-  const idle = toSignalMap({ domeEnabled: true, domeRotation: { state: "idle", detail: "Target 0%" } });
-  assert.equal(idle["h-dome-esc"].state, "off");
-  assert.equal(idle["h-dome-esc"].reason, "Idle, Target 0%");
+// The row's word is what the droid reports it SENT (#504): Stopped at a sent
+// share of exactly 0, otherwise the direction from Positive turns, and
+// "Turning" while that is not set. A PWM ESC answers nothing back, so the row
+// stays grey. The word stands alone; the sent figure is the Readouts card's.
+test("dome esc reads OFF and names what was sent", () => {
+  const sent = (pct) => ({
+    domeEnabled: true,
+    domeRotationSentPct: pct,
+    domeRotationPulseUs: 1500 + pct * 5,
+    domeRotation: { state: pct === 0 ? "idle" : "spinning", detail: `${pct}%, ${1500 + pct * 5} us` },
+  });
+  const read = (pct, positiveTurn) => toSignalMap(sent(pct), { positiveTurn })["h-dome-esc"];
 
-  const spinning = toSignalMap({ domeEnabled: true, domeRotation: { state: "spinning" } });
-  assert.equal(spinning["h-dome-esc"].state, "off");
-  assert.equal(spinning["h-dome-esc"].reason, "Spinning");
+  assert.equal(read(0, "cw").state, "off");
+  assert.equal(read(0, "cw").reason, "Stopped");
+  assert.equal(read(40, "cw").state, "off");
+  assert.equal(read(40, "cw").reason, "Clockwise");
+  assert.equal(read(-0.1, "cw").reason, "Anticlockwise");
+  assert.equal(read(40, "ccw").reason, "Anticlockwise");
+  assert.equal(read(-40, "ccw").reason, "Clockwise");
+  assert.equal(read(40, "unset").reason, "Turning");
+  assert.equal(read(40, undefined).reason, "Turning");
+  assert.equal(read(0, undefined).reason, "Stopped");
+});
+
+// A firmware from before #504 reports only the speed asked for, not what was
+// sent: the row cannot say Stopped from that.
+test("dome esc reads the unknown word when the frame carries no sent figure", () => {
+  const older = toSignalMap({ domeEnabled: true, domeRotation: { state: "idle", detail: "Target 0%" } });
+  assert.equal(older["h-dome-esc"].state, "off");
+  assert.equal(older["h-dome-esc"].reason, UNKNOWN);
 });
 
 test("dome esc reads OFF for a state it does not recognise, keeping the state in the word", () => {

@@ -32,27 +32,33 @@
       <p class="note"><b>Off:</b> the dome stays put, even through a sequence. <a class="setup-link" href="/configuration.html">Switch Dome Rotation on in Configuration</a></p>
     </div>
 
-    <!-- What the dome is being told to do, right now. A readout and nothing
-         else: this page has no control that turns the dome, so the gauge is
-         not draggable and does not pretend to be. -->
+    <!-- What the droid sent to Dome Rotation, right now, after the speed
+         limit: the droid cannot see the dome move (#504). A readout and
+         nothing else: this page has no control that turns the dome, so the
+         gauge is not draggable and does not pretend to be. -->
     <div class="card dome-rotation">
       <div class="sect"><h2>Dome Rotation</h2><span class="sub waiting" id="dome-hardware-state"></span></div>
       <div class="dome-live-meta">
-        <div class="slider-value" id="dome-speed-display">0%</div>
+        <div class="slider-value" id="dome-speed-display"></div>
+        <!-- The pulse that went with it, for a Dome ESC; empty where the
+             product sends no pulse. -->
+        <span id="dome-pulse-display" class="dome-rotation-state"></span>
         <!-- The direction the dome is being turned is a value, not a symptom,
              so it is a word and never a color (GLOSSARY.md "Status Color").
-             Forward used to read green and reverse amber, which promised the
-             builder something to do about turning left. -->
-        <span id="dome-rotation-state" class="dome-rotation-state">Idle</span>
+             One direction used to read green and the other amber, which
+             promised the builder something to do about turning left. -->
+        <span id="dome-rotation-state" class="dome-rotation-state"></span>
       </div>
-      <div class="dome-live-track" role="img" aria-label="Live dome rotation target from RC input">
+      <div class="dome-live-track" role="img" aria-label="What the droid sends to Dome Rotation">
         <div id="dome-live-fill" class="dome-live-fill"></div>
         <div class="dome-live-center"></div>
       </div>
+      <!-- The gauge's two ends name the way each side turns once Positive
+           turns is set; until then, only the side of the stop is known. -->
       <div class="slider-labels">
-        <span>Reverse</span>
+        <span id="dome-track-negative">-100%</span>
         <span>Stop</span>
-        <span>Forward</span>
+        <span id="dome-track-positive">100%</span>
       </div>
       <!-- Where the dome believes it points (#445): the number, and the word
            that says it is believed, in the row it qualifies. Unknown is a word
@@ -67,7 +73,7 @@
           <button id="dome-home-button" class="btn btn-sm icon-act act-keeps-words" type="button"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-home-outline"/></svg><span class="act-label">Go home</span></button>
         </div>
       </div>
-      <div id="dome-feedback" class="feedback" role="status" aria-live="polite" aria-atomic="true">Dome ready.</div>
+      <div id="dome-feedback" class="feedback" role="status" aria-live="polite" aria-atomic="true">Waiting for the droid.</div>
     </div>
 
     <!-- The motor and its idle turns, side by side in one bay: two short lists

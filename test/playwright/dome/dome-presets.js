@@ -39,6 +39,17 @@ const HEADLESS = process.env.HEADLESS === 'true';
     };
   });
 
+  // Positive turns set to clockwise, so the word names a direction (#504):
+  // the droid's own answer, held by this script rather than the shared
+  // fixture, which ships Dome Rotation switched off.
+  await page.route('**/api/config', (route) => (route.request().method() === 'GET'
+    ? route.fulfill({ json: {
+      system: { logLevel: 3 },
+      components: { domeRotation: { enabled: true, label: 'DOME' } },
+      domeRotation: { neutralUs: 1500, minPulseUs: 1000, maxPulseUs: 2000, speedLimitPct: 100, positiveTurn: 'cw' },
+    } })
+    : route.fulfill({ json: { ok: true } })));
+
   try {
     await page.goto(TARGET_URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('.dome-live-track', { timeout: 10000 });
@@ -75,6 +86,7 @@ const HEADLESS = process.env.HEADLESS === 'true';
           liveFillBackground: liveFill ? getComputedStyle(liveFill).backgroundColor : 'missing',
           rotationState: document.getElementById('dome-rotation-state')?.textContent?.trim() || '',
           speedText: document.getElementById('dome-speed-display')?.textContent?.trim() || '',
+          pulseText: document.getElementById('dome-pulse-display')?.textContent?.trim() || '',
           feedbackText: document.getElementById('dome-feedback')?.textContent?.trim() || '',
           feedbackClass: document.getElementById('dome-feedback')?.className || '',
           liveFillOpacity: liveFill ? getComputedStyle(liveFill).opacity : 'missing',
@@ -84,13 +96,19 @@ const HEADLESS = process.env.HEADLESS === 'true';
         };
       });
 
-    await emitStatus({ webControlEnabled: true, domeEnabled: true, domeTargetSpeed: -0.55 });
+    // What the droid reports it sent (#504), not the speed asked for: a
+    // domeTargetSpeed beside it that disagrees must not reach the readout.
+    const sent = (pct, pulseUs) => ({
+      webControlEnabled: true, domeEnabled: true, domeTargetSpeed: 1,
+      domeRotationSentPct: pct, domeRotationPulseUs: pulseUs,
+    });
+    await emitStatus(sent(-55, 1225));
     const reverse = await readState();
 
-    await emitStatus({ webControlEnabled: true, domeEnabled: true, domeTargetSpeed: 0 });
+    await emitStatus(sent(0, 1500));
     const idle = await readState();
 
-    await emitStatus({ webControlEnabled: true, domeEnabled: true, domeTargetSpeed: 0.72 });
+    await emitStatus(sent(72, 1860));
     const forward = await readState();
 
     if (reverse.hasLegacySlider) throw new Error('Legacy dome slider still present');
@@ -98,10 +116,12 @@ const HEADLESS = process.env.HEADLESS === 'true';
     // these elements say, and a substring match let 'Web control pill did not
     // become enabled' sit here passing against a pill that has never contained
     // the word 'enabled' (#399 slice 3).
-    if (reverse.hardwareState !== 'switched on') throw new Error('Dome hardware state not rendered');
-    if (reverse.rotationState !== 'Reverse' || reverse.speedText !== '-55%') throw new Error('Reverse status not rendered');
-    if (idle.rotationState !== 'Idle' || idle.speedText !== '0%') throw new Error('Idle status not rendered');
-    if (forward.rotationState !== 'Forward' || forward.speedText !== '72%') throw new Error('Forward status not rendered');
+    if (reverse.hardwareState !== 'on in Configuration') throw new Error('Dome hardware state not rendered');
+    if (reverse.rotationState !== 'Anticlockwise' || reverse.speedText !== '-55.0%' || reverse.pulseText !== '1225 \u00b5s') {
+      throw new Error('Anticlockwise status not rendered');
+    }
+    if (idle.rotationState !== 'Stopped' || idle.speedText !== '0.0%') throw new Error('Stopped status not rendered');
+    if (forward.rotationState !== 'Clockwise' || forward.speedText !== '72.0%') throw new Error('Clockwise status not rendered');
     // A direction is a value, not a symptom: neither the word nor the bar may
     // take a signal color, and the bar is one color whichever way it goes
     // (GLOSSARY.md 'Status Color').

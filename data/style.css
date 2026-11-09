@@ -2432,8 +2432,9 @@ body[data-page="firmware"] .form-grid {
   font-variant-numeric: tabular-nums;
 }
 
-/* Which way the dome is being turned, as a word. A value, not a symptom, so it
-   reads in the ink tier every other value on the droid reads in. */
+/* Which way the dome is being turned, as a word, and the pulse sent with it
+   (#504). Values, not symptoms, so they read in the ink tier every other value
+   on the droid reads in. */
 .dome-rotation-state {
   color: var(--text-dim);
   font-family: var(--font-mono);
@@ -2486,7 +2487,8 @@ body[data-page="firmware"] .form-grid {
   transition: width 0.16s ease, left 0.16s ease, opacity 0.16s ease;
 }
 
-/* The three marks under the gauge: full reverse, stop, full forward. */
+/* The three marks under the gauge: each end's direction once Positive turns
+   is set (or how far, until then), and the stop. */
 .slider-labels {
   display: flex;
   justify-content: space-between;

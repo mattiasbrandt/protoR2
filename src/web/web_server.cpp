@@ -196,6 +196,10 @@ static void captureStatusJsonInputs(StatusJsonInputs* in) {
 
     taskENTER_CRITICAL(&robotStateMux);
     copyFailsafeDiagnosticsLocked(&in->diag);
+    // What Dome Rotation sent: the share and its pulse come from one write
+    // (setDomeSpeed() / setDomeNeutral()), so they are read under one lock.
+    in->domeRotationSentShare = robotState.domeRotationSentShare;
+    in->domeRotationPulseUs = robotState.domeRotationPulseUs;
     in->webControlEnabled = robotState.webControlEnabled;
     in->sbus2SignalLost = robotState.sbus2SignalLost;
     in->driveSpeed = robotState.driveOutputSpeed;
