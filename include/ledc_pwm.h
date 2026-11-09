@@ -34,8 +34,11 @@
 // Pure-math helpers (pulseUsToDuty, clampPulseWidth) are inline so they can
 // be exercised by native unit tests without pulling in ESP32 LEDC headers.
 //
-// Thread safety: This driver is designed to be called from a single task
-// (ServoTask). No internal locking  --  caller provides synchronization.
+// Thread safety: no internal locking  --  each channel has one writer, and the
+// caller provides synchronization. ServoTask writes the servo channels;
+// DomeRotationTask writes the DOME channel, through the Dome ESC backend
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp). The DOME channel's
+// start-up pulse is written from setup(), before that task runs.
 // =============================================================================
 #pragma once
 
@@ -181,10 +184,11 @@ bool ledcPwmSetPulseWidth(uint8_t channel, uint16_t pulseUs);
 // one on the estop and Sleep Mode edge and commands no position at all, because
 // a held drive grinds a fought part and driving many outputs at once is the
 // documented brownout. The dome ESC is the deliberate exception and is not
-// released: a floating signal line reads as Receiver Lost to an ESC70, so
-// dome_task.cpp drives it to its CONFIGURED neutral instead
-// (setDomeNeutral(); docs/spec-sheets/isdt-esc70-dome-esc.md, "What the ESC
-// watches, and what it says").
+// released: a released RC line carries no pulse, which an RC ESC reads as a
+// lost receiver rather than a stop, so the Dome ESC backend's stop is its
+// CONFIGURED neutral instead (include/dome_rotation_backend.h,
+// DomeRotationStop; for the ESC70, docs/spec-sheets/isdt-esc70-dome-esc.md,
+// "What the ESC watches, and what it says").
 bool ledcPwmRelease(uint8_t channel);
 
 // Attach one servo channel left out at init, with no pulse on it (duty 0), so

@@ -704,7 +704,7 @@ http GET /api/logs > write-window-logs.json
 send system.status.health
 
 # #381 row 12 and #430 - the profiler image, flashed ONCE, last. It is the only
-# image that serves /api/profiler: taskStacks[] high-water marks (DomeTask,
+# image that serves /api/profiler: taskStacks[] high-water marks (DomeRotation,
 # WebEvents, DomeLinkTask, ArduinoOTA, SafetyMonitor - SafetyMonitor's decides
 # 4,608 or 4,096 B - plus SeqDisp, Console, RCInputTask and AuxLedTask, which
 # #414, #428 and #429 moved), and fragRatio as a nano-printed decimal.

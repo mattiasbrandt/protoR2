@@ -183,7 +183,7 @@ void sequenceDispatcherInit() {
 // Command queues the handlers post to. The freertos stub's xQueueSend() always
 // succeeds, so the queue-full branches are device behaviour, not host.
 QueueHandle_t servoCmdQueue = nullptr;
-QueueHandle_t domeCmdQueue = nullptr;
+QueueHandle_t domeRotationCmdQueue = nullptr;
 
 // ServoTask's boot snapshot (#364), one bit per slot (include/servo_backend.h).
 // The real answer is servoTaskInit()'s; include/servo_task_test_hooks.h says

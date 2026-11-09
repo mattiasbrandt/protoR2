@@ -79,7 +79,7 @@ extern QueueHandle_t domeTxQueue;
 
 // -----------------------------------------------------------------------------
 // domeLinkTask()  --  FreeRTOS task entry point.
-// Pinned to Core 1, priority 3 (below ServoTask/DomeTask; above SafetyMonitor).
+// Pinned to Core 1, priority 3 (below ServoTask/DomeRotationTask; above SafetyMonitor).
 // Stack: 3072 bytes.
 // -----------------------------------------------------------------------------
 void domeLinkTask(void* pvParameters);

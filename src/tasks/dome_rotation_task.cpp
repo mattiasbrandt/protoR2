@@ -1,32 +1,39 @@
 // =============================================================================
-// src/tasks/dome_task.cpp
+// src/tasks/dome_rotation_task.cpp
 //
-// DomeTask  --  LEDC PWM control for dome rotation ESC (ISDT ESC70).
+// DomeRotationTask  --  the generic half of Dome Rotation: what turns the dome,
+// and when it must stop.
 //
-// ESC PWM semantics (standard RC PWM, 50 Hz):
-//   1000us = full reverse / max brake
-//   1500us = neutral / stop  <- safe idle output; emitted on disable, estop, timeout
-//   2000us = full forward
+// Everything above the Dome Rotation backend seam lives here and no backend can
+// reach it: the 500 ms silence stop, a stop under the estop and in Sleep Mode
+// and the queue discarded while either holds, the 30 s cap on a timed turn
+// from a sender, the speed limit, random moves, and the Dome Bearing. Every
+// turn and every stop goes out through include/dome_rotation_backend.h, which
+// alone knows how a speed becomes a wire signal; for a Dome ESC that is one
+// standard RC pulse (src/drivers/dome_rotation_backend_rc_pwm.cpp).
 //
-// All pulse limits (neutral, min, max) and speed limit percentage are read from
-// persisted config (cfg_dome_neutral_us, cfg_dome_min_pulse_us,
-// cfg_dome_max_pulse_us, cfg_dome_speed_limit_pct) so individual ESC calibration
-// can be trimmed via the Setup page without a firmware rebuild.
+// For a Dome ESC the pulse limits (neutral, min, max) and the speed limit
+// percentage are read from persisted config (cfg_dome_neutral_us,
+// cfg_dome_min_pulse_us, cfg_dome_max_pulse_us, cfg_dome_speed_limit_pct) so
+// each ESC's calibration can be trimmed on the droid without a firmware
+// rebuild. What full reverse does on the wire is the ESC's running mode: in
+// "Forward and Reverse" the min pulse is full reverse; in a mode with a brake
+// it brakes first.
 //
-// ESC configuration (running mode, throttle calibration, PWM frequency, voltage
-// cutoff) is handled exclusively via the ISD Go APP over Bluetooth  --  out of scope
-// for this firmware. Throttle calibration via the ISD Go APP is a hardware
-// bring-up prerequisite before the dome motor will respond correctly to our PWM.
+// An ESC's own configuration (running mode, throttle calibration, PWM
+// frequency, voltage cutoff) is set in the maker's app for that ESC  --  out of
+// scope for this firmware, and a bring-up prerequisite before the dome motor
+// answers our pulse correctly.
 //
 // Feature toggle: cfg_enable_dome_esc (staged at reboot per ADR 0027) gates whether
-// the task is spawned at all. When disabled at boot, DomeTask does not run.
+// the task is spawned at all. When disabled at boot, DomeRotationTask does not run.
 //
 // It also holds the Dome Bearing, the angle the dome believes it points at,
-// integrated from the pulses written here (the section below setDomeSpeed()'s
-// constants, and include/dome_bearing.h).
+// integrated from what the backend reports it wrote (the section below
+// setDomeSpeed()'s constants, and include/dome_bearing.h).
 // =============================================================================
 
-#include "dome_task.h"
+#include "dome_rotation_task.h"
 
 #include <esp_task_wdt.h>
 
@@ -36,19 +43,18 @@
 #include "dome_bearing.h"
 #include "dome_bearing_act.h"  // domeBearingRefusalReason() - the one copy of those reasons
 #include "dome_math.h"
+#include "dome_rotation_backend.h"  // the seam every turn and stop goes out through
 #include "dome_turn_calibration.h"
 #include "drive_motion.h"  // driveMotionIsDriving() - Resting Behaviour waits while driving
-#include "ledc_pwm.h"
 #include "logging.h"
 #include "robot_state.h"
 
-static const char* TAG = "DOME";
+static const char* TAG = "DomeRotation";
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 #define DOME_COMMAND_TIMEOUT_MS 500  // Zero speed if no command for 500ms
-#define ESC_ARMING_DURATION_MS 2000  // Time to hold neutral for arming
 // The longest timed turn taken from a sender (#504): a Dome Controller
 // `dome=rot` line or a sequence step. A longer one is cut to this and logged.
 // A turn to a Dome Bearing is exempt: it is planned here from the droid's own
@@ -61,28 +67,29 @@ static const char* TAG = "DOME";
 // The Dome Bearing (include/dome_bearing.h, ADR 0051 as amended 2026-09-30,
 // #445)
 //
-// Every pulse the dome gets is written by this task - RC, web, sequences, the
+// Every turn the dome gets is written by this task - RC, web, sequences, the
 // dome link, the Console and random movement all end in setDomeSpeed() or
 // setDomeNeutral() - so this is the one place the belief can be integrated, and
-// it is integrated from the pulse ACTUALLY written, after the speed limit has
-// scaled it, never from a speed somebody asked for. Each write first moves the
-// belief by what the pulse being replaced did over the measured time it was on
-// the wire, and the loop moves it once a tick as well: a tick is vTaskDelay(20)
-// after the loop's work, not a fixed period, so the elapsed time is always
-// measured, never assumed.
+// it is integrated from what the Dome Rotation backend reports it ACTUALLY put
+// on the wire, after the speed limit has scaled it, never from a speed somebody
+// asked for. Each write first moves the belief by what the output being
+// replaced did over the measured time it was on the wire, and the loop moves it
+// once a tick as well: a tick is vTaskDelay(20) after the loop's work, not a
+// fixed period, so the elapsed time is always measured, never assumed.
 //
 // Only an estop, Sleep Mode and a boot forget it. A commanded stop does not:
 // the coast after it is part of what "believed" admits (the 2026-09-30
 // amendment). A boot forgets because nothing here survives one, and the
 // RobotState mirror starts zeroed, which reads as unknown.
 //
-// The state is file-static rather than on domeTask()'s frame, which sits on
-// every one of this task's measured chains (tools/task_stack_recipes.json), and
-// the helpers below are leaves that never log, so none of them lengthens the log
-// route that is this task's deepest. They run on this task only.
+// The state is file-static rather than on domeRotationTask()'s frame, which
+// sits on every one of this task's measured chains
+// (tools/task_stack_recipes.json), and the helpers below are leaves that never
+// log, so none of them lengthens the log route that is this task's deepest.
+// They run on this task only.
 // -----------------------------------------------------------------------------
 static struct {
-    uint16_t pulseUs;  // the pulse on the wire since atMs
+    float    share;    // the backend's output on the wire since atMs (-1..1)
     uint32_t atMs;     // when the belief was last moved
     bool     believed;
     float    deg;      // meaningful only while believed
@@ -90,7 +97,7 @@ static struct {
     // Front is here pressed at or before it is stale: the dome may have
     // coasted since (bearingDeclareFront()).
     uint32_t forgotAtMs;
-} s_bearing = {0, 0, false, 0.0f, 0};
+} s_bearing = {0.0f, 0, false, 0.0f, 0};
 
 // The RobotState mirror, which every surface reads through domeBearingRead().
 static void bearingPublish() {
@@ -100,8 +107,8 @@ static void bearingPublish() {
     taskEXIT_CRITICAL(&robotStateMux);
 }
 
-// Move the belief by the turn the pulse on the wire made since it was last
-// moved. A belief whose calibration has been cleared is dropped: the turn it
+// Move the belief by the turn the backend's output on the wire made since it
+// was last moved. A belief whose calibration has been cleared is dropped: the turn it
 // would need to follow cannot be followed, and a number that stops moving while
 // the dome does is the one failure ADR 0051 exists to prevent. ("Front is here"
 // is refused without a calibration, so this is reached only by clearing one.)
@@ -116,7 +123,7 @@ static void __attribute__((noinline)) bearingAdvance(const DomeConfig& cfg, uint
         s_bearing.believed = false;
     } else {
         s_bearing.deg = domeBearingWrap(
-            s_bearing.deg + domeBearingRateDegPerMs(s_bearing.pulseUs, cal) * (float)elapsedMs);
+            s_bearing.deg + domeBearingRateDegPerMs(s_bearing.share, cal) * (float)elapsedMs);
     }
     bearingPublish();
 }
@@ -148,8 +155,8 @@ static void __attribute__((noinline)) bearingTick(bool forget) {
 // Taken after an estop or Sleep Mode cleared, a press made before either held
 // would call a coasted dome front: the bearing would silently become a number
 // again. Both discard the queue every tick they hold, and once more on the tick
-// they clear (domeTask()), so such a press is normally gone before it reaches
-// here; this stamp check is the second guard, so the bearing does not rest on
+// they clear (domeRotationTask()), so such a press is normally gone before it
+// reaches here; this stamp check is the second guard, so the bearing does not rest on
 // the discard alone.
 // Every sender stamps timestampMs when it sends; the comparison is wrap-safe.
 static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pressedAtMs) {
@@ -175,7 +182,7 @@ static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pres
 // CONSOLE_REASON_NONE, in include/dome_bearing_act.h's reasons. The caller asked
 // the same questions before it sent this; they are asked again here because the
 // answers may have changed on the way.
-static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeCommand* cmd) {
+static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeRotationCommand* cmd) {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
     const DomeTurnCalibration cal = domeTurnCalibrationOf(cfg);
@@ -187,52 +194,51 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeCommand* cmd)
     }
     const DomeTurnPlan plan = domeBearingTurnPlan(s_bearing.deg, (float)cmd->targetTenths / 10.0f,
                                                   cal, cfg.dome_speed_limit_pct);
-    cmd->kind = DOME_CMD_SPEED;
+    cmd->kind = DOME_ROTATION_CMD_SPEED;
     cmd->speed = plan.speed;
     cmd->durationMs = plan.durationMs;
     return CONSOLE_REASON_NONE;
 }
 
-// The one pulse write: the belief catches up on the pulse it replaces first.
-static void writeDomePulse(const DomeConfig& cfg, uint16_t pulseUs) {
-    bearingAdvance(cfg, millis());
-    ledcPwmSetPulseWidth(LEDC_CH_DOME, pulseUs);
-    s_bearing.pulseUs = pulseUs;
-}
-
 // -----------------------------------------------------------------------------
 // setDomeSpeed()
-// Read persisted ESC config, compute pulse width, and output via LEDC.
+// One signed speed out through the Dome Rotation backend, under the stored
+// speed limit. The belief catches up on the output it replaces first, then
+// follows the one the backend reports. That share is the one computed when the
+// output was written: a pulse-set save during a held output (a timed turn, Go
+// home, a random move) takes effect on the next write, not mid-hold. The wire
+// does the same, since the pulse is not rewritten until then either.
 // -----------------------------------------------------------------------------
 static void setDomeSpeed(float speed) {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
 
-    uint16_t pulseUs = domeSpeedToPulseUs(speed, cfg.dome_neutral_us, cfg.dome_min_pulse_us,
-                                          cfg.dome_max_pulse_us, cfg.dome_speed_limit_pct);
-
-    writeDomePulse(cfg, pulseUs);
+    bearingAdvance(cfg, millis());
+    const DomeRotationOutput out =
+        domeRotationBackendWrite(cfg, speed, cfg.dome_speed_limit_pct);
+    s_bearing.share = out.share;
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = speed;
     taskEXIT_CRITICAL(&robotStateMux);
 
     PA_LOG_DEBUG(TAG, "Dome speed %d%% -> %d us (neutral=%d min=%d max=%d lim=%d%%)",
-                 (int)(speed * 100.0f), (int)pulseUs, (int)cfg.dome_neutral_us,
+                 (int)(speed * 100.0f), (int)out.pulseUs, (int)cfg.dome_neutral_us,
                  (int)cfg.dome_min_pulse_us, (int)cfg.dome_max_pulse_us,
                  (int)cfg.dome_speed_limit_pct);
 }
 
 // -----------------------------------------------------------------------------
 // setDomeNeutral()
-// Output the configured neutral pulse  --  safe idle output.
+// The backend's stop on the wire  --  safe idle output, never a released line.
 // Used on disable, estop, timeout, and startup.
 // -----------------------------------------------------------------------------
 static void setDomeNeutral() {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
 
-    writeDomePulse(cfg, cfg.dome_neutral_us);
+    bearingAdvance(cfg, millis());
+    s_bearing.share = domeRotationBackendStop(cfg).share;
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = 0.0f;
@@ -240,39 +246,42 @@ static void setDomeNeutral() {
 }
 
 // -----------------------------------------------------------------------------
-// domeTaskInit()
-// Initialize dome ESC with auto-arm sequence.
-// Outputs the configured neutral pulse for ESC arming.
+// domeRotationTaskInit()
+// The Dome Rotation backend's start-up rule (domeRotationBackendStart()): for
+// a Dome ESC, the configured neutral pulse held for the profile's
+// startupNeutralMs before the loop's first turn.
 // -----------------------------------------------------------------------------
-void domeTaskInit() {
-    // Feature toggle: skip ESC arming entirely when dome is disabled.
-    // No LEDC pulse is written; the channel stays at whatever neutral value
-    // ledcPwmInit() set at boot.  domeTask() will also idle (see task body).
+void domeRotationTaskInit() {
+    // Feature toggle: skip the start-up rule entirely when dome is disabled.
+    // Nothing is written; the channel stays at whatever neutral value
+    // ledcPwmInit() set at boot.  domeRotationTask() will also idle (see task body).
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
     bool enabled = configCacheDomeEnabled();
-    uint16_t neutralUs = cfg.dome_neutral_us;
 
     if (!enabled) {
         PA_LOG_INFO(TAG, "dome disabled");
         return;
     }
 
-    ledcPwmSetPulseWidth(LEDC_CH_DOME, neutralUs);
-    PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)neutralUs,
-                ESC_ARMING_DURATION_MS);
+    // Write, log, hold, as it always ran: the stop goes out first, so the
+    // arming line follows the first neutral pulse. The start-up rule then puts
+    // the same stop out again and holds it, which blocks.
+    domeRotationBackendStop(cfg);
+    PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)cfg.dome_neutral_us,
+                (int)kDomeRotationBackend.startupNeutralMs);
 
-    delay(ESC_ARMING_DURATION_MS);
+    domeRotationBackendStart(cfg);
 
     PA_LOG_INFO(TAG, "Dome ESC armed and ready");
 }
 
 // -----------------------------------------------------------------------------
-// domeTask()
+// domeRotationTask()
 // Main dome task loop. Task is only spawned when dome output is enabled at boot
 // (staged at reboot per ADR 0027).
 // -----------------------------------------------------------------------------
-void domeTask(void* pvParameters) {
+void domeRotationTask(void* pvParameters) {
     (void)pvParameters;
 
     // Register with task watchdog, and feed immediately: the 3 s window starts
@@ -282,7 +291,7 @@ void domeTask(void* pvParameters) {
     esp_task_wdt_add(NULL);
     esp_task_wdt_reset();
 
-    DomeCommand cmd;
+    DomeRotationCommand cmd;
     float currentSpeed = 0.0f;
     uint32_t lastCommandMs = 0;
     bool hasCommand = false;
@@ -321,7 +330,7 @@ void domeTask(void* pvParameters) {
                 sleepHolding = true;
             }
 
-            while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+            while (xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
                 // discard while sleeping
             }
             hasCommand = false;
@@ -335,7 +344,7 @@ void domeTask(void* pvParameters) {
             // tick's vTaskDelay() is still queued, and taken now it would run
             // on the clear. One more drain closes that window; a command sent
             // just after the clear goes too, and a continuous sender resends.
-            while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+            while (xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
                 // discard: sent while sleeping
             }
             PA_LOG_INFO(TAG, "Sleep mode cleared - dome command processing resumed");
@@ -361,7 +370,7 @@ void domeTask(void* pvParameters) {
         // clear goes too; a continuous sender resends.
         if (estop || estopHolding) {
             bool discarded = false;
-            while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+            while (xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
                 discarded = true;
             }
             hasCommand = false;
@@ -380,16 +389,16 @@ void domeTask(void* pvParameters) {
         // Process any pending commands (non-blocking). Under an estop, and on
         // the tick it clears, the queue was just emptied; the guard keeps a
         // command sent since out too while it holds.
-        while (!estop && xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+        while (!estop && xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
             // The timed-turn cap, on the command as received: a TURN_TO is
             // still a TURN_TO here, so a planned bearing turn is never cut.
-            if (cmd.kind == DOME_CMD_SPEED && cmd.durationMs > DOME_TIMED_TURN_MAX_MS) {
+            if (cmd.kind == DOME_ROTATION_CMD_SPEED && cmd.durationMs > DOME_TIMED_TURN_MAX_MS) {
                 PA_LOG_WARN(TAG, "[%s] timed dome turn of %u ms cut to %u ms",
                             commandSourceToString(cmd.source), (unsigned)cmd.durationMs,
                             (unsigned)DOME_TIMED_TURN_MAX_MS);
                 cmd.durationMs = DOME_TIMED_TURN_MAX_MS;
             }
-            if (cmd.kind == DOME_CMD_FRONT_IS_HERE) {
+            if (cmd.kind == DOME_ROTATION_CMD_FRONT_IS_HERE) {
                 const ConsoleReason notTaken = bearingDeclareFront(cmd.timestampMs);
                 if (notTaken == CONSOLE_REASON_NONE) {
                     PA_LOG_INFO(TAG, "[%s] front is here", commandSourceToString(cmd.source));
@@ -399,7 +408,7 @@ void domeTask(void* pvParameters) {
                 }
                 continue;
             }
-            if (cmd.kind == DOME_CMD_TURN_TO) {
+            if (cmd.kind == DOME_ROTATION_CMD_TURN_TO) {
                 const ConsoleReason notTurned = bearingPlanTurn(&cmd);
                 if (notTurned != CONSOLE_REASON_NONE) {
                     PA_LOG_INFO(TAG, "[%s] dome not turned - %s", commandSourceToString(cmd.source),
@@ -407,7 +416,7 @@ void domeTask(void* pvParameters) {
                     continue;
                 }
             }
-            if (cmd.kind != DOME_CMD_SPEED) {
+            if (cmd.kind != DOME_ROTATION_CMD_SPEED) {
                 continue;  // a kind this build does not know moves nothing
             }
             currentSpeed = cmd.speed;

@@ -2,7 +2,7 @@
 // include/dome_turn_calibration.h
 //
 // The Dome Bearing's calibration (#445), built from the stored dome config in
-// one place: DomeTask integrates and plans turns from it, and the route, the
+// one place: DomeRotationTask integrates and plans turns from it, and the route, the
 // Console and the Sequence Coordinator ask whether it is complete from it. It
 // lives apart from include/dome_bearing.h, which stays pure and knows nothing
 // of the config store.

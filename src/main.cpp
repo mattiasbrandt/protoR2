@@ -27,7 +27,7 @@
 #include "console_task.h"
 #include "reaction_task.h"
 #include "dome_link.h"
-#include "dome_task.h"
+#include "dome_rotation_task.h"
 #include "drive.h"
 #include "drive_arbiter.h"
 #include "failsafe_boot_twdt.h"
@@ -52,7 +52,7 @@
 RobotState robotState = {};
 portMUX_TYPE robotStateMux = portMUX_INITIALIZER_UNLOCKED;
 QueueHandle_t servoCmdQueue = nullptr;
-QueueHandle_t domeCmdQueue = nullptr;
+QueueHandle_t domeRotationCmdQueue = nullptr;
 QueueHandle_t audioCmdQueue = nullptr;
 QueueHandle_t domeTxQueue = nullptr;
 static portMUX_TYPE logMux = portMUX_INITIALIZER_UNLOCKED;
@@ -417,7 +417,7 @@ void setup() {
     // `connected` flag never clears - every blocked write waits out HWCDC's
     // bounded-progress cap of 20 x tx_timeout_ms. At the 100 ms default that is
     // ~2 s per write call and ~4 s per paLogLine() (two writes), against a
-    // WATCHDOG_TIMEOUT_S of 3 s. That starved DomeTask's TWDT feed from inside
+    // WATCHDOG_TIMEOUT_S of 3 s. That starved DomeRotationTask's TWDT feed from inside
     // one PA_LOG_DEBUG and reset the board (#245 defect 1, coredump-verified);
     // every TWDT-subscribed task that logs is equally exposed. Zero makes the
     // CDC transport strictly best-effort: a full TX ring drops bytes instead of
@@ -485,7 +485,7 @@ void setup() {
     // explicitly-added task entries and unsubscribes the previous mask's idle tasks,
     // so after this call the watched set is exactly the tasks that call
     // esp_task_wdt_add(NULL) on themselves: DriveTask, ServoTask, RCInputTask (when
-    // spawned), SequenceDispatcherTask, and DomeTask (when spawned).
+    // spawned), SequenceDispatcherTask, and DomeRotationTask (when spawned).
     const esp_task_wdt_config_t twdt_config = {
         .timeout_ms    = WATCHDOG_TIMEOUT_S * 1000U,
         .idle_core_mask = 0,
@@ -522,7 +522,7 @@ void setup() {
 
     // Create command queues
     servoCmdQueue = xQueueCreate(8, sizeof(ServoCommand));
-    domeCmdQueue = xQueueCreate(8, sizeof(DomeCommand));
+    domeRotationCmdQueue = xQueueCreate(8, sizeof(DomeRotationCommand));
     audioCmdQueue = xQueueCreate(8, sizeof(AudioCommand));
     domeTxQueue = xQueueCreate(16, sizeof(DomeTxCmd));
     sequenceDispatcherInit();
@@ -541,7 +541,7 @@ void setup() {
 
     // ServoTask owns LEDC hardware init and applies AUX LED channel skip policy.
     servoTaskInit();
-    domeTaskInit();
+    domeRotationTaskInit();
     bool auxLedTaskReady = auxLedTaskInit();
     if (!auxLedTaskReady) {
         PA_LOG_ERROR("main", "aux LED task init failed; AUX LED API will report unavailable");
@@ -554,7 +554,8 @@ void setup() {
     configWriteWindowArm(true);
 
     // Real-time / core pinning contract: see docs/failsafe.md "Real-Time / Core Pinning Contract".
-    // Core 1 real-time (heap-allocation-free): DriveTask, RCInputTask, ServoTask, DomeTask, DomeLinkTask.
+    // Core 1 real-time (heap-allocation-free): DriveTask, RCInputTask, ServoTask, DomeRotationTask,
+    // DomeLinkTask.
     // Core 0 non-RT: AudioTask, AuxLedTask, SafetyMonitorTask, SequenceDispatcherTask, ReactionTask,
     // WebEvents, ArduinoOTA.
 
@@ -563,7 +564,7 @@ void setup() {
     // RcInputTask: ~200 Hz RC poll (all modes), Layer 1+2 failsafe; omitted
     // when no RC input is active for the boot-selected mode and routing.
     // ServoTask: 50 Hz servo PWM updates
-    // DomeTask: 50 Hz ESC PWM updates; omitted when dome output is disabled
+    // DomeRotationTask: 50 Hz Dome Rotation updates; omitted when dome output is disabled
     // at boot (ADR 0027: not spawning the owning task at all is the preferred form).
     // Size is chip-target specific; DRIVE_TASK_STACK_BYTES (tools/task_stack_recipes.json) carries
     // the measured worst-case chain for both chips and why ESP32 is raised too even
@@ -588,13 +589,17 @@ void setup() {
     xTaskCreatePinnedToCore(servoTask, "ServoTask", SERVO_TASK_STACK_BYTES, nullptr, 4, nullptr,
                             1);
     if (bootCfg.system.enable_dome_esc) {
-        // Size is chip-target specific; DOME_TASK_STACK_BYTES (tools/task_stack_recipes.json)
-        // carries the measured chain and the sizing rule. The note this line used
-        // to carry -- "sized from profiler HWM: 108 B free at 2048 B" -- was an
-        // artoo-esp32 reading, and on the ESP32-P4 the same source needs 3280 B,
-        // which is 208 B more than the 3072 that reading justified (#248).
-        xTaskCreatePinnedToCore(domeTask, "DomeTask", DOME_TASK_STACK_BYTES, nullptr, 4,
-                                nullptr, 1);
+        // Size is chip-target specific; DOME_ROTATION_TASK_STACK_BYTES
+        // (tools/task_stack_recipes.json) carries the measured chain and the
+        // sizing rule. The note this line used to carry -- "sized from profiler
+        // HWM: 108 B free at 2048 B" -- was an artoo-esp32 reading, and on the
+        // ESP32-P4 the same source needs 3280 B, which is 208 B more than the
+        // 3072 that reading justified (#248).
+        // "DomeRotation", not "DomeRotationTask": FreeRTOS keeps 15 characters
+        // of a name (CONFIG_FREERTOS_MAX_TASK_NAME_LEN 16 counts the NUL), and
+        // /api/profiler and the stack recipe look the task up by the whole of it.
+        xTaskCreatePinnedToCore(domeRotationTask, "DomeRotation", DOME_ROTATION_TASK_STACK_BYTES,
+                                nullptr, 4, nullptr, 1);
     }
 
     // AudioTask: Core 0 (non-RT)  --  software bit-bang TX blocks ~6 ms per command;
@@ -650,7 +655,7 @@ void setup() {
     seqStoreInit();
 
     // SequenceDispatcherTask: Core 0 (non-RT)  --  body-side DM:* sequence coordinator.
-    // 10 ms tick. Dispatches to domeQueueTx / audioQueueDollar / domeCmdQueue.
+    // 10 ms tick. Dispatches to domeQueueTx / audioQueueDollar / domeRotationCmdQueue.
     // Core 0 keeps the 50 Hz safety loops on Core 1 unburdened (ADR 0004).
     // Size is chip-target specific; SEQ_DISPATCHER_TASK_STACK_BYTES (tools/task_stack_recipes.json)
     // carries the measured chain and the sizing rule. The depth is the Learned Sequence

@@ -9,7 +9,7 @@
 //
 // What is deliberately not covered: the queue-full branches, because the host
 // freertos stub's xQueueSend() always succeeds, and anything that needs a real
-// ServoTask/DomeTask. Those stay device behaviour.
+// ServoTask/DomeRotationTask. Those stay device behaviour.
 // =============================================================================
 #include <unity.h>
 

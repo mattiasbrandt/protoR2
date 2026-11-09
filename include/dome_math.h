@@ -1,12 +1,15 @@
 // =============================================================================
 // include/dome_math.h
 //
-// Pure-logic dome ESC pulse mapping and random-move pause arithmetic  --  no
+// Pure-logic Dome ESC pulse mapping and random-move pause arithmetic  --  no
 // hardware, no FreeRTOS.
-// Extracted for testability. Used by DomeTask and native tests.
+// Extracted for testability. The pulse mapping is the Dome ESC backend's
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp); the random-move arithmetic
+// is DomeRotationTask's. Both are exercised by native tests.
 //
-// ESC PWM semantics (standard RC PWM, 50 Hz):
-//   1000us = full reverse / max brake
+// Dome ESC pulse semantics (standard RC PWM, 50 Hz):
+//   1000us = full reverse in a forward-and-reverse running mode; in a mode
+//            with a brake, a reverse from forward brakes first
 //   1500us = neutral / stop
 //   2000us = full forward
 // =============================================================================
@@ -23,8 +26,8 @@
 // about 60% reverse on an ESC in a forward/reverse mode, with nobody
 // commanding it (#417). So the config door refuses such a set, the loader
 // replaces a stored one with the defaults, and the mapping falls back to
-// neutral rather than trust it. data/dome.js applies the same rule before it
-// sends.
+// neutral rather than trust it. data/dome.js sends what the builder typed and
+// leaves this rule to the droid, whose refusal it shows.
 // -----------------------------------------------------------------------------
 inline bool domePulsesInOrder(uint16_t minPulseUs, uint16_t neutralUs, uint16_t maxPulseUs) {
     return minPulseUs <= neutralUs && neutralUs <= maxPulseUs;
@@ -75,6 +78,26 @@ inline uint16_t domeSpeedToPulseUs(float speed, uint16_t neutralUs, uint16_t min
 }
 
 // -----------------------------------------------------------------------------
+// domePulseToShare()
+// The pulse on the wire as a signed share of the ESC's FULL output (-1..1):
+// its distance from neutral over the full half-range on its side, never over
+// the speed limit's. This is what a Dome ESC reports back through the Dome
+// Rotation seam (include/dome_rotation_backend.h), and the scale the Dome
+// Bearing's full-turn speed is recorded on. 0 at neutral, and on a side with
+// no range (min == neutral or max == neutral).
+// -----------------------------------------------------------------------------
+inline float domePulseToShare(uint16_t pulseUs, uint16_t neutralUs, uint16_t minPulseUs,
+                              uint16_t maxPulseUs) {
+    if (pulseUs > neutralUs && maxPulseUs > neutralUs) {
+        return (float)(pulseUs - neutralUs) / (float)(maxPulseUs - neutralUs);
+    }
+    if (pulseUs < neutralUs && neutralUs > minPulseUs) {
+        return -(float)(neutralUs - pulseUs) / (float)(neutralUs - minPulseUs);
+    }
+    return 0.0f;
+}
+
+// -----------------------------------------------------------------------------
 // Random dome movement: the Mood sets how often (#452)
 //
 // The pause window the builder stores (dome_rnd_pause_min/max, whole seconds)
@@ -103,7 +126,7 @@ inline bool domeRndMoodStartsMoves(uint8_t mood) {
 // its turns is running. Whether the dome goes to neutral with it: yes, unless
 // a manual command was taken on this very tick, which owns the dome now and
 // must not be overwritten by a turn that is only ending (#450). The estop and
-// Sleep Mode still win, and need no word here: DomeTask takes no command
+// Sleep Mode still win, and need no word here: DomeRotationTask takes no command
 // under either, so no manual command exists on such a tick.
 inline bool domeRndStandDownGoesNeutral(bool manualCommandThisTick) {
     return !manualCommandThisTick;
