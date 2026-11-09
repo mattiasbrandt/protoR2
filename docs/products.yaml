@@ -1125,15 +1125,15 @@ products:
         home, and it is a behaviour change to a Core 1 task that would also change how
         the random idle machine and sequence steps feel: a decision, not a correction.
         Open.
-      - The dome is write-only. `robotState.domeTargetSpeed` is what was commanded,
-        not what the dome is doing. The Dome ESC health row (`data/health_signals.js`)
-        now reads Idle or Spinning in grey as a commanded word, never green. The Dome
-        page's own rotation word is drawn from the commanded target too, so a
-        dome whose ESC is in protection, unpowered, uncalibrated or in the wrong
-        running mode shows the same page as a turning dome: the same shape as the old
-        optimistic audio "Playing" badge, with no wire to read. Open: word that state
-        as commanded on the Dome page (operator's call on wording), and whether a
-        sensed dome input (a rotation sensor or a current shunt) is worth a GPIO.
+      - The dome is write-only. The droid reports what it sent, never what the
+        dome did (#504): `/api/status` carries the share Dome Rotation put on the
+        wire after the speed limit and the pulse that went with it, and the Dome
+        page and the Dashboard's Dome Rotation row draw their word and number
+        from that, grey and never green, the direction named from the Positive
+        turns Setting. A dome whose ESC is in protection, unpowered, uncalibrated
+        or in the wrong running mode still shows the same readout as a turning
+        dome: there is no wire to read. A sensed dome input (a rotation sensor or
+        a current shunt) was weighed in #504 and not scoped.
 
   - value: 12
     id: syren10
