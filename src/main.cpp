@@ -591,9 +591,10 @@ void setup() {
     if (bootCfg.system.enable_dome_esc) {
         // Size is chip-target specific; DOME_ROTATION_TASK_STACK_BYTES
         // (tools/task_stack_recipes.json) carries the measured chain and the
-        // sizing rule. The note this line used to carry -- "sized from profiler HWM: 108 B free at 2048 B" -- was an
-        // artoo-esp32 reading, and on the ESP32-P4 the same source needs 3280 B,
-        // which is 208 B more than the 3072 that reading justified (#248).
+        // sizing rule. The note this line used to carry -- "sized from profiler
+        // HWM: 108 B free at 2048 B" -- was an artoo-esp32 reading, and on the
+        // ESP32-P4 the same source needs 3280 B, which is 208 B more than the
+        // 3072 that reading justified (#248).
         // "DomeRotation", not "DomeRotationTask": FreeRTOS keeps 15 characters
         // of a name (CONFIG_FREERTOS_MAX_TASK_NAME_LEN 16 counts the NUL), and
         // /api/profiler and the stack recipe look the task up by the whole of it.

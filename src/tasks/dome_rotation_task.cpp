@@ -85,7 +85,8 @@ static const char* TAG = "DomeRotation";
 // The state is file-static rather than on domeRotationTask()'s frame, which
 // sits on every one of this task's measured chains
 // (tools/task_stack_recipes.json), and the helpers below are leaves that never
-// log, so none of them lengthens the log route that is this task's deepest. They run on this task only.
+// log, so none of them lengthens the log route that is this task's deepest.
+// They run on this task only.
 // -----------------------------------------------------------------------------
 static struct {
     float    share;    // the backend's output on the wire since atMs (-1..1)
@@ -203,7 +204,10 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeRotationComma
 // setDomeSpeed()
 // One signed speed out through the Dome Rotation backend, under the stored
 // speed limit. The belief catches up on the output it replaces first, then
-// follows the one the backend reports.
+// follows the one the backend reports. That share is the one computed when the
+// output was written: a pulse-set save during a held output (a timed turn, Go
+// home, a random move) takes effect on the next write, not mid-hold. The wire
+// does the same, since the pulse is not rewritten until then either.
 // -----------------------------------------------------------------------------
 static void setDomeSpeed(float speed) {
     DomeConfig cfg = {};
@@ -260,8 +264,10 @@ void domeRotationTaskInit() {
         return;
     }
 
-    // Logged before the hold, which blocks: the backend writes neutral and
-    // then holds it.
+    // Write, log, hold, as it always ran: the stop goes out first, so the
+    // arming line follows the first neutral pulse. The start-up rule then puts
+    // the same stop out again and holds it, which blocks.
+    domeRotationBackendStop(cfg);
     PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)cfg.dome_neutral_us,
                 (int)kDomeRotationBackend.startupNeutralMs);
 
