@@ -105,7 +105,10 @@ struct ConfigSetting {
     // Output's wired tick, which GET reads on the Output's row (`wired`) and
     // POST takes back there too.
     const char* path;
-    const char* nvsKey;   // unchanged from before the declarations, so a stored Configuration loads as it is
+    // Its NVS key. A key renamed after it was first stored is carried across by a
+    // schema migration (include/config_store.h), so a stored Configuration
+    // loads as it is.
+    const char* nvsKey;
     // When a saved value takes effect (include/apply_timing.h). The browser's
     // entry for the Setting states the same token.
     ApplyTiming timing;
