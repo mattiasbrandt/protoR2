@@ -76,9 +76,34 @@
     <div class="bay dome-settings">
       <section>
         <div class="sect"><h2>Dome ESC</h2><span class="sub">saved as you change</span></div>
-        <div class="note note-info" role="note">
-          Calibration, PWM frequency and voltage cutoff live in the <b>ISD Go</b> app, over Bluetooth.
-        </div>
+        <!-- What the droid cannot see (#504). The ESC is write-only: its
+             running mode, curve and faults live in the ISD Go app and its own
+             LED, so the two traps that look like a broken dome are named here,
+             the one maker text both asset sets carry. Folded, because a set-up
+             droid never needs them; the wiring card holds the same facts. -->
+        <details class="dome-more">
+          <summary><svg class="i chev" aria-hidden="true" focusable="false"><use href="#i-chevron-right"/></svg>Set up in the ISD Go app</summary>
+          <ol class="dome-more-list">
+            <li>Calibrate the throttle first. Nothing else can be set until it is done.</li>
+            <li>Running mode: <b>Forward and Reverse</b>. The default only brakes on the first reverse.</li>
+            <li>Throttle curve: both ends at 100, not Novice. Novice caps the dome at 70%.</li>
+            <li>BEC voltage: <b>5.0 V</b>. Its centre wire stays off the board.</li>
+            <li>Start force: high.</li>
+            <li>Active brake: off.</li>
+          </ol>
+        </details>
+        <details class="dome-more">
+          <summary><svg class="i chev" aria-hidden="true" focusable="false"><use href="#i-chevron-right"/></svg>Dome not turning?</summary>
+          <dl class="dome-more-list">
+            <dt>One way only</dt><dd>Running mode, before the mechanics.</dd>
+            <dt>Never moves</dt><dd>Calibrate the throttle, or raise Speed limit.</dd>
+            <dt>Weak</dt><dd>The Novice throttle curve.</dd>
+            <dt>Red LED</dt><dd>ISD Go names the error.</dd>
+            <dt>No LED</dt><dd>The ESC's power or its switch.</dd>
+            <dt>Green LED, still</dt><dd>The signal wire or its ground.</dd>
+          </dl>
+          <p class="hint">Only the ESC's LED and ISD Go show its state. The droid knows what it sent.</p>
+        </details>
         <form id="esc-form" class="setting-rows">
           <label class="setting-row">
             <span class="setting-name">Neutral pulse<span class="hint">Wrong, and the dome creeps on its own.</span></span>
@@ -143,11 +168,11 @@
         <div class="sect"><h2>Full turn</h2><span class="sub" id="dome-turn-state">not set</span></div>
         <form id="dome-turn-form" class="setting-rows">
           <label class="setting-row">
-            <span class="setting-name">Time for one turn<span class="hint">Stopwatch one full turn.</span></span>
+            <span class="setting-name">Time for one turn<span class="hint">Stopwatch one full turn at your usual speed.</span></span>
             <span class="setting-number"><input id="dome-turn-ms" class="number-cell" name="domeEscFullTurnMs" type="number" step="10" placeholder="-"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Timed at<span class="hint">Full stick under a 60% speed limit is 60.</span></span>
+            <span class="setting-name">Timed at<span class="hint">Full stick under a 60% speed limit is 60. Re-time after an ISD Go or Speed limit change.</span></span>
             <span class="setting-number"><input id="dome-turn-pct" class="number-cell" name="domeEscFullTurnPct" type="number" step="1" placeholder="-"><span class="setting-unit">%</span></span>
           </label>
           <div class="setting-row">

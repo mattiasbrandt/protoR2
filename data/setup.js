@@ -127,7 +127,10 @@
       key: "domerot",
       title: "Dome Rotation",
       q: "What turns the dome?",
-      why: "Off, the dome sits still through every sequence.",
+      // Points at the Dome page and not at the wiring card: the cards ship
+      // in the default asset set only, and the Dome page's set-up list
+      // reaches every board (#504).
+      why: "Off, the dome sits still through every sequence. Set it up before it turns: the Dome page lists how.",
       applies: stepTiming("domerot"),
       answer: () => pickedIn("dome_rotation"),
     },
