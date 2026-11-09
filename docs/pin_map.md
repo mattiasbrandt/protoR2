@@ -282,6 +282,10 @@ The main GPIO field is **17 rows x 3 columns**, with the column header silkscree
 > and bring only the signal wire and a common ground to this field. Whether the board's `VIN` pin can
 > source 5 V for this instead is `UNKNOWN` and is not to be assumed: no source in this repo answers
 > it, and it needs the DFR1237 schematic PDF read or a meter on the pin.
+>
+> **An ESC can also push power back.** The ISDT ESC70's centre wire is its BEC output, 5.0-7.5 V,
+> and on this field it lands on the `3V3` plane: wire its signal and ground only (its wiring card,
+> `isdt_esc70` in `docs/products.yaml`).
 
 > [!NOTE]
 > **This layout is one of the reasons the FireBeetle 2 was chosen** (operator, 2026-09-01). Most of

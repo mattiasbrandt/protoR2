@@ -2552,6 +2552,63 @@ body[data-page="firmware"] .form-grid {
   justify-content: stretch;
 }
 
+/* The ESC's set-up and its symptoms (#504): folded under a quiet line each,
+   no frame, so a set-up droid's page is the settings alone. */
+.dome-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-height: 28px;
+  color: var(--text-dim);
+  font-size: var(--fs-cell);
+  cursor: pointer;
+  list-style: none;
+}
+
+.dome-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dome-more > summary .chev {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s;
+}
+
+.dome-more[open] > summary .chev {
+  transform: rotate(90deg);
+}
+
+.dome-more-list {
+  margin: var(--space-2xs) 0 var(--space-sm);
+  color: var(--text-dim);
+  font-size: var(--fs-cell);
+  line-height: 1.55;
+}
+
+ol.dome-more-list {
+  padding-left: var(--space-lg);
+}
+
+ol.dome-more-list b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+dl.dome-more-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-md);
+}
+
+dl.dome-more-list dt {
+  color: var(--text);
+}
+
+dl.dome-more-list dd {
+  margin: 0;
+}
+
 .fw-progress {
   display: grid;
   gap: var(--space-sm);

@@ -25,6 +25,21 @@ the patch releases, whose notes live on their own GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+#### Dome
+- **The Dome page lists the ESC's set-up.** Calibrate first, then Forward and
+  Reverse, both curve ends at 100 and the BEC at 5.0 V: the two factory
+  settings that make a dome turn one way or crawl at 70 % are named before
+  you blame the ring. A short list beside it says what a dome that will not
+  turn is telling you.
+
+### Changed
+
+- **The ISDT ESC70's protocol reads `rc_pwm`, not `ledc`.** The droid's parts
+  list says what the ESC takes, an RC pulse. A script that reads the old word
+  from the parts list needs the new one.
+
 ## [1.5.0] - 2026-10-10
 
 ### Added

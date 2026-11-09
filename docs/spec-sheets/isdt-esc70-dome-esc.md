@@ -55,6 +55,10 @@ Does not cover: the mechanical dome drive itself (ring, bearing, gear mesh,
 slip ring); motor selection beyond naming the class; the ISD Go app's own UI
 beyond its settings; or ISDT's brushless ESC range.
 
+This sheet keeps the vendor's facts. The project's own ISD Go baseline, the
+wiring card, what has been proven on which board and the droid-side findings
+live in the `isdt_esc70` entry of `docs/products.yaml`.
+
 ## 2. What you are actually buying
 
 **A 38.6 x 31.6 x 17.15 mm brushed car ESC**, about 49 g, with 16 AWG 200 mm
@@ -650,7 +654,8 @@ Three things transfer directly to an ESC70 build:
    the host stops talking. **An ESC70 has no equivalent** -- it holds the last
    pulse for as long as the pulse keeps coming. A host driving an ESC70 that
    wants a stop on a silent command source has to supply that timeout itself
-   (Section 11).
+   (the comparison is Section 11; protoR2's own dome command timeout is in the
+   `isdt_esc70` notes of `docs/products.yaml`).
 
 ## 11. How the ESC70 and the SyRen 10 differ
 
