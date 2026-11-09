@@ -49,6 +49,13 @@ static const char* TAG = "DOME";
 // -----------------------------------------------------------------------------
 #define DOME_COMMAND_TIMEOUT_MS 500  // Zero speed if no command for 500ms
 #define ESC_ARMING_DURATION_MS 2000  // Time to hold neutral for arming
+// The longest timed turn taken from a sender (#504): a Dome Controller
+// `dome=rot` line, a sequence step, a web hold. A longer one is cut to this and
+// logged. A turn to a Dome Bearing is exempt: it is planned here from the
+// droid's own calibration (bearingPlanTurn()), and half a turn can take longer
+// (DOME_FULL_TURN_MS_MAX), so the cap is applied to the command as it arrives,
+// before that plan replaces it.
+#define DOME_TIMED_TURN_MAX_MS 30000
 
 // -----------------------------------------------------------------------------
 // The Dome Bearing (include/dome_bearing.h, ADR 0051 as amended 2026-09-30,
@@ -138,9 +145,11 @@ static void __attribute__((noinline)) bearingTick(bool forget) {
 // belief could be integrated from, and - blocked-by-state, the reason an estop
 // or Sleep Mode carries - when it was pressed at or before the last tick either
 // held.
-// The estop leaves this task's queue undrained, so a press the route accepted
-// just before an estop latched waits there, and taken after the clear it would
-// call a coasted dome front: the bearing would silently become a number again.
+// Taken after an estop or Sleep Mode cleared, a press made before either held
+// would call a coasted dome front: the bearing would silently become a number
+// again. Both now discard the queue every tick they hold (domeTask()), so such
+// a press is normally gone before it reaches here; this stamp check is the
+// second guard, kept so the bearing does not rest on the discard alone.
 // Every sender stamps timestampMs when it sends; the comparison is wrap-safe.
 static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pressedAtMs) {
     if (s_bearing.forgotAtMs != 0 && (int32_t)(pressedAtMs - s_bearing.forgotAtMs) <= 0) {
@@ -281,6 +290,7 @@ void domeTask(void* pvParameters) {
 
     bool hwmLogged = false;
     bool sleepHolding = false;
+    bool estopDiscardLogged = false;  // the discard below logs once per estop
     uint32_t seqMoveUntilMs = 0;
 
     while (true) {
@@ -330,10 +340,38 @@ void domeTask(void* pvParameters) {
             PA_LOG_WARN(TAG, "Estop active - dome neutral");
         }
 
+        // While the estop is latched every queued command is discarded, every
+        // tick, as Sleep Mode does above (#504): a turn sent during the estop
+        // must not run once it clears. Clearing the estop never starts the dome
+        // by itself. A turn to a bearing and "Front is here" go too; both are
+        // refused after an estop anyway, the bearing being forgotten.
+        if (estop) {
+            bool discarded = false;
+            while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+                discarded = true;
+            }
+            hasCommand = false;
+            if (discarded && !estopDiscardLogged) {
+                PA_LOG_WARN(TAG, "Estop active - queued dome turns discarded");
+                estopDiscardLogged = true;
+            }
+        } else {
+            estopDiscardLogged = false;
+        }
+
         bool manualCommandThisTick = false;
 
-        // Process any pending commands (non-blocking), skip if estop
+        // Process any pending commands (non-blocking). Under an estop the queue
+        // was just emptied; the guard keeps a command sent since out too.
         while (!estop && xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+            // The timed-turn cap, on the command as received: a TURN_TO is
+            // still a TURN_TO here, so a planned bearing turn is never cut.
+            if (cmd.kind == DOME_CMD_SPEED && cmd.durationMs > DOME_TIMED_TURN_MAX_MS) {
+                PA_LOG_WARN(TAG, "[%s] timed dome turn of %u ms cut to %u ms",
+                            commandSourceToString(cmd.source), (unsigned)cmd.durationMs,
+                            (unsigned)DOME_TIMED_TURN_MAX_MS);
+                cmd.durationMs = DOME_TIMED_TURN_MAX_MS;
+            }
             if (cmd.kind == DOME_CMD_FRONT_IS_HERE) {
                 const ConsoleReason notTaken = bearingDeclareFront(cmd.timestampMs);
                 if (notTaken == CONSOLE_REASON_NONE) {
