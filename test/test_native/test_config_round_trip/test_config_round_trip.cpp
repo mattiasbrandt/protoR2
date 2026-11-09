@@ -57,7 +57,6 @@ void test_typical_snapshot_round_trip(void) {
     snap.drive.speedLimitMax = 600;  // exact upper boundary
     snap.audio.audioVolume = 15;
     snap.dome.dome_speed_limit_pct = 22;
-    snap.dome.dome_min_speed = 0.25f;
     snap.system.enable_arm1 = true;
 
     MapWriter writer;
@@ -77,8 +76,6 @@ void test_typical_snapshot_round_trip(void) {
     TEST_ASSERT_EQUAL_INT(15, loaded.audio.audioVolume);
     TEST_ASSERT_EQUAL_INT(22, loaded.dome.dome_speed_limit_pct);
     TEST_ASSERT_EQUAL_INT(1, loaded.system.enable_arm1);
-    // Float comparison with tolerance
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.25f, loaded.dome.dome_min_speed);
 }
 
 // Test 3: RC trigger binding round-trip
@@ -523,9 +520,9 @@ void test_a_thirteen_field_row_is_the_old_shape_not_damage(void) {
 void test_an_out_of_order_stored_dome_pulse_set_loads_as_the_defaults(void) {
     MapReader reader;
     reader.setSchemaVersion(CONFIG_SCHEMA_VERSION);
-    reader.set("dome_minp", (uint32_t)1800);
-    reader.set("dome_neu", (uint32_t)1500);
-    reader.set("dome_maxp", (uint32_t)1200);
+    reader.set("drot_minp", (uint32_t)1800);
+    reader.set("drot_neu", (uint32_t)1500);
+    reader.set("drot_maxp", (uint32_t)1200);
 
     ConfigSnapshot snap = {};
     TEST_ASSERT_TRUE(configDeserialize(reader, &snap));
@@ -537,9 +534,9 @@ void test_an_out_of_order_stored_dome_pulse_set_loads_as_the_defaults(void) {
     // An ordered set is kept exactly, and is not reported.
     MapReader ordered;
     ordered.setSchemaVersion(CONFIG_SCHEMA_VERSION);
-    ordered.set("dome_minp", (uint32_t)1100);
-    ordered.set("dome_neu", (uint32_t)1480);
-    ordered.set("dome_maxp", (uint32_t)1900);
+    ordered.set("drot_minp", (uint32_t)1100);
+    ordered.set("drot_neu", (uint32_t)1480);
+    ordered.set("drot_maxp", (uint32_t)1900);
     ConfigSnapshot kept = {};
     TEST_ASSERT_TRUE(configDeserialize(ordered, &kept));
     TEST_ASSERT_EQUAL_UINT16(1100, kept.dome.dome_min_pulse_us);

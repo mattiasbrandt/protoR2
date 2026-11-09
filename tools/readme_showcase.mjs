@@ -265,7 +265,7 @@ const OUTPUT_LABEL = { arm1: 'enable_arm1', arm2: 'enable_arm2', aux1: 'enable_a
 const COMPONENT_LABEL = {
   drive: 'enable_drive',
   audio: 'enable_audio',
-  domeEsc: 'enable_dome_esc',
+  domeRotation: 'enable_dome_esc',
   protoR2link: 'enable_protor2link',
   rcCh1: 'enable_rc_ch1',
   rcCh2: 'enable_rc_ch2',

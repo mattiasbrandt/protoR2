@@ -142,6 +142,10 @@ void captureStatusHeapReadings(StatusJsonInputs* in);
 // same reason as the Dome Bearing's; the worst case in the test above now
 // includes it.
 //
+// #504 renamed the dome's peripheral key `domeEsc` to `domeRotation`: 5 B more,
+// which the 4,320 B holds (4,201 + 89 + 5 = 4,295 B). Added, not measured, for
+// the same reason.
+//
 // The hostedLink object (#189, #471) is 620 B at its widest: every count and
 // time at 4294967295, livenessAgeMs at 2147483647, both esp_err_t results at
 // -2147483648, and the longest words ("attempting", "false", "heartbeat",

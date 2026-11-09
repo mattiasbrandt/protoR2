@@ -17,7 +17,7 @@
 //   field name is not something a builder reads (#298, #422)
 // - protoR2link and the sound link are answered from one word table, which
 //   every page that shows either link reads (readProtoR2link, readSoundLink)
-// - The Dome ESC and the Foot Drive are answered the same way (readDomeEsc,
+// - Dome Rotation and the Foot Drive are answered the same way (readDomeRotation,
 //   readFootDrive): green only for something heard back, and what the droid
 //   commands is the detail, never the light (#399)
 // - Memory is judged by its largest free block against one table of heap
@@ -239,7 +239,7 @@
   };
 
   // ---------------------------------------------------------------------------
-  // The Dome ESC and the Foot Drive: one word table each, the shape Sound's is
+  // Dome Rotation and the Foot Drive: one word table each, the shape Sound's is
   //
   // Both rows used to light green on what the droid COMMANDS - a target speed,
   // a drive command - which is not a report (GLOSSARY.md "Status Color": green
@@ -253,17 +253,17 @@
 
   // A PWM ESC has no return wire, so nothing is ever heard from it: fitted, it
   // is grey and its word says what is commanded. Never green, never red.
-  const DOME_ESC_DISABLED = linkAnswer("off", "Disabled");
-  const DOME_ESC_WORDS = Object.freeze({
+  const DOME_ROTATION_DISABLED = linkAnswer("off", "Disabled");
+  const DOME_ROTATION_WORDS = Object.freeze({
     idle: linkAnswer("off", "Idle"),
     spinning: linkAnswer("off", "Spinning"),
   });
 
-  const readDomeEsc = (status, { unknown }) => {
-    if (!isObject(status) || status.domeEnabled !== true) return { ...DOME_ESC_DISABLED, detail: "" };
-    const entry = isObject(status.domeEsc) ? status.domeEsc : null;
+  const readDomeRotation = (status, { unknown }) => {
+    if (!isObject(status) || status.domeEnabled !== true) return { ...DOME_ROTATION_DISABLED, detail: "" };
+    const entry = isObject(status.domeRotation) ? status.domeRotation : null;
     const domeState = entry ? entry.state : null;
-    if (Object.hasOwn(DOME_ESC_WORDS, domeState)) return commanded(DOME_ESC_WORDS[domeState], entry);
+    if (Object.hasOwn(DOME_ROTATION_WORDS, domeState)) return commanded(DOME_ROTATION_WORDS[domeState], entry);
     // A state we have no branch for is one we do not understand, which is not
     // reporting rather than degraded. The state string stays in the word so
     // the row still says what arrived.
@@ -369,8 +369,8 @@
 
   // Health's row is one line, so the commanded detail rides after the word
   // ("Idle, Target 0%"): it says what the grey is about.
-  const evaluateDomeEsc = (payload, unknown) => {
-    const { state, word, detail } = readDomeEsc(payload, { unknown });
+  const evaluateDomeRotation = (payload, unknown) => {
+    const { state, word, detail } = readDomeRotation(payload, { unknown });
     return healthSignal(state, detail ? `${word}, ${detail}` : word);
   };
 
@@ -381,7 +381,7 @@
     "h-heap": evaluateHeap,
     "h-dome-link": evaluateDomeLink,
     "h-sound": evaluateSound,
-    "h-dome-esc": evaluateDomeEsc,
+    "h-dome-esc": evaluateDomeRotation,
   });
 
   // `unknown` is the Live Reading's word for a field the frame does not carry
@@ -413,7 +413,7 @@
     deriveHealthSignals,
     readProtoR2link,
     readSoundLink,
-    readDomeEsc,
+    readDomeRotation,
     readFootDrive,
     readRcLink,
     RC_LINK_WORDS,

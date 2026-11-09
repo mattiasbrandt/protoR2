@@ -654,16 +654,25 @@
   // The markup is plain: a heading, a definition list, two lists. The saved
   // bench copy has no stylesheet, and this is what reads on paper without one.
   // ---------------------------------------------------------------------------
+  // Whose Outputs a body servo controller's card lists: the board's own, or an
+  // expander's channels (productPins() below, fittedProducts()).
+  const OWNS_BOARD_OUTPUTS = "board";
+  const OWNS_EXPANDER_OUTPUTS = "expander";
+
   const productPins = (product, model) => {
     const lane = product.lane ? loomRows(model).find((each) => each.key === product.lane) : null;
     // A lane that shares its UART says so here in the drawing's own words,
     // so the pins beside a card never read as a link of the product's own.
     if (lane) return [lane.label, laneDetail(lane), lane.shared ? LANE_SHARED : ""].filter(Boolean);
     if (!product.outputs) return [];
-    // An Output Address opens with the protocol that reaches it (`ledc:3`),
-    // which is the protocol the product's registry row declares.
+    // The Outputs a body servo controller answers for, read off the Outputs
+    // themselves: the board's own carry a stored id (fromConfig, data/outputs.js)
+    // and an expander's channels none. Never off the product's Component
+    // Protocol: that is a word for makers (`rc_pwm`), and an Output Address
+    // opens with a driver token (`ledc:3`) that it no longer spells (#504).
+    const boardOwn = product.outputs === OWNS_BOARD_OUTPUTS;
     return (model.outputs || [])
-      .filter((output) => output.address.startsWith(`${product.outputs}:`))
+      .filter((output) => output.fromConfig === boardOwn)
       .map((output) => output.name);
   };
 
@@ -1330,7 +1339,9 @@
   const PRODUCT_FAMILIES = [
     { family: BOARD_FAMILY },
     { family: "foot_drive", toggle: "drive" },
-    { family: "dome_rotation", toggle: "domeEsc", title: "Dome Rotation" },
+    // Titled by its Component Toggle's label, the builder's word for the
+    // family (data/web_api.js), so the row and Configuration cannot disagree.
+    { family: "dome_rotation", toggle: "domeRotation", titled: true },
     { family: "dome_controller", toggle: "protoR2link" },
     { family: "sound", toggle: "audio" },
     // The one family whose product is reached on the Outputs.
@@ -1342,7 +1353,8 @@
     if (!productCards || !picker?.answered?.()) return [];
     const toggles = componentIndex(components);
     const found = [];
-    PRODUCT_FAMILIES.forEach(({ family, toggle = "", outputs = false, title = "" }) => {
+    PRODUCT_FAMILIES.forEach(({ family, toggle = "", outputs = false, titled = false }) => {
+      const title = titled ? window.PAApi.labelOf(`enable${toggle.charAt(0).toUpperCase()}${toggle.slice(1)}`) : "";
       if (toggle && !switchedOn(toggles, toggle)) return;
       const chosen = picker.productOf(family);
       // The Outputs' family keeps the board's own GPIO whatever is chosen: a
@@ -1356,7 +1368,9 @@
       parts.filter(Boolean).forEach((part) => {
         // A Board Lane's key is its Component Toggle's, folded to lower case
         // (componentIndex() above).
-        found.push({ id: part.id, name: part.name, family, title, lane: toggle.toLowerCase(), outputs: outputs ? part.protocol : "" });
+        // `outputs` says whose Outputs the card lists (productPins()).
+        const owns = !outputs ? "" : part.id === BOARD_GPIO_PRODUCT ? OWNS_BOARD_OUTPUTS : OWNS_EXPANDER_OUTPUTS;
+        found.push({ id: part.id, name: part.name, family, title, lane: toggle.toLowerCase(), outputs: owns });
       });
     });
     if (!picker.isRadioNotFitted()) {

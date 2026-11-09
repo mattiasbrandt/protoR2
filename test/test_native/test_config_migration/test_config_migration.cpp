@@ -9,6 +9,7 @@
 #include <Preferences.h>
 
 #include "config_store.h"
+#include "dome_bearing.h"  // DomeTurnDirection - the stored turn word
 
 // Helper to simulate old schema 2 data by directly writing to NVS
 static void setupSchema2Data(Preferences& prefs) {
@@ -17,7 +18,7 @@ static void setupSchema2Data(Preferences& prefs) {
 
     // Write old component toggle keys (schema 2)
     prefs.putBool("en_s1", true);    // will become en_drive
-    prefs.putBool("en_dome", true);  // will become en_dome_esc
+    prefs.putBool("en_dome", true);  // en_dome_esc at schema 3, en_dome_rot at schema 4
     prefs.putBool("en_s3", true);    // will become en_r2link
     prefs.putBool("en_s2", true);    // will become en_audio
 
@@ -55,13 +56,14 @@ void test_schema2_to_3_migration_renames_component_toggles(void) {
 
     // Verify new keys now hold the migrated values
     TEST_ASSERT_TRUE(prefs.getBool("en_drive", false));
-    TEST_ASSERT_TRUE(prefs.getBool("en_dome_esc", false));
+    TEST_ASSERT_TRUE(prefs.getBool("en_dome_rot", false));
     TEST_ASSERT_TRUE(prefs.getBool("en_r2link", false));
     TEST_ASSERT_TRUE(prefs.getBool("en_audio", false));
 
     // Verify old keys have been deleted
     TEST_ASSERT_FALSE(prefs.isKey("en_s1"));
     TEST_ASSERT_FALSE(prefs.isKey("en_dome"));
+    TEST_ASSERT_FALSE(prefs.isKey("en_dome_esc"));
     TEST_ASSERT_FALSE(prefs.isKey("en_s3"));
     TEST_ASSERT_FALSE(prefs.isKey("en_s2"));
 
@@ -120,9 +122,9 @@ void test_schema2_to_3_migration_does_not_repeat(void) {
     ConfigSnapshot snap1 = {};
     configLoad(prefs, &snap1);
 
-    // Verify schema version is now 3
+    // Verify schema version is now current
     uint8_t newVersion = prefs.getUChar("schema_ver", 0);
-    TEST_ASSERT_EQUAL_INT(3, newVersion);
+    TEST_ASSERT_EQUAL_INT(CONFIG_SCHEMA_VERSION, newVersion);
 
     // Second load: migration should NOT run again
     // If it did, it would try to read old keys that no longer exist
@@ -158,9 +160,9 @@ void test_schema2_to_3_migration_handles_missing_old_keys(void) {
     TEST_ASSERT_FALSE(snap.system.enable_protor2link);
     TEST_ASSERT_FALSE(snap.system.enable_audio);
 
-    // Verify schema version is now 3
+    // Verify schema version is now current
     uint8_t newVersion = prefs.getUChar("schema_ver", 0);
-    TEST_ASSERT_EQUAL_INT(3, newVersion);
+    TEST_ASSERT_EQUAL_INT(CONFIG_SCHEMA_VERSION, newVersion);
 
     prefs.end();
 }
@@ -297,6 +299,69 @@ void test_failed_rename_leaves_old_key_and_no_stamp(void) {
     prefs.end();
 }
 
+// #504: a schema-3 store comes out with every Dome Rotation Setting under its
+// new key, in its own type, and no old key left; the two unread speeds go.
+void test_schema3_to_4_migration_carries_dome_rotation_keys(void) {
+    Preferences prefs;
+    prefs.begin("test_config6", false);
+    prefs.clear();
+    prefs.putUChar("schema_ver", 3);
+    prefs.putBool("en_dome_esc", true);
+    prefs.putUShort("dome_neu", 1510);
+    prefs.putUShort("dome_minp", 1100);
+    prefs.putUShort("dome_maxp", 1900);
+    prefs.putUChar("dome_pct", 40);
+    prefs.putBool("dome_rnd_en", true);
+    prefs.putUChar("dome_rnd_spd", 25);
+    prefs.putUChar("dome_rnd_pmin", 3);
+    prefs.putUChar("dome_rnd_pmax", 9);
+    prefs.putUShort("dome_rnd_ms", 1800);
+    prefs.putUShort("dome_turn_ms", 7200);
+    prefs.putUChar("dome_turn_pct", 60);
+    prefs.putUChar("dome_turn_dir", (uint8_t)DOME_TURN_DIR_CCW);
+    prefs.putULong("dome_min", 0);
+    prefs.putULong("dome_max", 0);
+    prefs.putString("dome_wip", "192.168.4.2");
+
+    ConfigSnapshot snap = {};
+    TEST_ASSERT_TRUE(configLoad(prefs, &snap));
+
+    TEST_ASSERT_EQUAL_UINT8(CONFIG_SCHEMA_VERSION, prefs.getUChar("schema_ver", 0));
+    TEST_ASSERT_TRUE(snap.system.enable_dome_esc);
+    TEST_ASSERT_EQUAL_UINT16(1510, snap.dome.dome_neutral_us);
+    TEST_ASSERT_EQUAL_UINT16(1100, snap.dome.dome_min_pulse_us);
+    TEST_ASSERT_EQUAL_UINT16(1900, snap.dome.dome_max_pulse_us);
+    TEST_ASSERT_EQUAL_UINT8(40, snap.dome.dome_speed_limit_pct);
+    TEST_ASSERT_TRUE(snap.dome.dome_rnd_enable);
+    TEST_ASSERT_EQUAL_UINT8(25, snap.dome.dome_rnd_speed_pct);
+    TEST_ASSERT_EQUAL_UINT8(3, snap.dome.dome_rnd_pause_min);
+    TEST_ASSERT_EQUAL_UINT8(9, snap.dome.dome_rnd_pause_max);
+    TEST_ASSERT_EQUAL_UINT16(1800, snap.dome.dome_rnd_move_ms);
+    TEST_ASSERT_EQUAL_UINT16(7200, snap.dome.dome_full_turn_ms);
+    TEST_ASSERT_EQUAL_UINT8(60, snap.dome.dome_full_turn_pct);
+    TEST_ASSERT_EQUAL_UINT8(DOME_TURN_DIR_CCW, snap.dome.dome_positive_turn);
+    TEST_ASSERT_EQUAL_STRING("192.168.4.2", snap.dome.dome_wifi_peer_ip);
+
+    static const char* const kNewKeys[] = {
+        "en_dome_rot",   "drot_neu",      "drot_minp",   "drot_maxp",    "drot_pct",
+        "drot_rnd_en",   "drot_rnd_spd",  "drot_rnd_pmin", "drot_rnd_pmax", "drot_rnd_ms",
+        "drot_turn_ms",  "drot_turn_pct", "drot_turn_dir",
+    };
+    static const char* const kGoneKeys[] = {
+        "en_dome_esc",   "dome_neu",      "dome_minp",   "dome_maxp",    "dome_pct",
+        "dome_rnd_en",   "dome_rnd_spd",  "dome_rnd_pmin", "dome_rnd_pmax", "dome_rnd_ms",
+        "dome_turn_ms",  "dome_turn_pct", "dome_turn_dir", "dome_min",   "dome_max",
+    };
+    for (const char* key : kNewKeys) {
+        TEST_ASSERT_TRUE_MESSAGE(prefs.isKey(key), key);
+    }
+    for (const char* key : kGoneKeys) {
+        TEST_ASSERT_FALSE_MESSAGE(prefs.isKey(key), key);
+    }
+    TEST_ASSERT_TRUE(prefs.isKey("dome_wip"));
+    prefs.end();
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_boot_open_lands_schema2_migration_and_stamp);
@@ -308,5 +373,6 @@ int main(void) {
     RUN_TEST(test_schema2_to_3_migration_renames_rc_audio_bindings);
     RUN_TEST(test_schema2_to_3_migration_does_not_repeat);
     RUN_TEST(test_schema2_to_3_migration_handles_missing_old_keys);
+    RUN_TEST(test_schema3_to_4_migration_carries_dome_rotation_keys);
     return UNITY_END();
 }

@@ -199,7 +199,7 @@ size_t seqFileFiller(uint8_t* out, size_t capacity, size_t offset) {
 //
 // Kept on the droid so every browser shows the same pins and they survive a
 // reboot, in a key of their own and NOT in ConfigSnapshot: that struct is
-// pinned at 944 B by a static_assert (config_store.h) because it sits in the
+// pinned by a static_assert on its size (config_store.h) because it sits in the
 // Console task's stack chain. Read and written only here, by the web task,
 // with the list on this handler's stack for the length of one request.
 //

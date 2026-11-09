@@ -38,7 +38,30 @@ the patch releases, whose notes live on their own GitHub Release.
 
 - **The ISDT ESC70's protocol reads `rc_pwm`, not `ledc`.** The droid's parts
   list says what the ESC takes, an RC pulse. A script that reads the old word
-  from the parts list needs the new one.
+  from the parts list needs the new one. The board's own servo outputs, Body
+  controller board GPIO, read `rc_pwm` too.
+- **The dome's turning settings are named Dome Rotation.** The screens say Dome
+  Rotation where they said Dome ESC. Saved settings carry over on the first
+  start with this firmware. `GET /api/config` and `GET /api/status` answer
+  with the new names only, so **a script that reads the old names breaks**;
+  `POST /api/config` and the Console still take the old names until the next
+  release, and the answer says what each is called now.
+
+  | Before | Now |
+  |---|---|
+  | `enableDomeEsc`, `components.domeEsc.enabled` | `enableDomeRotation`, `components.domeRotation.enabled` |
+  | `domeEsc<Name>` form fields (`domeEscNeutralUs` ... `domeEscPositiveTurn`) | `domeRotation<Name>` |
+  | `domeEsc.<key>` in `GET /api/config` | `domeRotation.<key>` |
+  | status component `domeEsc` | `domeRotation` |
+
+  A controller that has started this firmware cannot go back to an older one
+  with its settings: the older firmware starts it on defaults.
+
+### Removed
+
+- **Two dome settings nothing read.** The stored minimum and maximum dome
+  speed had no screen and no effect; the first start with this firmware
+  removes them.
 
 ## [1.5.0] - 2026-10-10
 

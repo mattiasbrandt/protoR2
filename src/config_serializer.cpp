@@ -21,20 +21,6 @@
 
 namespace {
 
-// NVS has no float primitive; store floats as raw IEEE 754 bits via uint32 to avoid
-// text-roundtrip precision loss and platform endianness ambiguity.
-float floatFromBits(uint32_t value) {
-    float result = 0.0f;
-    memcpy(&result, &value, sizeof(result));
-    return result;
-}
-
-uint32_t floatToBits(float value) {
-    uint32_t result = 0;
-    memcpy(&result, &value, sizeof(result));
-    return result;
-}
-
 // Addressed Servo Output row keys. "so_cnt" holds the row count; each row gets
 // "soNN", two digits so an NVS dump reads in row order and four characters
 // clear of the 15-character Preferences key ceiling.
@@ -237,8 +223,6 @@ void deserializeAudio(const ConfigReader& r, AudioConfig* out, const AudioConfig
 
 void deserializeDome(const ConfigReader& r, DomeConfig* out, const DomeConfig& def) {
     *out = def;
-    out->dome_min_speed = floatFromBits(r.readU32("dome_min", floatToBits(def.dome_min_speed)));
-    out->dome_max_speed = floatFromBits(r.readU32("dome_max", floatToBits(def.dome_max_speed)));
     // Every Setting, each held to what its door takes: the three ESC pulse
     // widths to 1000..2000 on their own, the order between them below.
     configSettingsRead(SettingSection::Dome, r, out);
@@ -252,11 +236,6 @@ void deserializeDome(const ConfigReader& r, DomeConfig* out, const DomeConfig& d
         out->dome_min_pulse_us = def.dome_min_pulse_us;
         out->dome_max_pulse_us = def.dome_max_pulse_us;
     }
-
-    if (out->dome_min_speed < 0.0f)
-        out->dome_min_speed = 0.0f;
-    if (out->dome_max_speed > 1.0f)
-        out->dome_max_speed = 1.0f;
 }
 
 // Parse a stored RC analog binding. Starts from def so fields absent from the encoded
@@ -414,11 +393,7 @@ bool configSerializeAudio(const AudioConfig& cfg, ConfigWriter& w) {
 }
 
 bool configSerializeDome(const DomeConfig& cfg, ConfigWriter& w) {
-    bool ok = true;
-    ok = w.writeU32("dome_min", floatToBits(cfg.dome_min_speed)) && ok;
-    ok = w.writeU32("dome_max", floatToBits(cfg.dome_max_speed)) && ok;
-    ok = configSettingsWrite(SettingSection::Dome, &cfg, w) && ok;
-    return ok;
+    return configSettingsWrite(SettingSection::Dome, &cfg, w);
 }
 
 bool configSerializeSystem(const SystemConfig& cfg, ConfigWriter& w) {

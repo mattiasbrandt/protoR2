@@ -370,29 +370,57 @@ const char* formRowGet(const void* ctx, const char* key) {
 
 // A config request: the form it came as, and, when it came with a JSON body,
 // that body in the GET shape. It is the ConfigParamSource every check below
-// reads, so a check never knows which door its value came in by.
+// reads, so a check never knows which door its value came in by - nor whether
+// it came under a name the Setting has since lost: `result` records that, and
+// nothing else is read from it.
 struct ConfigRequest {
     const ConfigParamSource* form;
     JsonObjectConst body;
+    ConfigApplyResult* result;
 };
+
+// The leaf at `path` in the body, as the text a form would have carried, or
+// nullptr when the body has none there.
+const char* bodyText(JsonObjectConst body, const char* path) {
+    if (body.isNull() || path == nullptr) {
+        return nullptr;
+    }
+    JsonVariantConst leaf = getShapeLeaf(body, path);
+    if (leaf.isNull()) {
+        return nullptr;
+    }
+    return leaf.is<const char*>() ? leaf.as<const char*>() : kNotAFieldValue;
+}
 
 const char* configRequestGet(void* ctx, const char* name) {
     const ConfigRequest* request = static_cast<const ConfigRequest*>(ctx);
     // A field named on the form wins over the body. No page sends both, and a
     // form field is the more specific statement when one does.
     const char* value = configParamGet(*request->form, name);
-    if (value != nullptr || request->body.isNull()) {
+    if (value == nullptr) {
+        value = bodyText(request->body, getPathOf(name));
+    }
+    if (value != nullptr) {
         return value;
     }
-    const char* path = getPathOf(name);
-    if (path == nullptr) {
+    // A renamed Setting (#504) under the name it had: taken until the next
+    // release, after both of its current names, so a request that says both
+    // is read by the new one. Recorded, so the reply can say what it is now.
+    size_t index = 0;
+    const RenamedSetting* renamed = renamedSettingByForm(name, &index);
+    if (renamed == nullptr) {
         return nullptr;
     }
-    JsonVariantConst leaf = getShapeLeaf(request->body, path);
-    if (leaf.isNull()) {
-        return nullptr;
+    value = configParamGet(*request->form, renamed->oldForm);
+    if (value != nullptr) {
+        request->result->renamedByForm |= (uint32_t)1u << index;
+        return value;
     }
-    return leaf.is<const char*>() ? leaf.as<const char*>() : kNotAFieldValue;
+    value = bodyText(request->body, renamed->oldPath);
+    if (value != nullptr) {
+        request->result->renamedByPath |= (uint32_t)1u << index;
+    }
+    return value;
 }
 
 // Read a JSON body into `body` and make every field it carries readable as
@@ -410,6 +438,11 @@ bool readGetShapeBody(const char* raw, JsonDocument* body, ConfigApplyResult* re
         if (setting.path != nullptr) {
             whole = normaliseGetShapeField(*body, setting.path) && whole;
         }
+    }
+    // The paths renamed Settings had (#504), which a backup saved before the
+    // rename still carries.
+    for (size_t i = 0; i < renamedSettingCount(); ++i) {
+        whole = normaliseGetShapeField(*body, renamedSettingAt(i).oldPath) && whole;
     }
     for (size_t r = 0; r < CONFIG_RECORD_COUNT; ++r) {
         size_t count = 0;
@@ -684,7 +717,7 @@ void configApply(const ConfigParamSource& form, ConfigSnapshot* working,
     // A JSON body is read once, here, into the GET shape; every field below is
     // then read through `params`, whichever door it came in by.
     JsonDocument body;
-    ConfigRequest request{&form, JsonObjectConst()};
+    ConfigRequest request{&form, JsonObjectConst(), result};
     if (configParamHas(form, "plain")) {
         if (!readGetShapeBody(configParamGet(form, "plain"), &body, result)) {
             return;
@@ -840,8 +873,8 @@ void configApply(const ConfigParamSource& form, ConfigSnapshot* working,
     // stop (include/dome_math.h domePulsesInOrder()), so the set is refused
     // whole rather than stored. Only when the request named one, so a POST
     // about something else is never refused over a set it did not touch.
-    static const char* const kDomePulses[] = {"domeEscNeutralUs", "domeEscMinPulseUs",
-                                              "domeEscMaxPulseUs"};
+    static const char* const kDomePulses[] = {"domeRotationNeutralUs", "domeRotationMinPulseUs",
+                                              "domeRotationMaxPulseUs"};
     const char* domePulseSent =
         firstSent(params, kDomePulses, sizeof(kDomePulses) / sizeof(kDomePulses[0]));
     if (domePulseSent != nullptr) {
@@ -850,8 +883,8 @@ void configApply(const ConfigParamSource& form, ConfigSnapshot* working,
                                dome.dome_max_pulse_us)) {
             char err[192];
             snprintf(err, sizeof(err),
-                     "domeEscMinPulseUs %u, domeEscNeutralUs %u, domeEscMaxPulseUs %u: "
-                     "must be min <= neutral <= max",
+                     "domeRotationMinPulseUs %u, domeRotationNeutralUs %u, "
+                     "domeRotationMaxPulseUs %u: must be min <= neutral <= max",
                      (unsigned)dome.dome_min_pulse_us, (unsigned)dome.dome_neutral_us,
                      (unsigned)dome.dome_max_pulse_us);
             setError(result, err, ApplyRefusalReason::Conflict, domePulseSent);
@@ -863,12 +896,12 @@ void configApply(const ConfigParamSource& form, ConfigSnapshot* working,
     // longest. Judged with the value stored beside the one sent, and only when
     // the request named one, as the pulses are. The Dome page held this rule
     // until the page-side checks went (#431); the droid holds it now.
-    static const char* const kDomePauses[] = {"domeEscRndPauseMin", "domeEscRndPauseMax"};
+    static const char* const kDomePauses[] = {"domeRotationRndPauseMin", "domeRotationRndPauseMax"};
     const char* domePauseSent =
         firstSent(params, kDomePauses, sizeof(kDomePauses) / sizeof(kDomePauses[0]));
     if (domePauseSent != nullptr &&
         working->dome.dome_rnd_pause_min > working->dome.dome_rnd_pause_max) {
-        setError(result, "domeEscRndPauseMin must be at most domeEscRndPauseMax",
+        setError(result, "domeRotationRndPauseMin must be at most domeRotationRndPauseMax",
                  ApplyRefusalReason::Conflict, domePauseSent);
         return;
     }

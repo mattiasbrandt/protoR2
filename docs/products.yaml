@@ -659,7 +659,7 @@ products:
     id: esp32_gpio_ledc
     name: Body controller board GPIO
     family: body_servo_controller
-    protocol: ledc
+    protocol: rc_pwm
     status: supported
     confirmed_on_droid: true
     confirmed_source: "operator, 2026-09-30, #455."

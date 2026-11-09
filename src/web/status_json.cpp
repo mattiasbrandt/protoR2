@@ -340,9 +340,9 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
             if (in.domeTargetSpeed > 0.001f || in.domeTargetSpeed < -0.001f) {
                 snprintf(detail, sizeof(detail), "Target %.0f%%",
                          (double)(in.domeTargetSpeed * 100.0f));
-                ok = appendPeripheralStatus(pos, remaining, "domeEsc", "spinning", detail) && ok;
+                ok = appendPeripheralStatus(pos, remaining, "domeRotation", "spinning", detail) && ok;
             } else {
-                ok = appendPeripheralStatus(pos, remaining, "domeEsc", "idle", "Target 0%") && ok;
+                ok = appendPeripheralStatus(pos, remaining, "domeRotation", "idle", "Target 0%") && ok;
             }
         }
         if (in.enableRcCh1 && !(in.rcInputMode == RC_INPUT_SINGLE_SBUS && in.singleSbusUseCh2)) {

@@ -82,7 +82,7 @@ const lineupFor = (board) => {
 
 export const configured = () => ({
   components: {
-    domeEsc: { enabled: false },
+    domeRotation: { enabled: false },
     rcCh1: { enabled: true },
     rcCh2: { enabled: true },
     rcCh3: { enabled: false },
@@ -164,7 +164,7 @@ export const boot = ({ set = "legacy", board = "artoo_esp32", assetsReady = true
     if (read("soundMember") !== null) config.components.audio.member = read("soundMember");
     if (read("rcMember") !== null) config.rc.member = read("rcMember");
     if (read("rcInputMode") !== null) config.rc.inputMode = read("rcInputMode");
-    for (const [field, key] of [["enableAudio", "audio"], ["enableDrive", "drive"], ["enableProtoR2link", "protoR2link"], ["enableDomeEsc", "domeEsc"]]) {
+    for (const [field, key] of [["enableAudio", "audio"], ["enableDrive", "drive"], ["enableProtoR2link", "protoR2link"], ["enableDomeRotation", "domeRotation"]]) {
       if (read(field) !== null) config.components[key].enabled = read(field) === "true";
     }
     return read;

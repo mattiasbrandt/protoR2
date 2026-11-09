@@ -920,8 +920,6 @@ void test_configCacheRead_captures_all_categories() {
     seeded.audio.snd_cat_whis_hi    = 40;
 
     // Dome
-    seeded.dome.dome_min_speed     = 0.1f;
-    seeded.dome.dome_max_speed     = 0.9f;
     seeded.dome.dome_neutral_us    = 1510;
     seeded.dome.dome_speed_limit_pct = 75;
     seeded.dome.dome_rnd_enable    = true;
@@ -988,8 +986,6 @@ void test_configCacheRead_captures_all_categories() {
     TEST_ASSERT_EQUAL_UINT16(40, snap.audio.snd_cat_whis_hi);
 
     // Dome
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.1f, snap.dome.dome_min_speed);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.9f, snap.dome.dome_max_speed);
     TEST_ASSERT_EQUAL_UINT16(1510, snap.dome.dome_neutral_us);
     TEST_ASSERT_EQUAL_UINT8(75, snap.dome.dome_speed_limit_pct);
     TEST_ASSERT_EQUAL_INT(true, snap.dome.dome_rnd_enable);
@@ -1176,8 +1172,6 @@ void test_configCacheReplace_applies_all_categories() {
     snap.audio.snd_faint          = 251;
 
     // Dome
-    snap.dome.dome_min_speed     = 0.2f;
-    snap.dome.dome_max_speed     = 0.95f;
     snap.dome.dome_neutral_us    = 1520;
     snap.dome.dome_min_pulse_us  = 1050;
     snap.dome.dome_max_pulse_us  = 1950;
@@ -1237,8 +1231,6 @@ void test_configCacheReplace_applies_all_categories() {
     TEST_ASSERT_EQUAL_UINT16(250, applied.audio.snd_scream);
     TEST_ASSERT_EQUAL_UINT16(251, applied.audio.snd_faint);
 
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.2f, applied.dome.dome_min_speed);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.95f, applied.dome.dome_max_speed);
     TEST_ASSERT_EQUAL_UINT16(1520, applied.dome.dome_neutral_us);
     TEST_ASSERT_EQUAL_UINT8(85, applied.dome.dome_speed_limit_pct);
     TEST_ASSERT_EQUAL_INT(true, applied.dome.dome_rnd_enable);

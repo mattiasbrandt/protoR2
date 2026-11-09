@@ -430,6 +430,16 @@ and a rename is a protocol break for a readability problem.
   ```
 - A write reports `applied`, `staged-until-reboot`, or an explicit persistence
   failure; a restart-required condition is reported, never assumed.
+- A setting renamed in #504 still takes its old name as its own key until the
+  next release (`enableDomeEsc=` on `system.config.enable_dome_esc`). A write
+  that lands under the old name answers with the name it has now:
+
+  ```text
+  > system.config.enable_dome_esc enableDomeEsc=true
+  < id=1 type=begin operation=system.config.enable_dome_esc
+  < id=1 type=field name=renamed value=enableDomeRotation
+  < id=1 type=end status=ok outcome=staged-until-reboot
+  ```
 - There is no raw key/value escape hatch into the settings store.
 
 ### 4.1 Secrets

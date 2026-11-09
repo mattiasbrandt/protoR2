@@ -24,19 +24,19 @@
       </div>
     </div>
 
-    <!-- Dome ESC switched off in Configuration. An Availability Family "change it
+    <!-- Dome Rotation switched off in Configuration. An Availability Family "change it
          here" (GLOSSARY.md): the card names the move and routes to it, and it is
          told apart by treatment and never by hue. -->
     <div id="dome-disabled-card" class="card disabled-card hidden" role="status" aria-live="polite" aria-atomic="true">
-      <div class="sect"><h2>Dome rotation</h2><span class="sub">switched off in Configuration</span></div>
-      <p class="note"><b>Off:</b> the dome stays put, even through a sequence. <a class="setup-link" href="/configuration.html">Switch Dome ESC on in Configuration</a></p>
+      <div class="sect"><h2>Dome Rotation</h2><span class="sub">switched off in Configuration</span></div>
+      <p class="note"><b>Off:</b> the dome stays put, even through a sequence. <a class="setup-link" href="/configuration.html">Switch Dome Rotation on in Configuration</a></p>
     </div>
 
     <!-- What the dome is being told to do, right now. A readout and nothing
          else: this page has no control that turns the dome, so the gauge is
          not draggable and does not pretend to be. -->
     <div class="card dome-rotation">
-      <div class="sect"><h2>Dome rotation</h2><span class="sub waiting" id="dome-hardware-state"></span></div>
+      <div class="sect"><h2>Dome Rotation</h2><span class="sub waiting" id="dome-hardware-state"></span></div>
       <div class="dome-live-meta">
         <div class="slider-value" id="dome-speed-display">0%</div>
         <!-- The direction the dome is being turned is a value, not a symptom,
@@ -107,19 +107,19 @@
         <form id="esc-form" class="setting-rows">
           <label class="setting-row">
             <span class="setting-name">Neutral pulse<span class="hint">Wrong, and the dome creeps on its own.</span></span>
-            <span class="setting-number"><input id="dome-neutral" class="number-cell" name="domeEscNeutralUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+            <span class="setting-number"><input id="dome-neutral" class="number-cell" name="domeRotationNeutralUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Minimum pulse<span class="hint">Narrower than neutral.</span></span>
-            <span class="setting-number"><input id="dome-min-pulse" class="number-cell" name="domeEscMinPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+            <span class="setting-number"><input id="dome-min-pulse" class="number-cell" name="domeRotationMinPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Maximum pulse<span class="hint">Wider than neutral.</span></span>
-            <span class="setting-number"><input id="dome-max-pulse" class="number-cell" name="domeEscMaxPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+            <span class="setting-number"><input id="dome-max-pulse" class="number-cell" name="domeRotationMaxPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Speed limit<span class="hint">20 is a slow scan, 100 is as fast as the dome turns.</span></span>
-            <span class="setting-number"><input id="dome-speed-limit" class="number-cell" name="domeEscSpeedLimitPct" type="number" step="1"><span class="setting-unit">%</span></span>
+            <span class="setting-number"><input id="dome-speed-limit" class="number-cell" name="domeRotationSpeedLimitPct" type="number" step="1"><span class="setting-unit">%</span></span>
           </label>
         </form>
         <div class="setting-foot">
@@ -136,23 +136,23 @@
                reads .checked exactly as before. -->
           <label class="setting-row">
             <span class="setting-name">Turn the dome on its own<span class="hint">With the sticks still and no sequence running. Never in Quiet.</span></span>
-            <input id="dome-rnd-enable" class="switch" name="domeEscRndEnable" type="checkbox">
+            <input id="dome-rnd-enable" class="switch" name="domeRotationRndEnable" type="checkbox">
           </label>
           <label class="setting-row">
             <span class="setting-name">Speed<span class="hint">A share of the dome's own limit, not of the ESC's full rate.</span></span>
-            <span class="setting-number"><input id="dome-rnd-speed" class="number-cell" name="domeEscRndSpeedPct" type="number" step="1"><span class="setting-unit">%</span></span>
+            <span class="setting-number"><input id="dome-rnd-speed" class="number-cell" name="domeRotationRndSpeedPct" type="number" step="1"><span class="setting-unit">%</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Move duration<span class="hint">How long one turn lasts.</span></span>
-            <span class="setting-number"><input id="dome-rnd-move-ms" class="number-cell" name="domeEscRndMoveMs" type="number" step="100"><span class="setting-unit">ms</span></span>
+            <span class="setting-number"><input id="dome-rnd-move-ms" class="number-cell" name="domeRotationRndMoveMs" type="number" step="100"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Shortest pause<span class="hint">Full-Awake's. Awake+ is quicker, Mid-Awake slower.</span></span>
-            <span class="setting-number"><input id="dome-rnd-pause-min" class="number-cell" name="domeEscRndPauseMin" type="number" step="1"><span class="setting-unit">s</span></span>
+            <span class="setting-number"><input id="dome-rnd-pause-min" class="number-cell" name="domeRotationRndPauseMin" type="number" step="1"><span class="setting-unit">s</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Longest pause</span>
-            <span class="setting-number"><input id="dome-rnd-pause-max" class="number-cell" name="domeEscRndPauseMax" type="number" step="1"><span class="setting-unit">s</span></span>
+            <span class="setting-number"><input id="dome-rnd-pause-max" class="number-cell" name="domeRotationRndPauseMax" type="number" step="1"><span class="setting-unit">s</span></span>
           </label>
         </form>
         <div class="setting-foot">
@@ -168,11 +168,11 @@
         <form id="dome-turn-form" class="setting-rows">
           <label class="setting-row">
             <span class="setting-name">Time for one turn<span class="hint">Stopwatch one full turn at your usual speed.</span></span>
-            <span class="setting-number"><input id="dome-turn-ms" class="number-cell" name="domeEscFullTurnMs" type="number" step="10" placeholder="-"><span class="setting-unit">ms</span></span>
+            <span class="setting-number"><input id="dome-turn-ms" class="number-cell" name="domeRotationFullTurnMs" type="number" step="10" placeholder="-"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Timed at<span class="hint">Full stick under a 60% speed limit is 60. Re-time after an ISD Go or Speed limit change.</span></span>
-            <span class="setting-number"><input id="dome-turn-pct" class="number-cell" name="domeEscFullTurnPct" type="number" step="1" placeholder="-"><span class="setting-unit">%</span></span>
+            <span class="setting-number"><input id="dome-turn-pct" class="number-cell" name="domeRotationFullTurnPct" type="number" step="1" placeholder="-"><span class="setting-unit">%</span></span>
           </label>
           <div class="setting-row">
             <span class="setting-name" id="dome-turn-dir-name">Positive turns<span class="hint">Seen from above.</span></span>
