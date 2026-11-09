@@ -913,7 +913,7 @@ products:
     id: isdt_esc70
     name: ISDT ESC70 (RC ESC)
     family: dome_rotation
-    protocol: ledc
+    protocol: rc_pwm
     status: supported
     confirmed_on_droid: true
     confirmed_source: "operator, 2026-09-30, #455."

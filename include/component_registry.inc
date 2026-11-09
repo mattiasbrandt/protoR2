@@ -187,7 +187,7 @@ PA_COMPONENT_PART(10, "pololu_maestro",  "Pololu Maestro",             COMPONENT
 // Dome Rotation -- what turns the dome.
 // -----------------------------------------------------------------------------
 // Confirmed on a droid: operator, 2026-09-30, #455.
-PA_COMPONENT_PART(11, "isdt_esc70", "ISDT ESC70 (RC ESC)", COMPONENT_CATEGORY_DOME_ROTATION, "ledc",             COMPONENT_STATUS_SUPPORTED, COMPONENT_CONFIRMED_ON_DROID,     0, nullptr, 1)
+PA_COMPONENT_PART(11, "isdt_esc70", "ISDT ESC70 (RC ESC)", COMPONENT_CATEGORY_DOME_ROTATION, "rc_pwm",           COMPONENT_STATUS_SUPPORTED, COMPONENT_CONFIRMED_ON_DROID,     0, nullptr, 1)
 PA_COMPONENT_PART(12, "syren10",    "SyRen 10",            COMPONENT_CATEGORY_DOME_ROTATION, "de_packet_serial", COMPONENT_STATUS_ROADMAP,   COMPONENT_NOT_CONFIRMED_ON_DROID, 0, nullptr, 0)
 
 // -----------------------------------------------------------------------------
