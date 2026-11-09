@@ -192,9 +192,9 @@
             "domeRotationTask"
           ],
           "frames": [],
-          "chain_bytes": 3744,
+          "chain_bytes": 3760,
           "stack_bytes": 5120,
-          "note": "Deepest route: domeRotationTask -> setDomeSpeed() -> domeRotationBackendWrite() -> ledcPwmSetPulseWidth() -> ledc_set_duty -> esp_log -> paLogIdfVprintf() -> paLogLine() -> consoleSerialEmitFramedLine() -> ... (19 more); widest frames _svfprintf_r 1152 B, emitFramedLineCounted() 432 B, _dtoa_r 416 B, paLogf() 336 B. The Dome Rotation backend seam (#504) puts domeRotationBackendWrite() on this route: the chain went 3680 -> 3744 B, past the rule's 4608 B step (3744 x 1.25 = 4680), so the stack moved 4608 -> 5120 B (+512 B RAM).",
+          "note": "Deepest route: domeRotationTask -> setDomeSpeed() -> domeRotationBackendWrite() -> ledcPwmSetPulseWidth() -> ledc_set_duty -> esp_log -> paLogIdfVprintf() -> paLogLine() -> consoleSerialEmitFramedLine() -> ... (19 more); widest frames _svfprintf_r 1152 B, emitFramedLineCounted() 432 B, _dtoa_r 416 B, paLogf() 336 B. The Dome Rotation backend seam (#504) puts domeRotationBackendWrite() on this route: the chain went 3680 -> 3744 B, past the rule's 4608 B step (3744 x 1.25 = 4680), so the stack moved 4608 -> 5120 B (+512 B RAM). Pause before reversing (#504) inlines sendDomeSpeed() into domeRotationTask so it adds no frame above setDomeSpeed(); the task's own frame grew 16 B, 3744 -> 3760 B, inside the 5120 B step (3760 x 1.25 = 4700).",
           "created": "only when bootCfg.system.enable_dome_esc: dome output is enabled at boot (ADR 0027)"
         }
       }

@@ -41,6 +41,17 @@ the patch releases, whose notes live on their own GitHub Release.
   what it sent. `GET /api/status` adds `domeRotationSentPct` and
   `domeRotationPulseUs`, and the `domeRotation` entry's detail now carries the
   sent figure.
+- **Smallest turn.** An ESC ignores a pulse close to neutral, so a slow turn
+  can leave the dome standing. Set Smallest turn to where your dome starts to
+  move and every turn starts there; the Dome Bearing counts nothing below it.
+  Off until you set it (`domeRotationSmallestTurnUs`, 0 = off).
+- **Until Smallest turn is set, the Dome page shows the pulse** full stick and
+  a random turn send, beside Speed limit and the random Speed, so a setting
+  too low to move the dome shows before you blame the ring.
+- **Pause before reversing.** An optional stop held between one direction
+  and the other, for every source: the stick, sequences, the Dome Controller,
+  random moves and turns to a bearing such as Go home. A timed turn that waits for it still turns as far as it
+  asked. Off until you set it (`domeRotationReversePauseMs`, 0 = off).
 
 ### Changed
 

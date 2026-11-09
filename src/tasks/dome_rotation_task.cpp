@@ -7,26 +7,28 @@
 // Everything above the Dome Rotation backend seam lives here and no backend can
 // reach it: the 500 ms silence stop, a stop under the estop and in Sleep Mode
 // and the queue discarded while either holds, the 30 s cap on a timed turn
-// from a sender, the speed limit, random moves, and the Dome Bearing. Every
-// turn and every stop goes out through include/dome_rotation_backend.h, which
-// alone knows how a speed becomes a wire signal; for a Dome ESC that is one
-// standard RC pulse (src/drivers/dome_rotation_backend_rc_pwm.cpp).
+// from a sender, the speed limit, Pause before reversing, random moves, and
+// the Dome Bearing. Every turn and every stop goes out through
+// include/dome_rotation_backend.h, which alone knows how a speed becomes a
+// wire signal; for a Dome ESC that is one standard RC pulse
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp).
 //
-// For a Dome ESC the pulse limits (neutral, min, max) and the speed limit
-// percentage are read from persisted config (cfg_dome_neutral_us,
-// cfg_dome_min_pulse_us, cfg_dome_max_pulse_us, cfg_dome_speed_limit_pct) so
-// each ESC's calibration can be trimmed on the droid without a firmware
-// rebuild. What full reverse does on the wire is the ESC's running mode: in
-// "Forward and Reverse" the min pulse is full reverse; in a mode with a brake
-// it brakes first.
+// For a Dome ESC the pulse limits (neutral, min, max), Smallest turn and the
+// speed limit percentage are read from persisted config (DomeConfig's
+// dome_neutral_us, dome_min_pulse_us, dome_max_pulse_us, dome_smallest_turn_us
+// and dome_speed_limit_pct) so each ESC's calibration can be trimmed on the
+// droid without a firmware rebuild. What full reverse does on the wire is the
+// ESC's running mode: in "Forward and Reverse" the min pulse is full reverse;
+// in a mode with a brake it brakes first.
 //
 // An ESC's own configuration (running mode, throttle calibration, PWM
 // frequency, voltage cutoff) is set in the maker's app for that ESC  --  out of
 // scope for this firmware, and a bring-up prerequisite before the dome motor
 // answers our pulse correctly.
 //
-// Feature toggle: cfg_enable_dome_esc (staged at reboot per ADR 0027) gates whether
-// the task is spawned at all. When disabled at boot, DomeRotationTask does not run.
+// Feature toggle: the enableDomeRotation Setting (SystemConfig.enable_dome_esc,
+// staged at reboot per ADR 0027) gates whether the task is spawned at all.
+// When disabled at boot, DomeRotationTask does not run.
 //
 // It also holds the Dome Bearing, the angle the dome believes it points at,
 // integrated from what the backend reports it wrote (the section below
@@ -197,6 +199,57 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeRotationComma
 }
 
 // -----------------------------------------------------------------------------
+// Pause before reversing (#504; the rule is domeReversePauseMs(),
+// include/dome_math.h)
+//
+// What the wire last carried, and a turn waiting out the pause. Every write
+// goes through setDomeSpeed() or setDomeNeutral(), which keep the first part
+// and drop the second: a written output replaces a waiting turn, and every
+// stop - the estop, Sleep Mode, the 0.5 s silence stop, a timed turn's end, a
+// random move's end - drops it at once. The wait does not hold off the silence
+// stop: only a timed turn and a random move keep themselves alive through it,
+// so an untimed waiting turn whose sender goes quiet is dropped after 0.5 s.
+// The wire's sign is the share the backend reports, so a turn the speed limit
+// leaves inside Smallest turn counts as the stop it is. File-static, like s_bearing; the helpers
+// that keep it are leaves that never log, and the one log, a pause starting,
+// is in the loop (sendDomeSpeed()).
+// -----------------------------------------------------------------------------
+static struct {
+    int8_t   wireSign;      // sign of the last non-zero output on the wire, 0 for none
+    bool     turning;       // that output is still on the wire
+    uint32_t stopAtMs;      // when a stop replaced it
+    bool     waiting;       // a turn the other way waits out the pause
+    float    waitingSpeed;
+    uint32_t waitingUntilMs;
+} s_reverse = {0, false, 0, false, 0.0f, 0};
+
+// The output just written; and a written output ends any wait.
+static void reverseFollowWire(float share, uint32_t nowMs) {
+    s_reverse.waiting = false;
+    if (share != 0.0f) {
+        s_reverse.wireSign = (share > 0.0f) ? 1 : -1;
+        s_reverse.turning = true;
+    } else if (s_reverse.turning) {
+        s_reverse.turning = false;
+        s_reverse.stopAtMs = nowMs;
+    }
+}
+
+// How long a turn at `speed` must wait before it goes, in ms (0: now).
+static uint32_t __attribute__((noinline)) reversePauseFor(float speed) {
+    DomeConfig cfg = {};
+    configCacheReadDome(&cfg);
+    const uint32_t nowMs = millis();
+    const uint32_t stopHeldMs = s_reverse.turning ? 0 : nowMs - s_reverse.stopAtMs;
+    // A stop held past the longest pause is rest for good: forgetting the
+    // sign keeps a millis() wrap from reading an old stop as a fresh one.
+    if (!s_reverse.turning && stopHeldMs >= DOME_REVERSE_PAUSE_MAX_MS) {
+        s_reverse.wireSign = 0;
+    }
+    return domeReversePauseMs(s_reverse.wireSign, stopHeldMs, speed, cfg.dome_reverse_pause_ms);
+}
+
+// -----------------------------------------------------------------------------
 // setDomeSpeed()
 // One signed speed out through the Dome Rotation backend, under the stored
 // speed limit. The belief catches up on the output it replaces first, then
@@ -213,6 +266,7 @@ static void setDomeSpeed(float speed) {
     const DomeRotationOutput out =
         domeRotationBackendWrite(cfg, speed, cfg.dome_speed_limit_pct);
     s_bearing.share = out.share;
+    reverseFollowWire(out.share, millis());
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = speed;
@@ -238,12 +292,41 @@ static void setDomeNeutral() {
     bearingAdvance(cfg, millis());
     const DomeRotationOutput out = domeRotationBackendStop(cfg);
     s_bearing.share = out.share;
+    reverseFollowWire(out.share, millis());
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = 0.0f;
     robotState.domeRotationSentShare = out.share;
     robotState.domeRotationPulseUs = out.pulseUs;
     taskEXIT_CRITICAL(&robotStateMux);
+}
+
+// -----------------------------------------------------------------------------
+// sendDomeSpeed()
+// A turn from a sender or a random move, under Pause before reversing: out
+// now, or the stop on the wire and the turn waiting until the pause is over
+// (the loop puts it out). Returns the pause, so a timed turn can be moved out
+// by it and still turn as far as asked. Inlined into the loop on purpose: as a
+// call of its own it would add a frame above setDomeSpeed(), whose log is on
+// this task's deepest measured route (tools/task_stack_recipes.json).
+// -----------------------------------------------------------------------------
+static inline __attribute__((always_inline)) uint32_t sendDomeSpeed(float speed) {
+    const uint32_t pauseMs = reversePauseFor(speed);
+    if (pauseMs == 0) {
+        setDomeSpeed(speed);
+        return 0;
+    }
+    // A stick resends every tick: the log marks a pause starting, not each
+    // frame that waits inside it.
+    const bool starts = !s_reverse.waiting;
+    setDomeNeutral();
+    s_reverse.waiting = true;
+    s_reverse.waitingSpeed = speed;
+    s_reverse.waitingUntilMs = millis() + pauseMs;
+    if (starts) {
+        PA_LOG_INFO(TAG, "Reversing - stop held %u ms first", (unsigned)pauseMs);
+    }
+    return pauseMs;
 }
 
 // -----------------------------------------------------------------------------
@@ -423,15 +506,31 @@ void domeRotationTask(void* pvParameters) {
             currentSpeed = cmd.speed;
             lastCommandMs = millis();
             hasCommand = true;
-            seqMoveUntilMs = (cmd.durationMs > 0) ? (millis() + cmd.durationMs) : 0;
             if (cmd.speed != 0.0f) {
                 manualCommandThisTick = true;
             }
 
-            setDomeSpeed(currentSpeed);
+            // A timed turn that has to wait out a reversing pause ends that
+            // much later, so it still turns for the time it asked for. The 30 s
+            // cap above bounds the turn; the pause before it is a stop.
+            const uint32_t pauseMs = sendDomeSpeed(currentSpeed);
+            seqMoveUntilMs = (cmd.durationMs > 0) ? (millis() + pauseMs + cmd.durationMs) : 0;
             if (currentSpeed != 0.0f) {
                 PA_LOG_INFO(TAG, "[%s] Dome command: speed %d%%",
                             commandSourceToString(cmd.source), (int)(cmd.speed * 100.0f));
+            }
+        }
+
+        // A turn waiting out Pause before reversing goes out once the pause is
+        // over. Silence is judged as for any turn, not paused with it: a timed
+        // turn and a random move keep themselves alive (below), and an
+        // untimed turn whose sender goes quiet falls to the 0.5 s silence
+        // stop while it waits, as it would on the wire. A stick resends every
+        // tick, so it is unaffected; a one-shot untimed reverse under a pause
+        // over 0.5 s does not run (#504, accepted by the coordinator).
+        if (s_reverse.waiting) {
+            if ((int32_t)(millis() - s_reverse.waitingUntilMs) >= 0) {
+                setDomeSpeed(s_reverse.waitingSpeed);
             }
         }
 
@@ -544,8 +643,8 @@ void domeRotationTask(void* pvParameters) {
                     lastCommandMs = now;
                     hasCommand    = true;
                     rndState      = DOME_RND_MOVING;
-                    rndNextMs     = now + (uint32_t)rndMoveMs;
-                    setDomeSpeed(rndSpeed);
+                    // Moved out by a reversing pause, as a timed turn is.
+                    rndNextMs     = now + sendDomeSpeed(rndSpeed) + (uint32_t)rndMoveMs;
                     PA_LOG_INFO(TAG, "dome rnd move: %d%%", (int)(rndSpeed * 100.0f));
                 } else if (rndState == DOME_RND_MOVING) {
                     if ((int32_t)(now - rndNextMs) >= 0) {

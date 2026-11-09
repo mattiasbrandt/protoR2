@@ -80,6 +80,10 @@ struct DomeTurnCalibration {
     uint16_t fullTurnMs;   // 0 = never timed
     uint8_t  fullTurnPct;  // share of the ESC's full range it was timed at; 0 = never set
     uint8_t  positiveTurn; // DomeTurnDirection
+    // The Dome ESC's Smallest turn (#504), in us; 0 is off. Not part of the
+    // calibration's completeness: the plan reads it only so it maps a speed to
+    // a pulse, and a pulse to a share, exactly as the backend will.
+    uint16_t smallestTurnUs;
 };
 
 // All three recorded, and a pulse set the mapping can use. Without every one
@@ -244,9 +248,10 @@ inline DomeTurnPlan domeBearingTurnPlan(float fromDeg, float toDeg, const DomeTu
     // is timed on it. This is the Dome ESC's mapping, the only backend there
     // is: the plan has no way yet to ask a backend for its share, and #309 is
     // where a packet-serial backend gives the plan one.
-    const uint16_t pulseUs =
-        domeSpeedToPulseUs(speed, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs, speedLimitPct);
-    const float share = domePulseToShare(pulseUs, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs);
+    const uint16_t pulseUs = domeSpeedToPulseUs(speed, cal.neutralUs, cal.minPulseUs,
+                                                cal.maxPulseUs, speedLimitPct, cal.smallestTurnUs);
+    const float share = domePulseToShare(pulseUs, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs,
+                                         cal.smallestTurnUs);
     const float rate = fabsf(domeBearingRateDegPerMs(share, cal));
     if (rate <= 0.0f) {
         return plan;

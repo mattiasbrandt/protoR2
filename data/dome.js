@@ -23,12 +23,16 @@
   const domeNeutral = document.getElementById("dome-neutral");
   const domeMinPulse = document.getElementById("dome-min-pulse");
   const domeMaxPulse = document.getElementById("dome-max-pulse");
+  const domeSmallestTurn = document.getElementById("dome-smallest-turn");
   const domeSpeedLimit = document.getElementById("dome-speed-limit");
+  const domeSpeedLimitHint = document.getElementById("dome-speed-limit-hint");
+  const domeReversePause = document.getElementById("dome-reverse-pause");
   const reloadEscButton = document.getElementById("reload-esc-button");
   const escFeedback = document.getElementById("esc-feedback");
 
   const domeRndEnable = document.getElementById("dome-rnd-enable");
   const domeRndSpeed = document.getElementById("dome-rnd-speed");
+  const domeRndSpeedHint = document.getElementById("dome-rnd-speed-hint");
   const domeRndPauseMin = document.getElementById("dome-rnd-pause-min");
   const domeRndPauseMax = document.getElementById("dome-rnd-pause-max");
   const domeRndMoveMs = document.getElementById("dome-rnd-move-ms");
@@ -106,8 +110,10 @@
 
   // The one rule every surface prints the sent figure by: one decimal, as the
   // droid sends it in domeRotationSentPct and writes it in its own Dome
-  // Rotation detail (src/web/status_json.cpp). The smallest turn that goes out
-  // is 0.1 %, so a turning dome never reads 0.0 %.
+  // Rotation detail (src/web/status_json.cpp). Every turn goes out at least
+  // one us past neutral, or one past Smallest turn, which is at least 0.1 %,
+  // so a turning dome never reads 0.0 %. The exception is a Speed limit no
+  // wider than Smallest turn, which the Speed limit hint names.
   const sentPercentText = (pct) => `${pct.toFixed(1)}%`;
 
   // The gauge's ends say which way each side turns once Positive turns is
@@ -273,10 +279,94 @@
     paintCalibrate();
   };
 
+  // ---------------------------------------------------------------------------
+  // The too-slow hint (#504). An ESC ignores pulses near neutral, and how near
+  // is not published, so a Speed limit or a random Speed can send a pulse that
+  // moves nothing. While Smallest turn is 0 the two hints say the pulse each
+  // sends, and point at Smallest turn; no floor is guessed and nothing is
+  // colored. Once Smallest turn is set every turn starts outside it, and the
+  // hints go back to their words - unless Speed limit sits inside Smallest
+  // turn on a side, when every turn there is one pulse inside the dead band,
+  // and the Speed limit hint says that instead.
+  //
+  // The maths is domeSpeedToPulseUs() (include/dome_math.h), in the float
+  // steps the droid takes and truncated as it truncates, from the numbers in
+  // the boxes. The side closer to neutral is the one shown: it is the one that
+  // stalls first when neutral is trimmed off the middle.
+  // ---------------------------------------------------------------------------
+  const SPEED_LIMIT_WORDS = domeSpeedLimitHint?.textContent || "";
+  const RND_SPEED_WORDS = domeRndSpeedHint?.textContent || "";
+
+  const sentPulseUs = (speed, neutralUs, minUs, maxUs, limitPct, smallestUs) => {
+    const f = Math.fround;
+    if (!(minUs <= neutralUs && neutralUs <= maxUs)) return neutralUs;
+    const s = Math.max(-1, Math.min(1, speed));
+    const scale = f(limitPct / 100);
+    const range = f((s > 0 ? maxUs - neutralUs : neutralUs - minUs) * scale);
+    if (s === 0) return neutralUs;
+    let pulse;
+    if (smallestUs === 0) {
+      pulse = Math.trunc(f(neutralUs + f(s * range)));
+    } else {
+      // One us past the edge where there is room, the distance truncated
+      // alike on both sides.
+      const edge = Math.min(f(smallestUs), range);
+      const start = f(range - edge) >= 1 ? f(edge + 1) : edge;
+      const dist = Math.trunc(f(start + f(Math.abs(s) * f(range - start))));
+      pulse = s > 0 ? neutralUs + dist : neutralUs - dist;
+    }
+    return Math.max(minUs, Math.min(maxUs, pulse));
+  };
+
+  // The five boxes as numbers, or null when one holds no number.
+  const pulseBoxes = () => {
+    const boxes = [domeNeutral, domeMinPulse, domeMaxPulse, domeSpeedLimit, domeSmallestTurn].map(typed);
+    if (boxes.some((text) => text === "" || !Number.isFinite(Number(text)))) return null;
+    return boxes.map(Number);
+  };
+
+  // Speed limit leaves a side no wider than Smallest turn: every turn on it
+  // is the same pulse, inside the dead band (domeSpeedToPulseUs()).
+  const limitInsideSmallestTurn = () => {
+    const n = pulseBoxes();
+    if (n === null) return false;
+    const [neutralUs, minUs, maxUs, limitPct, smallestUs] = n;
+    if (smallestUs <= 0 || !(minUs <= neutralUs && neutralUs <= maxUs)) return false;
+    const scale = Math.fround(limitPct / 100);
+    return [maxUs - neutralUs, neutralUs - minUs]
+      .some((side) => Math.fround(side * scale) - smallestUs < 1);
+  };
+
+  // The pulse a speed sends on the side closer to neutral, or null when a box
+  // holds no number.
+  const nearerPulseUs = (speed) => {
+    const n = pulseBoxes();
+    if (n === null) return null;
+    const [neutralUs, minUs, maxUs, limitPct, smallestUs] = n;
+    const forward = sentPulseUs(speed, neutralUs, minUs, maxUs, limitPct, smallestUs);
+    const reverse = sentPulseUs(-speed, neutralUs, minUs, maxUs, limitPct, smallestUs);
+    return Math.abs(reverse - neutralUs) < Math.abs(forward - neutralUs) ? reverse : forward;
+  };
+
+  const paintSlowHints = () => {
+    const off = typed(domeSmallestTurn) !== "" && Number(typed(domeSmallestTurn)) === 0;
+    const full = off ? nearerPulseUs(1) : null;
+    setText(domeSpeedLimitHint, full !== null
+      ? `Full stick sends ${full} \u00b5s. Dome still? Set Smallest turn.`
+      : limitInsideSmallestTurn() ? "Speed limit sits inside Smallest turn."
+      : SPEED_LIMIT_WORDS);
+    const rndPct = Number(typed(domeRndSpeed));
+    // The droid's float: (float)pct / 100.0f (src/tasks/dome_rotation_task.cpp).
+    const rnd = off && typed(domeRndSpeed) !== "" && Number.isFinite(rndPct)
+      ? nearerPulseUs(Math.fround(rndPct / 100)) : null;
+    setText(domeRndSpeedHint, rnd === null ? RND_SPEED_WORDS
+      : `A random turn sends ${rnd} \u00b5s. Dome still? Set Smallest turn.`);
+  };
+
   const updateDomeControlsEnabled = () => {
     const configEnabled = domeHardwareEnabled;
     window.PAApi.gateControls(
-      [domeNeutral, domeMinPulse, domeMaxPulse, domeSpeedLimit, reloadEscButton,
+      [domeNeutral, domeMinPulse, domeMaxPulse, domeSmallestTurn, domeSpeedLimit, domeReversePause, reloadEscButton,
        domeRndEnable, domeRndSpeed, domeRndPauseMin, domeRndPauseMax, domeRndMoveMs, reloadRndButton,
        domeFrontButton, domeHomeButton, domeTurnMs, domeTurnPct, ...domeTurnDirButtons],
       configEnabled,
@@ -464,7 +554,9 @@
     if (domeNeutral && domeRotation.neutralUs !== undefined) domeNeutral.value = domeRotation.neutralUs;
     if (domeMinPulse && domeRotation.minPulseUs !== undefined) domeMinPulse.value = domeRotation.minPulseUs;
     if (domeMaxPulse && domeRotation.maxPulseUs !== undefined) domeMaxPulse.value = domeRotation.maxPulseUs;
+    if (domeSmallestTurn && domeRotation.smallestTurnUs !== undefined) domeSmallestTurn.value = domeRotation.smallestTurnUs;
     if (domeSpeedLimit && domeRotation.speedLimitPct !== undefined) domeSpeedLimit.value = domeRotation.speedLimitPct;
+    if (domeReversePause && domeRotation.reversePauseMs !== undefined) domeReversePause.value = domeRotation.reversePauseMs;
     if (domeRotation.speedLimitPct !== undefined) savedSpeedLimitPct = Number(domeRotation.speedLimitPct);
 
     if (domeRndEnable && domeRotation.rndEnable !== undefined) domeRndEnable.checked = domeRotation.rndEnable;
@@ -472,6 +564,7 @@
     if (domeRndPauseMin && domeRotation.rndPauseMin !== undefined) domeRndPauseMin.value = domeRotation.rndPauseMin;
     if (domeRndPauseMax && domeRotation.rndPauseMax !== undefined) domeRndPauseMax.value = domeRotation.rndPauseMax;
     if (domeRndMoveMs && domeRotation.rndMoveMs !== undefined) domeRndMoveMs.value = domeRotation.rndMoveMs;
+    paintSlowHints();
     renderTurnSnapshot(domeRotation);
 
     setDomeHardwareEnabled(Boolean(components.domeRotation?.enabled));
@@ -506,7 +599,9 @@
     domeRotationNeutralUs: typed(domeNeutral),
     domeRotationMinPulseUs: typed(domeMinPulse),
     domeRotationMaxPulseUs: typed(domeMaxPulse),
+    domeRotationSmallestTurnUs: typed(domeSmallestTurn),
     domeRotationSpeedLimitPct: typed(domeSpeedLimit),
+    domeRotationReversePauseMs: typed(domeReversePause),
   });
 
   const saveEscConfig = async () => {
@@ -571,7 +666,12 @@
   domeNeutral?.addEventListener("input", debouncedSave);
   domeMinPulse?.addEventListener("input", debouncedSave);
   domeMaxPulse?.addEventListener("input", debouncedSave);
+  domeSmallestTurn?.addEventListener("input", debouncedSave);
   domeSpeedLimit?.addEventListener("input", debouncedSave);
+  domeReversePause?.addEventListener("input", debouncedSave);
+  // The hints follow the boxes as they are typed, before the save.
+  [domeNeutral, domeMinPulse, domeMaxPulse, domeSmallestTurn, domeSpeedLimit, domeRndSpeed]
+    .forEach((input) => input?.addEventListener("input", paintSlowHints));
   reloadEscButton?.addEventListener("click", loadEscConfig);
 
   domeRndEnable?.addEventListener("input", debouncedRndSave);

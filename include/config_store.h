@@ -207,6 +207,13 @@ struct DomeConfig {
     uint16_t dome_full_turn_ms;
     uint8_t dome_full_turn_pct;
     uint8_t dome_positive_turn;  // DomeTurnDirection
+    // Smallest turn (#504): a Dome ESC's distance from neutral, in us, where
+    // every non-zero turn starts (domeSpeedToPulseUs()). 0 is off: the pulse
+    // grows from neutral, as it always did.
+    uint16_t dome_smallest_turn_us;
+    // Pause before reversing (#504): how long a stop is held on the wire
+    // before a turn the other way, for every Dome Rotation product. 0 is off.
+    uint16_t dome_reverse_pause_ms;
 };
 
 // A sequence name, "DM:" and at most 18 characters (PC_NAME_BODY_MAX,
@@ -387,7 +394,12 @@ struct ConfigSnapshot {
 // 4-byte aligned, went 44 -> 34 B. Measured off a host build of this header. A
 // shrink only takes bytes off the frames that hold a snapshot, so no chain can
 // grow past its recipe; the artoo_esp32 chains were re-walked by the slice gate.
-static_assert(sizeof(ConfigSnapshot) == 932,
+//
+// #504 then grew it to 936 B: DomeConfig's Smallest turn and Pause before
+// reversing, two uint16_t, 34 -> 38 B. Measured off a host build of this
+// header, and every chain re-walked with tools/check_task_stack_chains.py on
+// both chips before this number moved.
+static_assert(sizeof(ConfigSnapshot) == 936,
               "ConfigSnapshot changed size - re-derive the Console task stack from a fresh "
               "chain measurement before moving this number");
 

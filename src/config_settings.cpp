@@ -19,7 +19,7 @@
 #include "component_registry.h"
 #include "config.h"               // SPEED_*, SBUS_TIMEOUT_MS, WEB_DRIVE_TIMEOUT_MS, PA_LOG_LEVEL*
 #include "dome_bearing.h"         // DomeTurnDirection - the dome's calibration words
-#include "dome_math.h"            // kDomePulseSetting*Us - the Dome ESC pulse bounds
+#include "dome_math.h"            // kDomePulseSetting*Us, DOME_REVERSE_PAUSE_MAX_MS - Dome Rotation bounds
 #include "mood_sound_mapping.h"   // MOOD_CATEGORY_MASK_MAX - a mood mask's bits
 #include "pca9685.h"              // PCA9685_ADDRESS_* - where one expander board may answer
 #include "protocol_check.h"       // PC_SM_MOVE_MIN/MAX - what bounds the Cadence Floor
@@ -176,6 +176,14 @@ const ConfigSetting kConfigSettings[] = {
              kDomePulseSettingMaxUs, 2000),
     PA_RANGE("domeRotationSpeedLimitPct", "domeRotation.speedLimitPct", "drot_pct", Immediate,
              Dome, DomeConfig, dome_speed_limit_pct, 0, 100, 100),
+    // Smallest turn and Pause before reversing (#504), both 0 = off. Smallest
+    // turn's bound is the widest half-range a pulse set can have; the mapping
+    // clamps it to the half-range a turn actually has (domeSpeedToPulseUs()).
+    PA_RANGE("domeRotationSmallestTurnUs", "domeRotation.smallestTurnUs", "drot_small_us",
+             Immediate, Dome, DomeConfig, dome_smallest_turn_us, 0,
+             kDomePulseSettingMaxUs - kDomePulseSettingMinUs, 0),
+    PA_RANGE("domeRotationReversePauseMs", "domeRotation.reversePauseMs", "drot_rev_ms",
+             Immediate, Dome, DomeConfig, dome_reverse_pause_ms, 0, DOME_REVERSE_PAUSE_MAX_MS, 0),
     PA_BOOL("domeRotationRndEnable", "domeRotation.rndEnable", "drot_rnd_en", Immediate,
             Dome, DomeConfig, dome_rnd_enable, false),
     PA_RANGE("domeRotationRndSpeedPct", "domeRotation.rndSpeedPct", "drot_rnd_spd", Immediate,

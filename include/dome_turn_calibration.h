@@ -14,5 +14,6 @@
 
 inline DomeTurnCalibration domeTurnCalibrationOf(const DomeConfig& cfg) {
     return {cfg.dome_neutral_us,   cfg.dome_min_pulse_us,  cfg.dome_max_pulse_us,
-            cfg.dome_full_turn_ms, cfg.dome_full_turn_pct, cfg.dome_positive_turn};
+            cfg.dome_full_turn_ms, cfg.dome_full_turn_pct, cfg.dome_positive_turn,
+            cfg.dome_smallest_turn_us};
 }
