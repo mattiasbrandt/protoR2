@@ -149,7 +149,7 @@
     if (state === feedbackState) return;
     feedbackState = state;
     if (state === "off") {
-      showFeedback(domeFeedback, "Dome ESC is switched off. Switch it on in Configuration.", "warning");
+      showFeedback(domeFeedback, "Dome Rotation is switched off. Switch it on in Configuration.", "warning");
     } else if (state === "waiting") {
       showFeedback(domeFeedback, "Waiting for the droid.");
     } else {
@@ -169,8 +169,8 @@
     if (typeof payload?.domeEnabled === "boolean") {
       return payload.domeEnabled;
     }
-    if (typeof payload?.components?.domeEsc?.enabled === "boolean") {
-      return payload.components.domeEsc.enabled;
+    if (typeof payload?.components?.domeRotation?.enabled === "boolean") {
+      return payload.components.domeRotation.enabled;
     }
     return null;
   };
@@ -248,11 +248,11 @@
     setText(domeTurnState, set ? "set" : "not set");
   };
 
-  const renderTurnSnapshot = (domeEsc) => {
+  const renderTurnSnapshot = (domeRotation) => {
     const shown = (value) => (Number(value) > 0 ? String(value) : "");
-    if (domeTurnMs && domeEsc.fullTurnMs !== undefined) domeTurnMs.value = shown(domeEsc.fullTurnMs);
-    if (domeTurnPct && domeEsc.fullTurnPct !== undefined) domeTurnPct.value = shown(domeEsc.fullTurnPct);
-    if (domeEsc.positiveTurn !== undefined) turnDir = String(domeEsc.positiveTurn);
+    if (domeTurnMs && domeRotation.fullTurnMs !== undefined) domeTurnMs.value = shown(domeRotation.fullTurnMs);
+    if (domeTurnPct && domeRotation.fullTurnPct !== undefined) domeTurnPct.value = shown(domeRotation.fullTurnPct);
+    if (domeRotation.positiveTurn !== undefined) turnDir = String(domeRotation.positiveTurn);
     paintTurnDir();
     paintTurnState();
   };
@@ -260,8 +260,8 @@
   // What the builder typed; an empty box is left out rather than sent as 0.
   const turnPayload = (extra = {}) => {
     const payload = { ...extra };
-    if (typed(domeTurnMs) !== "") payload.domeEscFullTurnMs = typed(domeTurnMs);
-    if (typed(domeTurnPct) !== "") payload.domeEscFullTurnPct = typed(domeTurnPct);
+    if (typed(domeTurnMs) !== "") payload.domeRotationFullTurnMs = typed(domeTurnMs);
+    if (typed(domeTurnPct) !== "") payload.domeRotationFullTurnPct = typed(domeTurnPct);
     return payload;
   };
 
@@ -284,27 +284,27 @@
       if (button.dataset.value === turnDir) return;
       turnDir = button.dataset.value;
       paintTurnDir();
-      saveTurn({ domeEscPositiveTurn: turnDir });
+      saveTurn({ domeRotationPositiveTurn: turnDir });
     });
   });
 
   const renderEscConfigSnapshot = (data) => {
-    const domeEsc = data?.domeEsc || {};
+    const domeRotation = data?.domeRotation || {};
     const components = data?.components || {};
 
-    if (domeNeutral && domeEsc.neutralUs !== undefined) domeNeutral.value = domeEsc.neutralUs;
-    if (domeMinPulse && domeEsc.minPulseUs !== undefined) domeMinPulse.value = domeEsc.minPulseUs;
-    if (domeMaxPulse && domeEsc.maxPulseUs !== undefined) domeMaxPulse.value = domeEsc.maxPulseUs;
-    if (domeSpeedLimit && domeEsc.speedLimitPct !== undefined) domeSpeedLimit.value = domeEsc.speedLimitPct;
+    if (domeNeutral && domeRotation.neutralUs !== undefined) domeNeutral.value = domeRotation.neutralUs;
+    if (domeMinPulse && domeRotation.minPulseUs !== undefined) domeMinPulse.value = domeRotation.minPulseUs;
+    if (domeMaxPulse && domeRotation.maxPulseUs !== undefined) domeMaxPulse.value = domeRotation.maxPulseUs;
+    if (domeSpeedLimit && domeRotation.speedLimitPct !== undefined) domeSpeedLimit.value = domeRotation.speedLimitPct;
 
-    if (domeRndEnable && domeEsc.rndEnable !== undefined) domeRndEnable.checked = domeEsc.rndEnable;
-    if (domeRndSpeed && domeEsc.rndSpeedPct !== undefined) domeRndSpeed.value = domeEsc.rndSpeedPct;
-    if (domeRndPauseMin && domeEsc.rndPauseMin !== undefined) domeRndPauseMin.value = domeEsc.rndPauseMin;
-    if (domeRndPauseMax && domeEsc.rndPauseMax !== undefined) domeRndPauseMax.value = domeEsc.rndPauseMax;
-    if (domeRndMoveMs && domeEsc.rndMoveMs !== undefined) domeRndMoveMs.value = domeEsc.rndMoveMs;
-    renderTurnSnapshot(domeEsc);
+    if (domeRndEnable && domeRotation.rndEnable !== undefined) domeRndEnable.checked = domeRotation.rndEnable;
+    if (domeRndSpeed && domeRotation.rndSpeedPct !== undefined) domeRndSpeed.value = domeRotation.rndSpeedPct;
+    if (domeRndPauseMin && domeRotation.rndPauseMin !== undefined) domeRndPauseMin.value = domeRotation.rndPauseMin;
+    if (domeRndPauseMax && domeRotation.rndPauseMax !== undefined) domeRndPauseMax.value = domeRotation.rndPauseMax;
+    if (domeRndMoveMs && domeRotation.rndMoveMs !== undefined) domeRndMoveMs.value = domeRotation.rndMoveMs;
+    renderTurnSnapshot(domeRotation);
 
-    setDomeHardwareEnabled(Boolean(components.domeEsc?.enabled));
+    setDomeHardwareEnabled(Boolean(components.domeRotation?.enabled));
   };
 
 
@@ -333,16 +333,16 @@
   const typed = (input) => String(input?.value ?? "").trim();
 
   const escPayload = () => ({
-    domeEscNeutralUs: typed(domeNeutral),
-    domeEscMinPulseUs: typed(domeMinPulse),
-    domeEscMaxPulseUs: typed(domeMaxPulse),
-    domeEscSpeedLimitPct: typed(domeSpeedLimit),
+    domeRotationNeutralUs: typed(domeNeutral),
+    domeRotationMinPulseUs: typed(domeMinPulse),
+    domeRotationMaxPulseUs: typed(domeMaxPulse),
+    domeRotationSpeedLimitPct: typed(domeSpeedLimit),
   });
 
   const saveEscConfig = async () => {
     if (!window.PAApi) return;
     if (!domeHardwareEnabled) {
-      showFeedback(escFeedback, "Dome settings unavailable: enable DOME — Dome ESC in Configuration.", "warning");
+      showFeedback(escFeedback, "Dome ESC settings unavailable: switch Dome Rotation on in Configuration.", "warning");
       return;
     }
 
@@ -362,17 +362,17 @@
   };
 
   const rndPayload = () => ({
-    domeEscRndEnable: domeRndEnable?.checked ? "true" : "false",
-    domeEscRndSpeedPct: typed(domeRndSpeed),
-    domeEscRndPauseMin: typed(domeRndPauseMin),
-    domeEscRndPauseMax: typed(domeRndPauseMax),
-    domeEscRndMoveMs: typed(domeRndMoveMs),
+    domeRotationRndEnable: domeRndEnable?.checked ? "true" : "false",
+    domeRotationRndSpeedPct: typed(domeRndSpeed),
+    domeRotationRndPauseMin: typed(domeRndPauseMin),
+    domeRotationRndPauseMax: typed(domeRndPauseMax),
+    domeRotationRndMoveMs: typed(domeRndMoveMs),
   });
 
   const saveRndDomeConfig = async () => {
     if (!window.PAApi) return;
     if (!domeHardwareEnabled) {
-      showFeedback(rndFeedback, "Random dome controls unavailable: enable DOME — Dome ESC in Configuration.", "warning");
+      showFeedback(rndFeedback, "Random movement unavailable: switch Dome Rotation on in Configuration.", "warning");
       return;
     }
 

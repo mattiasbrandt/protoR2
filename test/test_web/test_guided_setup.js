@@ -81,7 +81,7 @@ const surfaceDocument = (html) => {
 // fitted" is a claim nobody made.
 const freshConfig = () => ({
   components: {
-    domeEsc: { enabled: false },
+    domeRotation: { enabled: false },
     rcCh1: { enabled: false },
     rcCh2: { enabled: false },
     rcCh3: { enabled: false },

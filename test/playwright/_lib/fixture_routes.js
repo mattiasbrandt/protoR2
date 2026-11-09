@@ -254,7 +254,7 @@ const initialConfig = (droid) => {
     rc: { inputMode: 'standard_pwm', activeInputMode: 'standard_pwm', sbusTimeoutMs: 300, sbus: { recvCh2: false }, member: 'rc_radio' },
     activeToggles: ['drive', 'rcCh1', 'rcCh2'],
     components: {
-      domeEsc: { enabled: false, label: 'DOME' },
+      domeRotation: { enabled: false, label: 'DOME' },
       rcCh1: { enabled: true, label: 'CH1' },
       rcCh2: { enabled: true, label: 'CH2' },
       rcCh3: { enabled: false, label: 'CH3' },

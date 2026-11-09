@@ -1330,7 +1330,9 @@
   const PRODUCT_FAMILIES = [
     { family: BOARD_FAMILY },
     { family: "foot_drive", toggle: "drive" },
-    { family: "dome_rotation", toggle: "domeEsc", title: "Dome Rotation" },
+    // Titled by its Component Toggle's label, the builder's word for the
+    // family (data/web_api.js), so the row and Configuration cannot disagree.
+    { family: "dome_rotation", toggle: "domeRotation", titled: true },
     { family: "dome_controller", toggle: "protoR2link" },
     { family: "sound", toggle: "audio" },
     // The one family whose product is reached on the Outputs.
@@ -1342,7 +1344,8 @@
     if (!productCards || !picker?.answered?.()) return [];
     const toggles = componentIndex(components);
     const found = [];
-    PRODUCT_FAMILIES.forEach(({ family, toggle = "", outputs = false, title = "" }) => {
+    PRODUCT_FAMILIES.forEach(({ family, toggle = "", outputs = false, titled = false }) => {
+      const title = titled ? window.PAApi.labelOf(`enable${toggle.charAt(0).toUpperCase()}${toggle.slice(1)}`) : "";
       if (toggle && !switchedOn(toggles, toggle)) return;
       const chosen = picker.productOf(family);
       // The Outputs' family keeps the board's own GPIO whatever is chosen: a

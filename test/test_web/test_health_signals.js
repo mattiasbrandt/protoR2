@@ -49,7 +49,7 @@ const HEALTHY_PAYLOAD = Object.freeze({
   dome_link: { state: "connected", transport: "uart" },
   audio: { state: "idle", driver: "CHIRP Audio Trigger", output: "on", link_ok: true, rx_status: "available" },
   domeEnabled: true,
-  domeEsc: { state: "idle" },
+  domeRotation: { state: "idle" },
 });
 
 // -----------------------------------------------------------------------------
@@ -220,11 +220,11 @@ test("a link reading refuses to guess the Live Reading's words", () => {
 // -----------------------------------------------------------------------------
 
 test("dome esc reports OFF when disabled or missing", () => {
-  const missing = toSignalMap({ domeEsc: { state: "idle" } });
+  const missing = toSignalMap({ domeRotation: { state: "idle" } });
   assert.equal(missing["h-dome-esc"].state, "off");
   assert.equal(missing["h-dome-esc"].reason, "Disabled");
 
-  const disabled = toSignalMap({ domeEnabled: false, domeEsc: { state: "spinning" } });
+  const disabled = toSignalMap({ domeEnabled: false, domeRotation: { state: "spinning" } });
   assert.equal(disabled["h-dome-esc"].state, "off");
   assert.equal(disabled["h-dome-esc"].reason, "Disabled");
 });
@@ -232,17 +232,17 @@ test("dome esc reports OFF when disabled or missing", () => {
 // Idle and spinning are what the droid commands; a PWM ESC answers nothing
 // back, so the row is grey and its word carries the command (#399).
 test("dome esc reads OFF for idle and spinning, saying what is commanded", () => {
-  const idle = toSignalMap({ domeEnabled: true, domeEsc: { state: "idle", detail: "Target 0%" } });
+  const idle = toSignalMap({ domeEnabled: true, domeRotation: { state: "idle", detail: "Target 0%" } });
   assert.equal(idle["h-dome-esc"].state, "off");
   assert.equal(idle["h-dome-esc"].reason, "Idle, Target 0%");
 
-  const spinning = toSignalMap({ domeEnabled: true, domeEsc: { state: "spinning" } });
+  const spinning = toSignalMap({ domeEnabled: true, domeRotation: { state: "spinning" } });
   assert.equal(spinning["h-dome-esc"].state, "off");
   assert.equal(spinning["h-dome-esc"].reason, "Spinning");
 });
 
 test("dome esc reads OFF for a state it does not recognise, keeping the state in the word", () => {
-  const unknown = toSignalMap({ domeEnabled: true, domeEsc: { state: "paused" } });
+  const unknown = toSignalMap({ domeEnabled: true, domeRotation: { state: "paused" } });
   assert.equal(unknown["h-dome-esc"].state, "off");
   assert.equal(unknown["h-dome-esc"].reason, `${UNKNOWN} (paused)`);
 
@@ -291,7 +291,7 @@ test("nothing that means 'we have not heard' reads amber or green", () => {
     dome_link: { state: "handshaking" },
     audio: { state: "booting" },
     domeEnabled: true,
-    domeEsc: { state: "paused" },
+    domeRotation: { state: "paused" },
   });
   unrecognised.forEach(({ id, state }) => {
     assert.notEqual(state, "warn", `${id} must not claim degradation for a state we cannot read`);

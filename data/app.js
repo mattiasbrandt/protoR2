@@ -106,7 +106,7 @@
   // reports each under, each named by its Setting's label in the one words
   // table (data/web_api.js) - the key with "enable" in front is its form name.
   // Named when drawn, not when this file loads: the words table is PAApi's.
-  const SUBSYSTEM_KEYS = ["domeEsc", "rcCh1", "rcCh2", "rcCh3", "rcCh4", "rcCh5", "rcCh6", "drive", "audio",
+  const SUBSYSTEM_KEYS = ["domeRotation", "rcCh1", "rcCh2", "rcCh3", "rcCh4", "rcCh5", "rcCh6", "drive", "audio",
     "protoR2link"];
   const subsystemLabels = () =>
     SUBSYSTEM_KEYS.map((key) => [key, window.PAApi.labelOf(`enable${key.charAt(0).toUpperCase()}${key.slice(1)}`)]);
@@ -244,19 +244,19 @@
     if (lastStatus) renderComponentStatus(lastStatus);
   };
 
-  // What one row of the Readouts card says. protoR2link, the sound link, the
-  // Dome ESC and the Foot Drive are the health-signal model's word, the same
+  // What one row of the Readouts card says. protoR2link, the sound link, Dome
+  // Rotation and the Foot Drive are the health-signal model's word, the same
   // one Health shows (and, for the two links, the Status Plate, Maintenance
   // and Sound: data/health_signals.js, #422, #399). The links carry no line of
   // their own beneath it: the firmware's detail there restated the state in
-  // other words. The Dome ESC and the Foot Drive carry what the droid commands
+  // other words. Dome Rotation and the Foot Drive carry what the droid commands
   // as their line ("Target 0%", "Command 120/0"). An Output's row is its
   // Part's, and says where that Part is (partReading() below). Every other row
   // is the firmware's state and detail.
   const LINK_COMPONENT_READERS = {
     protoR2link: (payload) => HEALTH_SIGNAL_MODEL.readProtoR2link(payload, { unknown: window.PALiveReading.UNKNOWN }),
     audio: (payload) => HEALTH_SIGNAL_MODEL.readSoundLink(payload, { unknown: window.PALiveReading.UNKNOWN }),
-    domeEsc: (payload) => HEALTH_SIGNAL_MODEL.readDomeEsc(payload, { unknown: window.PALiveReading.UNKNOWN }),
+    domeRotation: (payload) => HEALTH_SIGNAL_MODEL.readDomeRotation(payload, { unknown: window.PALiveReading.UNKNOWN }),
     drive: (payload) => HEALTH_SIGNAL_MODEL.readFootDrive(payload),
   };
 
@@ -267,7 +267,7 @@
   // or lost. Everything else is grey, `ready` above all: an Output says ready
   // whether or not a servo is on it, and PWM channels say it with nothing
   // measured, so a green there would be the "we did not check" the colour must
-  // never say. A command is not a report either, which is why the Dome ESC
+  // never say. A command is not a report either, which is why Dome Rotation
   // and the Foot Drive are no longer in this table (#399).
   const COMPONENT_STATE_LIGHTS = Object.freeze({
     active: "ok",

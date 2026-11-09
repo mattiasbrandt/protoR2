@@ -41,7 +41,7 @@ test("the Dome page sends a pulse the droid will refuse exactly as typed", async
 
   const sent = configPosts(env).at(-1);
   assert.ok(sent, "a save went out");
-  assert.equal(sent.domeEscNeutralUs, "999", "the typed pulse, not one moved into a range the page holds");
+  assert.equal(sent.domeRotationNeutralUs, "999", "the typed pulse, not one moved into a range the page holds");
 });
 
 test("the Drive page sends three presets that clash, for the droid to refuse", async () => {

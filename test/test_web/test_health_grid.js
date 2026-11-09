@@ -50,7 +50,7 @@ const HEALTHY_FRAME = Object.freeze({
   dome_link: { state: "connected", transport: "uart" },
   audio: { state: "idle", driver: "CHIRP Audio Trigger", output: "on", link_ok: true, rx_status: "available" },
   domeEnabled: true,
-  domeEsc: { state: "idle" },
+  domeRotation: { state: "idle" },
   estop: false,
   sleepMode: false,
   webDriveExpired: false,

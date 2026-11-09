@@ -33,10 +33,10 @@ const BOARD_LABELS = {
   // the id its row's controls carry in configuration.html. That is all this
   // page knows about one: its label and when it takes effect are its entry's
   // in the one words table (data/web_api.js), and the key GET reports it under
-  // is its form name without "enable" (enableDomeEsc -> components.domeEsc), the
+  // is its form name without "enable" (enableDomeRotation -> components.domeRotation), the
   // droid's own rule (addActiveFields(), src/web/api_config.cpp).
   const TOGGLE_ROWS = {
-    enableDomeEsc: "dome-esc",
+    enableDomeRotation: "dome-esc",
     enableRcCh1: "rc-ch1",
     enableRcCh2: "rc-ch2",
     enableRcCh3: "rc-ch3",
@@ -605,7 +605,7 @@ const BOARD_LABELS = {
   const WAITING = {
     wifi: () => Boolean(lastSaved?.wifi?.pendingApply),
     drive: () => toggleWaiting("drive"),
-    domerot: () => toggleWaiting("domeEsc"),
+    domerot: () => toggleWaiting("domeRotation"),
     domectl: () => toggleWaiting("protoR2link"),
     sound: () => {
       const audio = lastSaved?.components?.audio;
@@ -628,7 +628,7 @@ const BOARD_LABELS = {
     // The Droid Build is a Record: its fields' entries say when they bite.
     build: ["domeDesign", "domeVariant", "bodyDesign", "bodyVariant", "fittedParts"],
     drive: ["enableDrive"],
-    domerot: ["enableDomeEsc"],
+    domerot: ["enableDomeRotation"],
     domectl: ["enableProtoR2link"],
     sound: ["enableAudio", "soundMember"],
     _servos: ["bodyServoMember"],

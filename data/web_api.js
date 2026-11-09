@@ -413,7 +413,7 @@
     sbusTimeoutMs: { applies: "immediate", word: "signal-lost timeout", unit: MS, path: "rc.sbusTimeoutMs" },
     rcMember: { applies: "immediate", word: "radio", path: "rc.member", refused: NOT_LISTED },
     sbusRecvCh2: { applies: "restart-required", word: "SBUS header", path: "rc.sbus.recvCh2" },
-    enableDomeEsc: { label: "Dome ESC", applies: "at-reboot", word: "Dome ESC", path: "components.domeEsc.enabled" },
+    enableDomeRotation: { label: "Dome Rotation", applies: "at-reboot", word: "Dome Rotation", path: "components.domeRotation.enabled" },
     enableRcCh1: { label: "RC channel 1", applies: "restart-required", word: "RC channel 1", path: "components.rcCh1.enabled" },
     enableRcCh2: { label: "RC channel 2", applies: "restart-required", word: "RC channel 2", path: "components.rcCh2.enabled" },
     enableRcCh3: { label: "RC channel 3", applies: "restart-required", word: "RC channel 3", path: "components.rcCh3.enabled" },
@@ -426,33 +426,33 @@
     bodyServoMember: { applies: "at-reboot", word: "body servo controller", path: "components.bodyServo.member", refused: NOT_LISTED },
     pcaAddress: { applies: "at-reboot", word: "PCA9685 address", path: "components.bodyServo.pcaAddress", clash: "cannot be 0x70-0x73" },
     enableProtoR2link: { label: "Dome link", applies: "at-reboot", word: "dome link", path: "components.protoR2link.enabled" },
-    domeEscNeutralUs: { applies: "immediate", word: "neutral pulse", unit: US, path: "domeEsc.neutralUs", clash: PULSE_CLASH },
-    domeEscMinPulseUs: {
+    domeRotationNeutralUs: { applies: "immediate", word: "neutral pulse", unit: US, path: "domeRotation.neutralUs", clash: PULSE_CLASH },
+    domeRotationMinPulseUs: {
       applies: "immediate",
-      word: "minimum pulse", unit: US, path: "domeEsc.minPulseUs", clash: "must be at most the neutral pulse",
+      word: "minimum pulse", unit: US, path: "domeRotation.minPulseUs", clash: "must be at most the neutral pulse",
     },
-    domeEscMaxPulseUs: {
+    domeRotationMaxPulseUs: {
       applies: "immediate",
-      word: "maximum pulse", unit: US, path: "domeEsc.maxPulseUs", clash: "must be at least the neutral pulse",
+      word: "maximum pulse", unit: US, path: "domeRotation.maxPulseUs", clash: "must be at least the neutral pulse",
     },
-    domeEscSpeedLimitPct: { applies: "immediate", word: "dome speed limit", unit: PCT, path: "domeEsc.speedLimitPct" },
-    domeEscRndEnable: { applies: "immediate", word: "dome turning on its own", path: "domeEsc.rndEnable" },
-    domeEscRndSpeedPct: { applies: "immediate", word: "turn speed", unit: PCT, path: "domeEsc.rndSpeedPct" },
-    domeEscRndPauseMin: {
+    domeRotationSpeedLimitPct: { applies: "immediate", word: "dome speed limit", unit: PCT, path: "domeRotation.speedLimitPct" },
+    domeRotationRndEnable: { applies: "immediate", word: "dome turning on its own", path: "domeRotation.rndEnable" },
+    domeRotationRndSpeedPct: { applies: "immediate", word: "turn speed", unit: PCT, path: "domeRotation.rndSpeedPct" },
+    domeRotationRndPauseMin: {
       applies: "immediate",
-      word: "shortest pause", unit: " s", path: "domeEsc.rndPauseMin", clash: "must be at most the longest pause",
+      word: "shortest pause", unit: " s", path: "domeRotation.rndPauseMin", clash: "must be at most the longest pause",
     },
-    domeEscRndPauseMax: {
+    domeRotationRndPauseMax: {
       applies: "immediate",
-      word: "longest pause", unit: " s", path: "domeEsc.rndPauseMax", clash: "must be at least the shortest pause",
+      word: "longest pause", unit: " s", path: "domeRotation.rndPauseMax", clash: "must be at least the shortest pause",
     },
-    domeEscRndMoveMs: { applies: "immediate", word: "move duration", unit: MS, path: "domeEsc.rndMoveMs" },
-    domeEscFullTurnMs: { applies: "immediate", word: "full-turn time", unit: MS, path: "domeEsc.fullTurnMs" },
-    domeEscFullTurnPct: { applies: "immediate", word: "full-turn speed", unit: PCT, path: "domeEsc.fullTurnPct" },
-    domeEscPositiveTurn: {
+    domeRotationRndMoveMs: { applies: "immediate", word: "move duration", unit: MS, path: "domeRotation.rndMoveMs" },
+    domeRotationFullTurnMs: { applies: "immediate", word: "full-turn time", unit: MS, path: "domeRotation.fullTurnMs" },
+    domeRotationFullTurnPct: { applies: "immediate", word: "full-turn speed", unit: PCT, path: "domeRotation.fullTurnPct" },
+    domeRotationPositiveTurn: {
       applies: "immediate",
       word: "positive turn",
-      path: "domeEsc.positiveTurn",
+      path: "domeRotation.positiveTurn",
       values: { unset: "not set", cw: "clockwise", ccw: "anticlockwise" },
     },
     protoR2linkWifiPeerIp: {

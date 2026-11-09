@@ -72,7 +72,7 @@ export const droid = () => {
   const idOf = (address) => outputs.find((row) => row.address === address).id;
   return {
     config: {
-      components: { domeEsc: { enabled: true, label: "DOME" } },
+      components: { domeRotation: { enabled: true, label: "DOME" } },
       droidBuild: { domeDesign: "mk4", domeVariant: "complex", bodyDesign: "mk4", bodyVariant: "complex", fitted: ["dataPanel", "psiFront"] },
     },
     outputs,
