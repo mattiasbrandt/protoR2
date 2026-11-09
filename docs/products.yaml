@@ -998,7 +998,7 @@ products:
       - If cogging or stall appears at low command, increase start force first.
       - If harsh reversals occur, reduce brake aggressiveness and add neutral dwell in
         controller logic (no firmware does this today, below).
-      - If the dome refuses to move at all at low slider values, check
+      - If the dome refuses to move at all at low speeds, check
         `dome_speed_limit_pct` before suspecting the ESC.
       - If the dome turns one way and not the other, check the running mode before
         suspecting the mechanics.
@@ -1021,14 +1021,18 @@ products:
 
       Calibrating against the droid instead of a transmitter. The droid is a legitimate
       throttle source: it emits exactly the 1000 / 1500 / 2000 us the procedure wants.
-      Two steps are awkward from a web page:
-      - Step 1 needs full throttle held while the ESC powers up. The Dome page slider
-        can command +100 %, but `domeRotationTaskInit()` writes neutral at boot and the 500 ms
-        command timeout returns to neutral when the slider stops sending. Set the
-        slider to +100 %, then switch the ESC on within the timeout window, or hold the
-        slider.
-      - Every step is "hold until you hear N beeps", and the beeps come from the motor,
-        so somebody has to listen next to the droid.
+      The Dome page has a calibration helper for it (#504):
+      1. Set Speed limit to 100 % first. The helper waits for it: every turn goes
+         through the speed limit, and calibrated under a lower one the ESC learns
+         ends that are too narrow.
+      2. With the ESC switched off, hold full one way, then switch the ESC on.
+      3. At each beep, move to the next hold in the vendor's order: neutral, full
+         one way, neutral, full the other way, neutral. The ESC counts its own
+         beeps; somebody has to listen next to the droid.
+      4. Restart the ESC to finish.
+      Each full hold is an ordinary timed turn of at most 30 s (`POST /api/dome`
+      with `durationMs`); one that runs out returns to neutral, which is safe, and
+      is held again. The estop and Sleep Mode stop a hold as they stop any turn.
       The clean way is to calibrate with whatever will drive the ESC. Calibrated
       against the droid, the learned endpoints are exactly 1000 / 2000 us and
       `dome_min_pulse_us` / `dome_max_pulse_us` stay at their defaults. Calibrated
@@ -1047,7 +1051,7 @@ products:
       the speed limit scales the whole usable range toward neutral
       (`domeSpeedToPulseUs`): at 100 % full command is 2000 us, at 20 % it is 1600 us,
       at 10 % it is 1550 us, plausibly inside the deadband. The symptom is a dome that
-      does nothing at any slider position, with the firmware happy and the log showing
+      does nothing at any stick position, with the firmware happy and the log showing
       a sensible pulse width. Check the speed limit before concluding the ESC is dead.
       Open: ramp the limit down until the dome stops responding and record the pulse
       width, which would give the Dome page a real minimum instead of 0.
@@ -1084,8 +1088,9 @@ products:
       Command sources. Every source of dome motion posts one normalised speed to
       `domeRotationCmdQueue`, and DomeRotationTask (Core 1), through the Dome Rotation
       backend, is the only writer of the dome channel:
-      the web slider / REST handler, the RC dispatcher (PWM or SBUS binding), the
-      sequence dispatcher's `SEQ_ACT_DOME_ROTATE`, the dome link's rotation cue, the
+      the web route (`POST /api/dome`, the calibration helper's holds), the RC
+      dispatcher (PWM or SBUS binding), the sequence dispatcher's
+      `SEQ_ACT_DOME_ROTATE`, the dome link's rotation cue, the
       console direct action, the RC signal-loss stop, and the random idle machine
       inside DomeRotationTask.
 
