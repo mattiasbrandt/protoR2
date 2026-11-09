@@ -258,9 +258,9 @@
   // and Sound: data/health_signals.js, #422, #399). The links carry no line of
   // their own beneath it: the firmware's detail there restated the state in
   // other words. Dome Rotation and the Foot Drive carry what the droid sent or
-  // commands as their line (the sent share and pulse, "Command 120/0"). An Output's row is its
-  // Part's, and says where that Part is (partReading() below). Every other row
-  // is the firmware's state and detail.
+  // commands as their line (the sent share and pulse, "Command 120/0"). An
+  // Output's row is its Part's, and says where that Part is (partReading()
+  // below). Every other row is the firmware's state and detail.
   const LINK_COMPONENT_READERS = {
     protoR2link: (payload) => HEALTH_SIGNAL_MODEL.readProtoR2link(payload, { unknown: window.PALiveReading.UNKNOWN }),
     audio: (payload) => HEALTH_SIGNAL_MODEL.readSoundLink(payload, { unknown: window.PALiveReading.UNKNOWN }),
