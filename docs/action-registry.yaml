@@ -3308,8 +3308,8 @@ entries:
   requires_web_control: false
   executor: configApply
 - name: system.config.enable_dome_esc
-  display_name: Dome Motor
-  description: Use the dome rotation motor.
+  display_name: Dome Rotation
+  description: Off, the dome stays put, even through a sequence. On, the droid turns it. Takes effect after a restart.
   domain: system
   type: config
   marcduino_cmd: null
