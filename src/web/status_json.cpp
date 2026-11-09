@@ -173,8 +173,9 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
         // What Dome Rotation sent, after the speed limit, beside what was asked
         // for. One decimal is exact for the share: a Dome ESC's pulse moves in
         // whole us over a half-range of at most 1,000 us (the pulse Settings'
-        // bounds, static_assert above), so the smallest turn that goes out is
-        // 0.1 % and never prints as 0.0.
+        // bounds, static_assert above), so the smallest turn that goes out -
+        // one us past neutral, or one past Smallest turn - is 0.1 % and never
+        // prints as 0.0 (include/dome_math.h).
         (double)in.domeTargetSpeed, (double)(in.domeRotationSentShare * 100.0f),
         (unsigned)in.domeRotationPulseUs, in.enableDome ? "true" : "false",
         domeBearingStateWord(in.domeBearing), domeBearingDeg,
@@ -350,9 +351,12 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
                  ok;
         }
         if (in.enableDome) {
-            // Stopped is exactly a stop on the wire: a stop sends a share of 0,
-            // and any pulse off neutral a share of at least 0.1 %, so no
-            // threshold is needed (#504). The Dome page reads the same share.
+            // Stopped is a share of exactly 0: a stop sends 0, and a turn a
+            // share of at least 0.1 %, its pulse one us or more past neutral
+            // or past Smallest turn, so no threshold is needed (#504). The one
+            // pulse off neutral with a share of 0 is a Speed limit no wider
+            // than Smallest turn, where every turn stays inside the dead band
+            // and the Dome page says so. The Dome page reads the same share.
             // The tokens stay `spinning` / `idle` for the readers that key on
             // them; the words a page shows are its own.
             // The detail is the sent figure in the one rule every surface

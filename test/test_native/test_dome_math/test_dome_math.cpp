@@ -97,19 +97,17 @@ void test_an_out_of_order_set_answers_neutral_for_every_speed() {
 // on its high end, so each case pins both ends of the scaled window.
 
 // Smallest turn (#504): speed 0 is still neutral, the smallest non-zero speed
-// starts at the offset on either side, and an offset of 0 is today's mapping.
+// starts one us past the offset on either side, and an offset of 0 is today's
+// mapping.
 void test_smallest_turn_keeps_speed_zero_at_neutral() {
     TEST_ASSERT_EQUAL_UINT16(1500, domeSpeedToPulseUs(0.0f, 1500, 1000, 2000, 100, 60));
 }
 
-void test_smallest_turn_starts_every_non_zero_turn_at_the_offset() {
-    TEST_ASSERT_EQUAL_UINT16(1560, domeSpeedToPulseUs(0.0001f, 1500, 1000, 2000, 100, 60));
-    // The reverse side truncates a fraction away from neutral, as the mapping
-    // always has (offset 0 sends 1499 for this speed): one us past the edge,
-    // never inside it.
-    const uint16_t reverse = domeSpeedToPulseUs(-0.0001f, 1500, 1000, 2000, 100, 60);
-    TEST_ASSERT_TRUE(reverse <= 1440 && reverse >= 1439);
+void test_smallest_turn_starts_every_non_zero_turn_past_the_offset() {
+    TEST_ASSERT_EQUAL_UINT16(1561, domeSpeedToPulseUs(0.0001f, 1500, 1000, 2000, 100, 60));
+    TEST_ASSERT_EQUAL_UINT16(1439, domeSpeedToPulseUs(-0.0001f, 1500, 1000, 2000, 100, 60));
     TEST_ASSERT_EQUAL_UINT16(2000, domeSpeedToPulseUs(1.0f, 1500, 1000, 2000, 100, 60));
+    TEST_ASSERT_EQUAL_UINT16(1000, domeSpeedToPulseUs(-1.0f, 1500, 1000, 2000, 100, 60));
 }
 
 void test_smallest_turn_of_zero_reproduces_the_plain_mapping() {
@@ -184,7 +182,7 @@ int main() {
     RUN_TEST(test_asymmetric_neutral_half_reverse);
     RUN_TEST(test_an_out_of_order_set_answers_neutral_for_every_speed);
     RUN_TEST(test_smallest_turn_keeps_speed_zero_at_neutral);
-    RUN_TEST(test_smallest_turn_starts_every_non_zero_turn_at_the_offset);
+    RUN_TEST(test_smallest_turn_starts_every_non_zero_turn_past_the_offset);
     RUN_TEST(test_smallest_turn_of_zero_reproduces_the_plain_mapping);
     RUN_TEST(test_full_awake_and_unset_mood_draw_from_the_stored_window);
     RUN_TEST(test_mid_awake_draws_from_one_and_a_half_times_the_window);
