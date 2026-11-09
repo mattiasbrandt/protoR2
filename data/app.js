@@ -68,6 +68,11 @@
   const readoutWifiDetail = document.getElementById("readout-wifi-detail");
 
   let lastStatus = null;
+  // The Positive turns Setting, which names the way Dome Rotation turns
+  // (data/health_signals.js domeRotationWord). From the /api/config payload
+  // the log level already reads, so a change made on the Dome page shows here
+  // on this page's next load; until it arrives a turning dome reads "Turning".
+  let domePositiveTurn = null;
   let modePending = false;
   let moodPending = false;
   let sleepPending = false;
@@ -192,7 +197,10 @@
       return;
     }
 
-    const signals = HEALTH_SIGNAL_MODEL.deriveHealthSignals(payload, { unknown: window.PALiveReading.UNKNOWN });
+    const signals = HEALTH_SIGNAL_MODEL.deriveHealthSignals(payload, {
+      unknown: window.PALiveReading.UNKNOWN,
+      positiveTurn: domePositiveTurn,
+    });
     signals.forEach(({ id, state, reason }) => setIndicator(id, state, reason));
     renderHealthSummary(signals);
   };
@@ -249,14 +257,17 @@
   // one Health shows (and, for the two links, the Status Plate, Maintenance
   // and Sound: data/health_signals.js, #422, #399). The links carry no line of
   // their own beneath it: the firmware's detail there restated the state in
-  // other words. Dome Rotation and the Foot Drive carry what the droid commands
-  // as their line ("Target 0%", "Command 120/0"). An Output's row is its
+  // other words. Dome Rotation and the Foot Drive carry what the droid sent or
+  // commands as their line (the sent share and pulse, "Command 120/0"). An Output's row is its
   // Part's, and says where that Part is (partReading() below). Every other row
   // is the firmware's state and detail.
   const LINK_COMPONENT_READERS = {
     protoR2link: (payload) => HEALTH_SIGNAL_MODEL.readProtoR2link(payload, { unknown: window.PALiveReading.UNKNOWN }),
     audio: (payload) => HEALTH_SIGNAL_MODEL.readSoundLink(payload, { unknown: window.PALiveReading.UNKNOWN }),
-    domeRotation: (payload) => HEALTH_SIGNAL_MODEL.readDomeRotation(payload, { unknown: window.PALiveReading.UNKNOWN }),
+    domeRotation: (payload) => HEALTH_SIGNAL_MODEL.readDomeRotation(payload, {
+      unknown: window.PALiveReading.UNKNOWN,
+      positiveTurn: domePositiveTurn,
+    }),
     drive: (payload) => HEALTH_SIGNAL_MODEL.readFootDrive(payload),
   };
 
@@ -951,6 +962,17 @@
     logLevelPill.setAttribute("aria-label", `Log level: ${info.label}. Click to cycle to the next level.`);
   };
 
+  // Whichever arrives first, the two Dome Rotation rows are drawn again from
+  // the last status this page applied, as adoptOutputLabels() does.
+  const adoptDomePositiveTurn = (config) => {
+    const turn = config?.domeRotation?.positiveTurn;
+    domePositiveTurn = typeof turn === "string" ? turn : null;
+    if (lastStatus) {
+      renderHealth(lastStatus);
+      renderComponentStatus(lastStatus);
+    }
+  };
+
   const loadLogLevel = async ({ handle = null } = {}) => {
     if (!window.PAApi || !logLevelPill) throw new Error("API or pill unavailable");
     const api = handle ?? window.PAApi;
@@ -967,6 +989,7 @@
     // this one already said.
     renderDroidBuild(window.DroidBuild?.adopt(config) || null);
     adoptStandDown(config);
+    adoptDomePositiveTurn(config);
     const level = Number(config?.system?.logLevel);
     if (!LOG_LEVELS[level]) {
       throw new Error(`Unknown log level: ${level}`);

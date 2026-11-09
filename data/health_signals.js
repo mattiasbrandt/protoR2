@@ -19,7 +19,8 @@
 //   every page that shows either link reads (readProtoR2link, readSoundLink)
 // - Dome Rotation and the Foot Drive are answered the same way (readDomeRotation,
 //   readFootDrive): green only for something heard back, and what the droid
-//   commands is the detail, never the light (#399)
+//   sent or commands is the detail, never the light (#399). Dome Rotation's
+//   word is the one domeRotationWord() gives the Dome page too (#504)
 // - Memory is judged by its largest free block against one table of heap
 //   floors (HEAP_FLOORS) by one judge (largestBlockState), which
 //   Maintenance's memory rows read too
@@ -244,26 +245,60 @@
   // Both rows used to light green on what the droid COMMANDS - a target speed,
   // a drive command - which is not a report (GLOSSARY.md "Status Color": green
   // is nominal and reporting). Each answer is linkAnswer()'s { state, word,
-  // short } plus `detail`, the firmware's own line for what is commanded
-  // (src/web/status_json.cpp: "Target 0%", "Command 120/0"), which a page may
-  // print under the word and never lights.
+  // short } plus `detail`, the firmware's own line for what it sent or
+  // commands (src/web/status_json.cpp: the Dome Rotation share and pulse it
+  // sent, "Command 120/0"), which a page may print under the word and never
+  // lights.
   // ---------------------------------------------------------------------------
   const commanded = (answer, entry) =>
     ({ ...answer, detail: isObject(entry) && typeof entry.detail === "string" ? entry.detail : "" });
 
-  // A PWM ESC has no return wire, so nothing is ever heard from it: fitted, it
-  // is grey and its word says what is commanded. Never green, never red.
-  const DOME_ROTATION_DISABLED = linkAnswer("off", "Disabled");
-  const DOME_ROTATION_WORDS = Object.freeze({
-    idle: linkAnswer("off", "Idle"),
-    spinning: linkAnswer("off", "Spinning"),
+  // Which way Dome Rotation is turning the dome, from the share the droid
+  // reports it SENT (the status frame's domeRotationSentPct, after the speed
+  // limit) and the Positive turns Setting (domeRotation.positiveTurn: cw or
+  // ccw). One rule for "stopped" on every surface: the sent share is exactly
+  // 0, which is what a stop puts on the wire, so there is no threshold (#504).
+  // A positive share turns the way Positive turns names. While that is not
+  // set, the side of neutral is known and the direction is not: "Turning".
+  // The droid cannot see the dome move, so each word is what was sent.
+  const DOME_ROTATION_TURN_WORDS = Object.freeze({
+    stopped: "Stopped",
+    clockwise: "Clockwise",
+    anticlockwise: "Anticlockwise",
+    turning: "Turning",
   });
+  const domeRotationWord = (sentPct, positiveTurn) => {
+    if (sentPct === 0) return DOME_ROTATION_TURN_WORDS.stopped;
+    if (positiveTurn !== "cw" && positiveTurn !== "ccw") return DOME_ROTATION_TURN_WORDS.turning;
+    return (sentPct > 0) === (positiveTurn === "cw")
+      ? DOME_ROTATION_TURN_WORDS.clockwise
+      : DOME_ROTATION_TURN_WORDS.anticlockwise;
+  };
 
-  const readDomeRotation = (status, { unknown }) => {
+  // The sent share, or null when the frame does not carry it: a firmware from
+  // before #504 reports only the speed asked for, which is not what was sent.
+  const domeRotationSentPct = (status) => {
+    const sent = isObject(status) ? status.domeRotationSentPct : undefined;
+    return typeof sent === "number" && Number.isFinite(sent) ? sent : null;
+  };
+
+  // A PWM ESC has no return wire, so nothing is ever heard from it: fitted, it
+  // is grey and its word says what was sent. Never green, never red. The
+  // entry's idle / spinning token is the firmware's own judgement of the same
+  // sent share; the word is read from the share itself, so the Dome page and
+  // this row cannot disagree.
+  const DOME_ROTATION_DISABLED = linkAnswer("off", "Disabled");
+  const DOME_ROTATION_STATES = Object.freeze(["idle", "spinning"]);
+
+  const readDomeRotation = (status, { unknown, positiveTurn } = {}) => {
     if (!isObject(status) || status.domeEnabled !== true) return { ...DOME_ROTATION_DISABLED, detail: "" };
     const entry = isObject(status.domeRotation) ? status.domeRotation : null;
     const domeState = entry ? entry.state : null;
-    if (Object.hasOwn(DOME_ROTATION_WORDS, domeState)) return commanded(DOME_ROTATION_WORDS[domeState], entry);
+    if (DOME_ROTATION_STATES.includes(domeState)) {
+      const sent = domeRotationSentPct(status);
+      if (sent === null) return { ...linkAnswer("off", unknown), detail: "" };
+      return commanded(linkAnswer("off", domeRotationWord(sent, positiveTurn)), entry);
+    }
     // A state we have no branch for is one we do not understand, which is not
     // reporting rather than degraded. The state string stays in the word so
     // the row still says what arrived.
@@ -367,11 +402,14 @@
     return healthSignal(state, word);
   };
 
-  // Health's row is one line, so the commanded detail rides after the word
-  // ("Idle, Target 0%"): it says what the grey is about.
-  const evaluateDomeRotation = (payload, unknown) => {
-    const { state, word, detail } = readDomeRotation(payload, { unknown });
-    return healthSignal(state, detail ? `${word}, ${detail}` : word);
+  // A signal is a state and one word (the header above). The word now says
+  // what the grey is about by itself - Stopped, Clockwise, Anticlockwise -
+  // and the sent figure is the Readouts card's line and the Dome page's
+  // number; riding after the word, it pushed the row's name onto two lines
+  // (#504).
+  const evaluateDomeRotation = (payload, unknown, { positiveTurn } = {}) => {
+    const { state, word } = readDomeRotation(payload, { unknown, positiveTurn });
+    return healthSignal(state, word);
   };
 
   const HEALTH_EVALUATORS = Object.freeze({
@@ -387,14 +425,17 @@
   // `unknown` is the Live Reading's word for a field the frame does not carry
   // (window.PALiveReading.UNKNOWN). Required: a model that fell back to a word
   // of its own is exactly the drift the Live Reading exists to stop.
-  const deriveHealthSignals = (payload, { unknown } = {}) => {
+  // `positiveTurn` is the Positive turns Setting (GET /api/config
+  // domeRotation.positiveTurn), which names Dome Rotation's direction; left
+  // out, a turning dome reads "Turning".
+  const deriveHealthSignals = (payload, { unknown, positiveTurn } = {}) => {
     if (typeof unknown !== "string" || unknown === "") {
       throw new TypeError("deriveHealthSignals needs the Live Reading's word for an unknown field");
     }
     const safePayload = payload && typeof payload === "object" ? payload : {};
 
     return Object.entries(HEALTH_EVALUATORS).map(([id, evaluate]) => {
-      const signal = evaluate(safePayload, unknown);
+      const signal = evaluate(safePayload, unknown, { positiveTurn });
       const resolved = signal && typeof signal === "object"
         ? signal
         : healthSignal("off", "Invalid state");
@@ -414,6 +455,8 @@
     readProtoR2link,
     readSoundLink,
     readDomeRotation,
+    domeRotationWord,
+    domeRotationSentPct,
     readFootDrive,
     readRcLink,
     RC_LINK_WORDS,

@@ -2,7 +2,7 @@
 // dome.js
 //
 // Dome page controller.
-// - Live RC dome target status (read-only)
+// - What the droid sent to Dome Rotation, after the speed limit (read-only)
 // - Where the dome believes it points, Front is here and Go home (#445)
 // - Dome motor configuration load/save, and the full turn the bearing is
 //   integrated against
@@ -13,8 +13,11 @@
   const domeDisabledCard = document.getElementById("dome-disabled-card");
   const domeHardwareState = document.getElementById("dome-hardware-state");
   const domeSpeedDisplay = document.getElementById("dome-speed-display");
+  const domePulseDisplay = document.getElementById("dome-pulse-display");
   const domeRotationState = document.getElementById("dome-rotation-state");
   const domeLiveFill = document.getElementById("dome-live-fill");
+  const domeTrackNegative = document.getElementById("dome-track-negative");
+  const domeTrackPositive = document.getElementById("dome-track-positive");
 
   const domeNeutral = document.getElementById("dome-neutral");
   const domeMinPulse = document.getElementById("dome-min-pulse");
@@ -81,19 +84,41 @@
   };
 
 
-  const clampSpeed = (value) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return 0;
-    return Math.max(-1, Math.min(1, parsed));
+  // What the droid last reported it sent (GET /api/status domeRotationSentPct
+  // and domeRotationPulseUs), or null before it has said, or when its firmware
+  // does not report it. Kept so a Positive turns press redraws the word at once.
+  let lastSent = null;
+
+  // A share under 1 % keeps its decimal, so the smallest turn that goes out
+  // (0.1 %) never reads as 0 % beside a word that says the dome is turning.
+  const sentPercentText = (pct) =>
+    `${Math.abs(pct) >= 1 || pct === 0 ? Math.round(pct) : pct.toFixed(1)}%`;
+
+  // The gauge's ends say which way each side turns once Positive turns is
+  // set (the shared rule, data/health_signals.js domeRotationWord); until then
+  // they say only how far.
+  const paintTrackEnds = () => {
+    const words = window.PAHealthSignals;
+    const known = turnDir === "cw" || turnDir === "ccw";
+    setText(domeTrackNegative, known ? words.domeRotationWord(-1, turnDir) : "-100%");
+    setText(domeTrackPositive, known ? words.domeRotationWord(1, turnDir) : "100%");
   };
 
-
-  const renderDomeTargetSpeed = (speed) => {
-    const normalized = clampSpeed(speed);
-    const percent = Math.round(normalized * 100);
+  const renderSent = (sent) => {
+    lastSent = sent;
+    paintTrackEnds();
+    if (sent === null) {
+      setText(domeSpeedDisplay, "");
+      setText(domePulseDisplay, "");
+      setText(domeRotationState, window.PALiveReading.UNKNOWN);
+      if (domeLiveFill) domeLiveFill.style.opacity = "0";
+      return;
+    }
+    const percent = Math.max(-100, Math.min(100, sent.pct));
     const widthPct = Math.abs(percent) / 2;
 
-    if (domeSpeedDisplay) domeSpeedDisplay.textContent = `${percent}%`;
+    setText(domeSpeedDisplay, sentPercentText(percent));
+    setText(domePulseDisplay, sent.pulseUs > 0 ? `${sent.pulseUs} \u00b5s` : "");
 
     // Which side of centre the bar fills is what says the direction; the bar's
     // own color is one color, declared in the stylesheet, the same one Foot
@@ -102,7 +127,7 @@
     // directions look like a fault.
     if (domeLiveFill) {
       domeLiveFill.style.width = `${widthPct}%`;
-      if (widthPct < 0.5) {
+      if (percent === 0) {
         domeLiveFill.style.opacity = "0";
         domeLiveFill.style.left = "50%";
       } else if (percent >= 0) {
@@ -116,14 +141,9 @@
 
     // The word, and only the word. The signed percentage sits beside it in
     // #dome-speed-display, and printing the number in both put the same fact on
-    // the plate twice - once as "-42%" and once as "Reverse 42%".
-    if (Math.abs(percent) < 2) {
-      setText(domeRotationState, "Idle");
-    } else if (percent > 0) {
-      setText(domeRotationState, "Forward");
-    } else {
-      setText(domeRotationState, "Reverse");
-    }
+    // the plate twice. Stopped is a share of exactly 0, the rule the
+    // Dashboard's Dome Rotation row reads too (#504).
+    setText(domeRotationState, window.PAHealthSignals.domeRotationWord(percent, turnDir));
   };
 
   const updateDomeControlsEnabled = () => {
@@ -139,7 +159,7 @@
 
     setText(
       domeHardwareState,
-      domeHardwareEnabled ? "switched on" : "switched off in Configuration",
+      domeHardwareEnabled ? "on in Configuration" : "switched off in Configuration",
     );
 
     // Written when the state it reports changes, not on every reading: the
@@ -153,15 +173,14 @@
     } else if (state === "waiting") {
       showFeedback(domeFeedback, "Waiting for the droid.");
     } else {
-      showFeedback(domeFeedback, "Dome ready.");
+      // All this knows is that readings arrive: nothing comes back from the
+      // dome itself.
+      showFeedback(domeFeedback, "The droid is answering.");
     }
   };
 
   const setDomeHardwareEnabled = (enabled) => {
     domeHardwareEnabled = enabled;
-    if (!enabled) {
-      renderDomeTargetSpeed(0);
-    }
     updateDomeControlsEnabled();
   };
 
@@ -175,10 +194,12 @@
     return null;
   };
 
-  const resolveDomeTargetSpeed = (payload) => {
-    const direct = Number(payload?.domeTargetSpeed);
-    if (!Number.isFinite(direct)) return 0;
-    return clampSpeed(direct);
+  // The sent figure from one status frame, or null when it carries none.
+  const resolveSent = (payload) => {
+    const pct = window.PAHealthSignals.domeRotationSentPct(payload);
+    if (pct === null) return null;
+    const pulseUs = Number(payload.domeRotationPulseUs);
+    return { pct, pulseUs: Number.isFinite(pulseUs) ? pulseUs : 0 };
   };
 
   const renderReading = (reading) => {
@@ -190,7 +211,7 @@
       domeHardwareEnabled = statusDomeEnabled;
     }
 
-    renderDomeTargetSpeed(resolveDomeTargetSpeed(payload));
+    renderSent(resolveSent(payload));
     updateDomeControlsEnabled();
   };
 
@@ -255,6 +276,7 @@
     if (domeRotation.positiveTurn !== undefined) turnDir = String(domeRotation.positiveTurn);
     paintTurnDir();
     paintTurnState();
+    renderSent(lastSent);
   };
 
   // What the builder typed; an empty box is left out rather than sent as 0.
@@ -284,6 +306,7 @@
       if (button.dataset.value === turnDir) return;
       turnDir = button.dataset.value;
       paintTurnDir();
+      renderSent(lastSent);
       saveTurn({ domeRotationPositiveTurn: turnDir });
     });
   });
@@ -445,7 +468,7 @@
     );
   };
 
-  renderDomeTargetSpeed(0);
+  renderSent(null);
   updateDomeControlsEnabled();
   startPageLoad();
 })();
