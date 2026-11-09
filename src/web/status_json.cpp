@@ -159,11 +159,16 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
     // Build the fixed system-health fields first.
     int written = snprintf(
         buffer, bufferSize,
-        "{\"estop\":%s,\"webControlEnabled\":%s,\"sbusSignalLost\":%s,\"sbusHwFailsafe\":%s,\"webDriveExpired\":%s,\"failsafeSource\":%d,\"driveSpeed\":%d,\"driveSteer\":%d,\"domeTargetSpeed\":%.3f,\"domeEnabled\":%s,\"domeBearing\":\"%s\",\"domeBearingDeg\":%s,\"speedLimitMax\":%d,\"speedPreset\":\"%s\",\"stationary\":%s,\"failsafeCount\":%lu,\"failsafeTriggerMs\":%lu,\"failsafeZeroMs\":%lu,\"failsafeTriggerToZeroMs\":%lu,\"failsafeWatchdogMs\":%lu,\"failsafeTriggerSource\":%d,\"queueOverflowCount\":%lu,\"uptimeMs\":%lu,\"firmwareVersion\":\"%s\",\"fsVersion\":\"%s\",\"resetReason\":\"%s\",\"heapFree\":%lu,\"heapMin\":%lu,\"heapLargestBlock\":%lu,\"heapLargest8bit\":%lu,\"failedAllocs\":%lu,\"sseClients\":%u,\"sseClientsPeak\":%lu,\"tcpAcceptRejectHeap\":%lu,\"tcpAcceptRejectRate\":%lu,\"tcpAcceptRejectAgeMs\":%ld,\"acceptGuardLastUs\":%lu,\"acceptGuardMaxUs\":%lu,\"acceptRejectLargestBlock\":%lu,\"acceptMinLargestBlockSeen\":%ld,\"inflightRequests\":%d,\"inflightRequestsPeak\":%d,\"refusedInflightCap\":%lu,\"refusedSseCap\":%lu,\"sseEvicted\":%lu,\"sseEvictAgeMs\":%ld,\"refusedHeapFloor\":%lu,\"refusedHeapFloorDiag\":%lu,\"busyRecoveryPagesServed\":%lu,\"otaActive\":%s,\"otaProgress\":%u,\"otaLastError\":\"%s\",\"wifiRssi\":%ld,\"wifiConnected\":%s,\"wifiClientConnected\":%s,\"littleFsReady\":%s,\"sleepMode\":%s,\"sleepSinceMs\":%lu,\"activeMood\":%u,\"lights\":%s",
+        "{\"estop\":%s,\"webControlEnabled\":%s,\"sbusSignalLost\":%s,\"sbusHwFailsafe\":%s,\"webDriveExpired\":%s,\"failsafeSource\":%d,\"driveSpeed\":%d,\"driveSteer\":%d,\"domeTargetSpeed\":%.3f,\"domeRotationSentPct\":%.1f,\"domeRotationPulseUs\":%u,\"domeEnabled\":%s,\"domeBearing\":\"%s\",\"domeBearingDeg\":%s,\"speedLimitMax\":%d,\"speedPreset\":\"%s\",\"stationary\":%s,\"failsafeCount\":%lu,\"failsafeTriggerMs\":%lu,\"failsafeZeroMs\":%lu,\"failsafeTriggerToZeroMs\":%lu,\"failsafeWatchdogMs\":%lu,\"failsafeTriggerSource\":%d,\"queueOverflowCount\":%lu,\"uptimeMs\":%lu,\"firmwareVersion\":\"%s\",\"fsVersion\":\"%s\",\"resetReason\":\"%s\",\"heapFree\":%lu,\"heapMin\":%lu,\"heapLargestBlock\":%lu,\"heapLargest8bit\":%lu,\"failedAllocs\":%lu,\"sseClients\":%u,\"sseClientsPeak\":%lu,\"tcpAcceptRejectHeap\":%lu,\"tcpAcceptRejectRate\":%lu,\"tcpAcceptRejectAgeMs\":%ld,\"acceptGuardLastUs\":%lu,\"acceptGuardMaxUs\":%lu,\"acceptRejectLargestBlock\":%lu,\"acceptMinLargestBlockSeen\":%ld,\"inflightRequests\":%d,\"inflightRequestsPeak\":%d,\"refusedInflightCap\":%lu,\"refusedSseCap\":%lu,\"sseEvicted\":%lu,\"sseEvictAgeMs\":%ld,\"refusedHeapFloor\":%lu,\"refusedHeapFloorDiag\":%lu,\"busyRecoveryPagesServed\":%lu,\"otaActive\":%s,\"otaProgress\":%u,\"otaLastError\":\"%s\",\"wifiRssi\":%ld,\"wifiConnected\":%s,\"wifiClientConnected\":%s,\"littleFsReady\":%s,\"sleepMode\":%s,\"sleepSinceMs\":%lu,\"activeMood\":%u,\"lights\":%s",
         in.diag.estop ? "true" : "false", in.webControlEnabled ? "true" : "false",
         in.diag.sbusSignalLost ? "true" : "false", in.diag.sbusHwFailsafe ? "true" : "false",
         in.diag.webDriveExpired ? "true" : "false", (int)in.diag.failsafeSource, in.driveSpeed, in.driveSteer,
-        (double)in.domeTargetSpeed, in.enableDome ? "true" : "false",
+        // What Dome Rotation sent, after the speed limit, beside what was asked
+        // for. One decimal is exact for the share: a Dome ESC's pulse moves in
+        // whole us over a half-range of at most 1,000 us, so the smallest turn
+        // that goes out is 0.1 % and never prints as 0.0.
+        (double)in.domeTargetSpeed, (double)(in.domeRotationSentShare * 100.0f),
+        (unsigned)in.domeRotationPulseUs, in.enableDome ? "true" : "false",
         domeBearingStateWord(in.domeBearing), domeBearingDeg,
         in.speedLimitMax, speedPresetIdToString(in.speedPresetActive), in.stationary ? "true" : "false",
         (unsigned long)in.diag.failsafeTriggerCount, (unsigned long)in.diag.failsafeLastTriggerMs, (unsigned long)in.diag.failsafeLastZeroOutputMs, (unsigned long)in.diag.failsafeLastTriggerToZeroMs,
@@ -337,13 +342,23 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
                  ok;
         }
         if (in.enableDome) {
-            if (in.domeTargetSpeed > 0.001f || in.domeTargetSpeed < -0.001f) {
-                snprintf(detail, sizeof(detail), "Target %.0f%%",
-                         (double)(in.domeTargetSpeed * 100.0f));
-                ok = appendPeripheralStatus(pos, remaining, "domeRotation", "spinning", detail) && ok;
+            // Stopped is exactly a stop on the wire: a stop sends a share of 0,
+            // and any pulse off neutral a share of at least 0.1 %, so no
+            // threshold is needed (#504). The Dome page reads the same share.
+            // The tokens stay `spinning` / `idle` for the readers that key on
+            // them; the words a page shows are its own.
+            const bool stopped = in.domeRotationSentShare == 0.0f;
+            if (in.domeRotationPulseUs > 0) {
+                snprintf(detail, sizeof(detail), "Sent %.1f%%, %u us",
+                         (double)(in.domeRotationSentShare * 100.0f),
+                         (unsigned)in.domeRotationPulseUs);
             } else {
-                ok = appendPeripheralStatus(pos, remaining, "domeRotation", "idle", "Target 0%") && ok;
+                snprintf(detail, sizeof(detail), "Sent %.1f%%",
+                         (double)(in.domeRotationSentShare * 100.0f));
             }
+            ok = appendPeripheralStatus(pos, remaining, "domeRotation",
+                                        stopped ? "idle" : "spinning", detail) &&
+                 ok;
         }
         if (in.enableRcCh1 && !(in.rcInputMode == RC_INPUT_SINGLE_SBUS && in.singleSbusUseCh2)) {
             if (const char* idle = rcReadsNothingDetail(in.rcInputMode)) {

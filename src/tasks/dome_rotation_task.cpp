@@ -220,6 +220,8 @@ static void setDomeSpeed(float speed) {
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = speed;
+    robotState.domeRotationSentShare = out.share;
+    robotState.domeRotationPulseUs = out.pulseUs;
     taskEXIT_CRITICAL(&robotStateMux);
 
     PA_LOG_DEBUG(TAG, "Dome speed %d%% -> %d us (neutral=%d min=%d max=%d lim=%d%%)",
@@ -238,10 +240,13 @@ static void setDomeNeutral() {
     configCacheReadDome(&cfg);
 
     bearingAdvance(cfg, millis());
-    s_bearing.share = domeRotationBackendStop(cfg).share;
+    const DomeRotationOutput out = domeRotationBackendStop(cfg);
+    s_bearing.share = out.share;
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = 0.0f;
+    robotState.domeRotationSentShare = out.share;
+    robotState.domeRotationPulseUs = out.pulseUs;
     taskEXIT_CRITICAL(&robotStateMux);
 }
 

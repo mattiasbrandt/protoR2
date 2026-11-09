@@ -418,8 +418,17 @@ struct RobotState {
     bool webControlEnabled;
     bool rcDebugMode;
 
-    // --- Zone 4: Dome link (DomeLinkTask) ---
-    float domeTargetSpeed;  // -1.0 .. +1.0
+    // --- Zone 4: Dome Rotation (DomeRotationTask) and the Dome link (DomeLinkTask) ---
+    // Dome Rotation, written by DomeRotationTask alone, in one critical
+    // section per write: the speed asked for, before the speed limit, and what
+    // the Dome Rotation backend reports it put on the wire for it
+    // (DomeRotationOutput, include/dome_rotation_backend.h). The sent share is
+    // signed, -1..1 of the backend's FULL output after the speed limit, and is
+    // exactly 0 when a stop is on the wire; the pulse is 0 where the profile
+    // reports none, and 0 before the task's first write.
+    float domeTargetSpeed;  // -1.0 .. +1.0, as asked
+    float domeRotationSentShare;
+    uint16_t domeRotationPulseUs;
     float dome_speed;
     uint32_t domeHbRx;
     uint32_t bodyHbTx;

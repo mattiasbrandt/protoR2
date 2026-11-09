@@ -2803,7 +2803,18 @@ Returns controller status snapshot.
   `failsafeCount` when judging whether the real-time core was degraded across a
   run: both are cumulative since boot, so the evidence is the delta between two
   readings, not the absolute value.
-- `driveSpeed`, `driveSteer`, `domeTargetSpeed`, `domeEnabled`
+- `driveSpeed`, `driveSteer`, `domeTargetSpeed`, `domeEnabled`.
+  `domeTargetSpeed` is the Dome Rotation speed asked for, `-1.0..1.0`, before
+  the speed limit
+- `domeRotationSentPct` - what Dome Rotation last put on the wire, as a signed
+  percentage of its full output after the speed limit, `-100.0..100.0`, one
+  decimal. Exactly `0.0` while a stop is on the wire; any turn that goes out
+  reads at least `0.1`. Positive turns the way the `domeRotation.positiveTurn`
+  Setting names. The droid cannot see the dome move: this is what it sent,
+  never what the dome did
+- `domeRotationPulseUs` - the RC pulse that went with it, in µs, for a Dome
+  ESC; `0` where the Dome Rotation product sends no pulse, and before Dome
+  Rotation has written its first one
 - `domeBearing` - `believed` or `unknown`, and `domeBearingDeg` - where the dome
   believes it points, degrees from the droid's front clockwise seen from above,
   `0.0..359.9`, or `null` while `unknown`. Integrated from the turns the droid
@@ -2889,7 +2900,9 @@ Returns controller status snapshot.
   `g`, `b`, `effect` and `available`. A droid with no light answers `{}`. There
   is no pin here: where a wire plugs in is Wiring's answer (ADR 0067, #413)
 - Additional component objects are conditionally present when enabled: each Output under its stored id (`arm1`..`aux3`, the `components{}` keys of `GET /api/config`, never shown - its name is that entry's `label`), and `domeRotation` (named `domeEsc` before #504), `rcCh1..rcCh6`, `drive`, `audio`, `protoR2link`.
-  Each carries `state` and `detail`; `audio` adds `driver`, `output`,
+  Each carries `state` and `detail`; `domeRotation`'s `state` is `idle` while
+  `domeRotationSentPct` is `0.0` and `spinning` otherwise, and its `detail`
+  carries the same sent figure; `audio` adds `driver`, `output`,
   `link_ok`, `rx_status` and `rx_detail`, as on `GET /api/audio`
 - Top-level `dome_link` object, always present: `state` (`disabled`,
   `not_seen`, `connected` - a heartbeat within 5 s - or `lost`), `transport`,
@@ -2948,7 +2961,7 @@ curl -s http://artoo.local/api/status
 #### Example response (abridged)
 
 ```json
-{"estop":false,"webControlEnabled":false,"sbusSignalLost":false,"sbusHwFailsafe":false,"webDriveExpired":false,"failsafeSource":0,"driveSpeed":0,"driveSteer":0,"domeTargetSpeed":0.0,"domeEnabled":true,"domeBearing":"unknown","domeBearingDeg":null,"speedLimitMax":600,"speedPreset":"normal","stationary":false,"uptimeMs":27790,"firmwareVersion":"v1.0.0","fsVersion":"fs-v1.0.0","resetReason":"POWERON","heapFree":173152,"heapMin":150932,"heapLargestBlock":132000,"wifiRssi":-70,"wifiConnected":true,"wifiClientConnected":true,"littleFsReady":true,"sleepMode":false,"sleepSinceMs":0,"activeMood":14,"lights":{"aux1":{"r":0,"g":0,"b":0,"effect":"off","available":true}}}
+{"estop":false,"webControlEnabled":false,"sbusSignalLost":false,"sbusHwFailsafe":false,"webDriveExpired":false,"failsafeSource":0,"driveSpeed":0,"driveSteer":0,"domeTargetSpeed":0.0,"domeRotationSentPct":0.0,"domeRotationPulseUs":1500,"domeEnabled":true,"domeBearing":"unknown","domeBearingDeg":null,"speedLimitMax":600,"speedPreset":"normal","stationary":false,"uptimeMs":27790,"firmwareVersion":"v1.0.0","fsVersion":"fs-v1.0.0","resetReason":"POWERON","heapFree":173152,"heapMin":150932,"heapLargestBlock":132000,"wifiRssi":-70,"wifiConnected":true,"wifiClientConnected":true,"littleFsReady":true,"sleepMode":false,"sleepSinceMs":0,"activeMood":14,"lights":{"aux1":{"r":0,"g":0,"b":0,"effect":"off","available":true}}}
 ```
 
 ### GET /api/health
