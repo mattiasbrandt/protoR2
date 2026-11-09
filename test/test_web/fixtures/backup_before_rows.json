@@ -111,7 +111,7 @@
         "ease": "none",
         "boot": "limp"
       },
-      "domeRotation": {
+      "domeEsc": {
         "enabled": true,
         "label": "DOME"
       },
@@ -154,7 +154,7 @@
         "label": "S3"
       }
     },
-    "domeRotation": {
+    "domeEsc": {
       "neutralUs": 1500,
       "minPulseUs": 1000,
       "maxPulseUs": 2000,
@@ -195,7 +195,7 @@
       "arm1",
       "aux1",
       "aux2",
-      "domeRotation",
+      "domeEsc",
       "rcCh1",
       "rcCh2",
       "rcCh3",

@@ -119,23 +119,31 @@ bool migrateSchema3To4(Preferences& prefs) {
         }
         bool written = false;
         if (setting != nullptr) {
+            // A typed read that fails answers its fallback, and that is what
+            // gets carried: so the fallback is the declaration's default, what
+            // the loader would have produced from the old key. A 0 would carry
+            // as a neutral pulse of 1000 us after the load's repair, which
+            // passes the order check and is full reverse.
+            const int32_t def = setting->def;
             switch (setting->storage) {
                 case SettingStorage::Bool:
-                    written = writer.writeBool(map.newKey, reader.readBool(map.oldKey, false));
+                    written = writer.writeBool(map.newKey, reader.readBool(map.oldKey, def != 0));
                     break;
                 case SettingStorage::U8:
-                    written = writer.writeU8(map.newKey, reader.readU8(map.oldKey, 0));
+                    written = writer.writeU8(map.newKey, reader.readU8(map.oldKey, (uint8_t)def));
                     break;
                 case SettingStorage::U16:
-                    written = writer.writeU16(map.newKey, reader.readU16(map.oldKey, 0));
+                    written = writer.writeU16(map.newKey, reader.readU16(map.oldKey, (uint16_t)def));
                     break;
                 case SettingStorage::I16:
-                    written = writer.writeI16(map.newKey, reader.readI16(map.oldKey, 0));
+                    written = writer.writeI16(map.newKey, reader.readI16(map.oldKey, (int16_t)def));
                     break;
                 case SettingStorage::U32:
-                    written = writer.writeU32(map.newKey, reader.readU32(map.oldKey, 0));
+                    written = writer.writeU32(map.newKey, reader.readU32(map.oldKey, (uint32_t)def));
                     break;
                 case SettingStorage::Text:
+                    // No Text Setting is in the table; an empty default is
+                    // every Text declaration's (include/config_settings.h).
                     written = writer.writeStr(map.newKey, reader.readStr(map.oldKey, "").c_str());
                     break;
             }
