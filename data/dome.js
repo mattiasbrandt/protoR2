@@ -89,10 +89,11 @@
   // does not report it. Kept so a Positive turns press redraws the word at once.
   let lastSent = null;
 
-  // A share under 1 % keeps its decimal, so the smallest turn that goes out
-  // (0.1 %) never reads as 0 % beside a word that says the dome is turning.
-  const sentPercentText = (pct) =>
-    `${Math.abs(pct) >= 1 || pct === 0 ? Math.round(pct) : pct.toFixed(1)}%`;
+  // The one rule every surface prints the sent figure by: one decimal, as the
+  // droid sends it in domeRotationSentPct and writes it in its own Dome
+  // Rotation detail (src/web/status_json.cpp). The smallest turn that goes out
+  // is 0.1 %, so a turning dome never reads 0.0 %.
+  const sentPercentText = (pct) => `${pct.toFixed(1)}%`;
 
   // The gauge's ends say which way each side turns once Positive turns is
   // set (the shared rule, data/health_signals.js domeRotationWord); until then
@@ -287,27 +288,43 @@
     return payload;
   };
 
+  // True when the droid took the save; false when nothing was sent or the
+  // droid refused it.
   const saveTurn = async (extra = {}) => {
-    if (!window.PAApi || !domeHardwareEnabled) return;
+    if (!window.PAApi || !domeHardwareEnabled) return false;
     const payload = turnPayload(extra);
-    if (Object.keys(payload).length === 0) return;
+    if (Object.keys(payload).length === 0) return false;
     showFeedback(turnFeedback, "Saving...");
     try {
       await window.PAApi.postForm("/api/config", payload, { timeoutMs: 3000 });
       paintTurnState();
       showFeedback(turnFeedback, `Saved at ${new Date().toLocaleTimeString()}`, "success");
+      return true;
     } catch (error) {
       showFeedback(turnFeedback, `Failed to save the full turn: ${window.PAApi.messageFor(error, payload)}`, "error");
+      return false;
     }
   };
 
+  // The press shows at once; a save the droid did not take puts the stored
+  // direction back, so the word and the gauge ends never name a direction
+  // the droid does not hold.
+  const showTurnDir = (value) => {
+    turnDir = value;
+    paintTurnDir();
+    paintTurnState();
+    renderSent(lastSent);
+  };
+
   domeTurnDirButtons.forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       if (button.dataset.value === turnDir) return;
-      turnDir = button.dataset.value;
-      paintTurnDir();
-      renderSent(lastSent);
-      saveTurn({ domeRotationPositiveTurn: turnDir });
+      const stored = turnDir;
+      const pressed = button.dataset.value;
+      showTurnDir(pressed);
+      const saved = await saveTurn({ domeRotationPositiveTurn: pressed });
+      // A later press while this save was out owns the buttons now.
+      if (!saved && turnDir === pressed) showTurnDir(stored);
     });
   });
 
