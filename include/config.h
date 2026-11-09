@@ -584,8 +584,9 @@ static_assert(RC_INPUT_TASK_STACK_BYTES >= RC_INPUT_TASK_MEASURED_CHAIN_BYTES,
               "RC_INPUT_TASK_STACK_BYTES is below RCInputTask's measured worst-case static chain");
 static_assert(SERVO_TASK_STACK_BYTES >= SERVO_TASK_MEASURED_CHAIN_BYTES,
               "SERVO_TASK_STACK_BYTES is below ServoTask's measured worst-case static chain");
-static_assert(DOME_TASK_STACK_BYTES >= DOME_TASK_MEASURED_CHAIN_BYTES,
-              "DOME_TASK_STACK_BYTES is below DomeTask's measured worst-case static chain");
+static_assert(DOME_ROTATION_TASK_STACK_BYTES >= DOME_ROTATION_TASK_MEASURED_CHAIN_BYTES,
+              "DOME_ROTATION_TASK_STACK_BYTES is below DomeRotationTask's measured worst-case"
+              " static chain");
 static_assert(AUDIO_TASK_STACK_BYTES >= AUDIO_TASK_MEASURED_CHAIN_BYTES,
               "AUDIO_TASK_STACK_BYTES is below AudioTask's measured worst-case static chain");
 static_assert(AUX_LED_TASK_STACK_BYTES >= AUX_LED_TASK_MEASURED_CHAIN_BYTES,

@@ -1,32 +1,41 @@
 // =============================================================================
-// src/tasks/dome_task.cpp
+// src/tasks/dome_rotation_task.cpp
 //
-// DomeTask  --  LEDC PWM control for dome rotation ESC (ISDT ESC70).
+// DomeRotationTask  --  the generic half of Dome Rotation: what turns the dome,
+// and when it must stop.
 //
-// ESC PWM semantics (standard RC PWM, 50 Hz):
-//   1000us = full reverse / max brake
-//   1500us = neutral / stop  <- safe idle output; emitted on disable, estop, timeout
-//   2000us = full forward
+// Everything above the Dome Rotation backend seam lives here and no backend can
+// reach it: the 500 ms silence stop, a stop under the estop and in Sleep Mode
+// and the queue discarded while either holds, the 30 s cap on a timed turn
+// from a sender, the speed limit, Pause before reversing, random moves, and
+// the Dome Bearing. Every turn and every stop goes out through
+// include/dome_rotation_backend.h, which alone knows how a speed becomes a
+// wire signal; for a Dome ESC that is one standard RC pulse
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp).
 //
-// All pulse limits (neutral, min, max) and speed limit percentage are read from
-// persisted config (cfg_dome_neutral_us, cfg_dome_min_pulse_us,
-// cfg_dome_max_pulse_us, cfg_dome_speed_limit_pct) so individual ESC calibration
-// can be trimmed via the Setup page without a firmware rebuild.
+// For a Dome ESC the pulse limits (neutral, min, max), Smallest turn and the
+// speed limit percentage are read from persisted config (DomeConfig's
+// dome_neutral_us, dome_min_pulse_us, dome_max_pulse_us, dome_smallest_turn_us
+// and dome_speed_limit_pct) so each ESC's calibration can be trimmed on the
+// droid without a firmware rebuild. What full reverse does on the wire is the
+// ESC's running mode: in "Forward and Reverse" the min pulse is full reverse;
+// in a mode with a brake it brakes first.
 //
-// ESC configuration (running mode, throttle calibration, PWM frequency, voltage
-// cutoff) is handled exclusively via the ISD Go APP over Bluetooth  --  out of scope
-// for this firmware. Throttle calibration via the ISD Go APP is a hardware
-// bring-up prerequisite before the dome motor will respond correctly to our PWM.
+// An ESC's own configuration (running mode, throttle calibration, PWM
+// frequency, voltage cutoff) is set in the maker's app for that ESC  --  out of
+// scope for this firmware, and a bring-up prerequisite before the dome motor
+// answers our pulse correctly.
 //
-// Feature toggle: cfg_enable_dome_esc (staged at reboot per ADR 0027) gates whether
-// the task is spawned at all. When disabled at boot, DomeTask does not run.
+// Feature toggle: the enableDomeRotation Setting (SystemConfig.enable_dome_esc,
+// staged at reboot per ADR 0027) gates whether the task is spawned at all.
+// When disabled at boot, DomeRotationTask does not run.
 //
 // It also holds the Dome Bearing, the angle the dome believes it points at,
-// integrated from the pulses written here (the section below setDomeSpeed()'s
-// constants, and include/dome_bearing.h).
+// integrated from what the backend reports it wrote (the section below
+// setDomeSpeed()'s constants, and include/dome_bearing.h).
 // =============================================================================
 
-#include "dome_task.h"
+#include "dome_rotation_task.h"
 
 #include <esp_task_wdt.h>
 
@@ -36,46 +45,49 @@
 #include "dome_bearing.h"
 #include "dome_bearing_act.h"  // domeBearingRefusalReason() - the one copy of those reasons
 #include "dome_math.h"
+#include "dome_rotation_backend.h"  // the seam every turn and stop goes out through
 #include "dome_turn_calibration.h"
 #include "drive_motion.h"  // driveMotionIsDriving() - Resting Behaviour waits while driving
-#include "ledc_pwm.h"
 #include "logging.h"
 #include "robot_state.h"
 
-static const char* TAG = "DOME";
+static const char* TAG = "DomeRotation";
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 #define DOME_COMMAND_TIMEOUT_MS 500  // Zero speed if no command for 500ms
-#define ESC_ARMING_DURATION_MS 2000  // Time to hold neutral for arming
+// The 30 s cap on a timed turn from a sender is DOME_TIMED_TURN_MAX_MS
+// (include/robot_state.h, beside the command it bounds), so the web route that
+// refuses a longer one and this task that cuts it read one number.
 
 // -----------------------------------------------------------------------------
 // The Dome Bearing (include/dome_bearing.h, ADR 0051 as amended 2026-09-30,
 // #445)
 //
-// Every pulse the dome gets is written by this task - RC, web, sequences, the
+// Every turn the dome gets is written by this task - RC, web, sequences, the
 // dome link, the Console and random movement all end in setDomeSpeed() or
 // setDomeNeutral() - so this is the one place the belief can be integrated, and
-// it is integrated from the pulse ACTUALLY written, after the speed limit has
-// scaled it, never from a speed somebody asked for. Each write first moves the
-// belief by what the pulse being replaced did over the measured time it was on
-// the wire, and the loop moves it once a tick as well: a tick is vTaskDelay(20)
-// after the loop's work, not a fixed period, so the elapsed time is always
-// measured, never assumed.
+// it is integrated from what the Dome Rotation backend reports it ACTUALLY put
+// on the wire, after the speed limit has scaled it, never from a speed somebody
+// asked for. Each write first moves the belief by what the output being
+// replaced did over the measured time it was on the wire, and the loop moves it
+// once a tick as well: a tick is vTaskDelay(20) after the loop's work, not a
+// fixed period, so the elapsed time is always measured, never assumed.
 //
 // Only an estop, Sleep Mode and a boot forget it. A commanded stop does not:
 // the coast after it is part of what "believed" admits (the 2026-09-30
 // amendment). A boot forgets because nothing here survives one, and the
 // RobotState mirror starts zeroed, which reads as unknown.
 //
-// The state is file-static rather than on domeTask()'s frame, which sits on
-// every one of this task's measured chains (tools/task_stack_recipes.json), and
-// the helpers below are leaves that never log, so none of them lengthens the log
-// route that is this task's deepest. They run on this task only.
+// The state is file-static rather than on domeRotationTask()'s frame, which
+// sits on every one of this task's measured chains
+// (tools/task_stack_recipes.json), and the helpers below are leaves that never
+// log, so none of them lengthens the log route that is this task's deepest.
+// They run on this task only.
 // -----------------------------------------------------------------------------
 static struct {
-    uint16_t pulseUs;  // the pulse on the wire since atMs
+    float    share;    // the backend's output on the wire since atMs (-1..1)
     uint32_t atMs;     // when the belief was last moved
     bool     believed;
     float    deg;      // meaningful only while believed
@@ -83,7 +95,7 @@ static struct {
     // Front is here pressed at or before it is stale: the dome may have
     // coasted since (bearingDeclareFront()).
     uint32_t forgotAtMs;
-} s_bearing = {0, 0, false, 0.0f, 0};
+} s_bearing = {0.0f, 0, false, 0.0f, 0};
 
 // The RobotState mirror, which every surface reads through domeBearingRead().
 static void bearingPublish() {
@@ -93,8 +105,8 @@ static void bearingPublish() {
     taskEXIT_CRITICAL(&robotStateMux);
 }
 
-// Move the belief by the turn the pulse on the wire made since it was last
-// moved. A belief whose calibration has been cleared is dropped: the turn it
+// Move the belief by the turn the backend's output on the wire made since it
+// was last moved. A belief whose calibration has been cleared is dropped: the turn it
 // would need to follow cannot be followed, and a number that stops moving while
 // the dome does is the one failure ADR 0051 exists to prevent. ("Front is here"
 // is refused without a calibration, so this is reached only by clearing one.)
@@ -109,7 +121,7 @@ static void __attribute__((noinline)) bearingAdvance(const DomeConfig& cfg, uint
         s_bearing.believed = false;
     } else {
         s_bearing.deg = domeBearingWrap(
-            s_bearing.deg + domeBearingRateDegPerMs(s_bearing.pulseUs, cal) * (float)elapsedMs);
+            s_bearing.deg + domeBearingRateDegPerMs(s_bearing.share, cal) * (float)elapsedMs);
     }
     bearingPublish();
 }
@@ -138,9 +150,12 @@ static void __attribute__((noinline)) bearingTick(bool forget) {
 // belief could be integrated from, and - blocked-by-state, the reason an estop
 // or Sleep Mode carries - when it was pressed at or before the last tick either
 // held.
-// The estop leaves this task's queue undrained, so a press the route accepted
-// just before an estop latched waits there, and taken after the clear it would
-// call a coasted dome front: the bearing would silently become a number again.
+// Taken after an estop or Sleep Mode cleared, a press made before either held
+// would call a coasted dome front: the bearing would silently become a number
+// again. Both discard the queue every tick they hold, and once more on the tick
+// they clear (domeRotationTask()), so such a press is normally gone before it
+// reaches here; this stamp check is the second guard, so the bearing does not rest on
+// the discard alone.
 // Every sender stamps timestampMs when it sends; the comparison is wrap-safe.
 static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pressedAtMs) {
     if (s_bearing.forgotAtMs != 0 && (int32_t)(pressedAtMs - s_bearing.forgotAtMs) <= 0) {
@@ -165,7 +180,7 @@ static ConsoleReason __attribute__((noinline)) bearingDeclareFront(uint32_t pres
 // CONSOLE_REASON_NONE, in include/dome_bearing_act.h's reasons. The caller asked
 // the same questions before it sent this; they are asked again here because the
 // answers may have changed on the way.
-static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeCommand* cmd) {
+static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeRotationCommand* cmd) {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
     const DomeTurnCalibration cal = domeTurnCalibrationOf(cfg);
@@ -177,92 +192,180 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeCommand* cmd)
     }
     const DomeTurnPlan plan = domeBearingTurnPlan(s_bearing.deg, (float)cmd->targetTenths / 10.0f,
                                                   cal, cfg.dome_speed_limit_pct);
-    cmd->kind = DOME_CMD_SPEED;
+    cmd->kind = DOME_ROTATION_CMD_SPEED;
     cmd->speed = plan.speed;
     cmd->durationMs = plan.durationMs;
     return CONSOLE_REASON_NONE;
 }
 
-// The one pulse write: the belief catches up on the pulse it replaces first.
-static void writeDomePulse(const DomeConfig& cfg, uint16_t pulseUs) {
-    bearingAdvance(cfg, millis());
-    ledcPwmSetPulseWidth(LEDC_CH_DOME, pulseUs);
-    s_bearing.pulseUs = pulseUs;
+// -----------------------------------------------------------------------------
+// Pause before reversing (#504; the rule is domeReversePauseMs(),
+// include/dome_math.h)
+//
+// What the wire last carried, and a turn waiting out the pause. Every write
+// goes through setDomeSpeed() or setDomeNeutral(), which keep the first part
+// and drop the second: a written output replaces a waiting turn, and every
+// stop - the estop, Sleep Mode, the 0.5 s silence stop, a timed turn's end, a
+// random move's end - drops it at once. The wait does not hold off the silence
+// stop: only a timed turn and a random move keep themselves alive through it,
+// so an untimed waiting turn whose sender goes quiet is dropped after 0.5 s.
+// The wire's sign is the share the backend reports, so a turn the speed limit
+// leaves inside Smallest turn counts as the stop it is. File-static, like s_bearing; the helpers
+// that keep it are leaves that never log, and the one log, a pause starting,
+// is in the loop (sendDomeSpeed()).
+// -----------------------------------------------------------------------------
+static struct {
+    int8_t   wireSign;      // sign of the last non-zero output on the wire, 0 for none
+    bool     turning;       // that output is still on the wire
+    uint32_t stopAtMs;      // when a stop replaced it
+    bool     waiting;       // a turn the other way waits out the pause
+    float    waitingSpeed;
+    uint32_t waitingUntilMs;
+} s_reverse = {0, false, 0, false, 0.0f, 0};
+
+// The output just written; and a written output ends any wait.
+static void reverseFollowWire(float share, uint32_t nowMs) {
+    s_reverse.waiting = false;
+    if (share != 0.0f) {
+        s_reverse.wireSign = (share > 0.0f) ? 1 : -1;
+        s_reverse.turning = true;
+    } else if (s_reverse.turning) {
+        s_reverse.turning = false;
+        s_reverse.stopAtMs = nowMs;
+    }
+}
+
+// How long a turn at `speed` must wait before it goes, in ms (0: now).
+static uint32_t __attribute__((noinline)) reversePauseFor(float speed) {
+    DomeConfig cfg = {};
+    configCacheReadDome(&cfg);
+    const uint32_t nowMs = millis();
+    const uint32_t stopHeldMs = s_reverse.turning ? 0 : nowMs - s_reverse.stopAtMs;
+    // A stop held past the longest pause is rest for good: forgetting the
+    // sign keeps a millis() wrap from reading an old stop as a fresh one.
+    if (!s_reverse.turning && stopHeldMs >= DOME_REVERSE_PAUSE_MAX_MS) {
+        s_reverse.wireSign = 0;
+    }
+    return domeReversePauseMs(s_reverse.wireSign, stopHeldMs, speed, cfg.dome_reverse_pause_ms);
 }
 
 // -----------------------------------------------------------------------------
 // setDomeSpeed()
-// Read persisted ESC config, compute pulse width, and output via LEDC.
+// One signed speed out through the Dome Rotation backend, under the stored
+// speed limit. The belief catches up on the output it replaces first, then
+// follows the one the backend reports. That share is the one computed when the
+// output was written: a pulse-set save during a held output (a timed turn, Go
+// home, a random move) takes effect on the next write, not mid-hold. The wire
+// does the same, since the pulse is not rewritten until then either.
 // -----------------------------------------------------------------------------
 static void setDomeSpeed(float speed) {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
 
-    uint16_t pulseUs = domeSpeedToPulseUs(speed, cfg.dome_neutral_us, cfg.dome_min_pulse_us,
-                                          cfg.dome_max_pulse_us, cfg.dome_speed_limit_pct);
-
-    writeDomePulse(cfg, pulseUs);
+    bearingAdvance(cfg, millis());
+    const DomeRotationOutput out =
+        domeRotationBackendWrite(cfg, speed, cfg.dome_speed_limit_pct);
+    s_bearing.share = out.share;
+    reverseFollowWire(out.share, millis());
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = speed;
+    robotState.domeRotationSentShare = out.share;
+    robotState.domeRotationPulseUs = out.pulseUs;
     taskEXIT_CRITICAL(&robotStateMux);
 
     PA_LOG_DEBUG(TAG, "Dome speed %d%% -> %d us (neutral=%d min=%d max=%d lim=%d%%)",
-                 (int)(speed * 100.0f), (int)pulseUs, (int)cfg.dome_neutral_us,
+                 (int)(speed * 100.0f), (int)out.pulseUs, (int)cfg.dome_neutral_us,
                  (int)cfg.dome_min_pulse_us, (int)cfg.dome_max_pulse_us,
                  (int)cfg.dome_speed_limit_pct);
 }
 
 // -----------------------------------------------------------------------------
 // setDomeNeutral()
-// Output the configured neutral pulse  --  safe idle output.
+// The backend's stop on the wire  --  safe idle output, never a released line.
 // Used on disable, estop, timeout, and startup.
 // -----------------------------------------------------------------------------
 static void setDomeNeutral() {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
 
-    writeDomePulse(cfg, cfg.dome_neutral_us);
+    bearingAdvance(cfg, millis());
+    const DomeRotationOutput out = domeRotationBackendStop(cfg);
+    s_bearing.share = out.share;
+    reverseFollowWire(out.share, millis());
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = 0.0f;
+    robotState.domeRotationSentShare = out.share;
+    robotState.domeRotationPulseUs = out.pulseUs;
     taskEXIT_CRITICAL(&robotStateMux);
 }
 
 // -----------------------------------------------------------------------------
-// domeTaskInit()
-// Initialize dome ESC with auto-arm sequence.
-// Outputs the configured neutral pulse for ESC arming.
+// sendDomeSpeed()
+// A turn from a sender or a random move, under Pause before reversing: out
+// now, or the stop on the wire and the turn waiting until the pause is over
+// (the loop puts it out). Returns the pause, so a timed turn can be moved out
+// by it and still turn as far as asked. Inlined into the loop on purpose: as a
+// call of its own it would add a frame above setDomeSpeed(), whose log is on
+// this task's deepest measured route (tools/task_stack_recipes.json).
 // -----------------------------------------------------------------------------
-void domeTaskInit() {
-    // Feature toggle: skip ESC arming entirely when dome is disabled.
-    // No LEDC pulse is written; the channel stays at whatever neutral value
-    // ledcPwmInit() set at boot.  domeTask() will also idle (see task body).
+static inline __attribute__((always_inline)) uint32_t sendDomeSpeed(float speed) {
+    const uint32_t pauseMs = reversePauseFor(speed);
+    if (pauseMs == 0) {
+        setDomeSpeed(speed);
+        return 0;
+    }
+    // A stick resends every tick: the log marks a pause starting, not each
+    // frame that waits inside it.
+    const bool starts = !s_reverse.waiting;
+    setDomeNeutral();
+    s_reverse.waiting = true;
+    s_reverse.waitingSpeed = speed;
+    s_reverse.waitingUntilMs = millis() + pauseMs;
+    if (starts) {
+        PA_LOG_INFO(TAG, "Reversing - stop held %u ms first", (unsigned)pauseMs);
+    }
+    return pauseMs;
+}
+
+// -----------------------------------------------------------------------------
+// domeRotationTaskInit()
+// The Dome Rotation backend's start-up rule (domeRotationBackendStart()): for
+// a Dome ESC, the configured neutral pulse held for the profile's
+// startupNeutralMs before the loop's first turn.
+// -----------------------------------------------------------------------------
+void domeRotationTaskInit() {
+    // Feature toggle: skip the start-up rule entirely when dome is disabled.
+    // Nothing is written; the channel stays at whatever neutral value
+    // ledcPwmInit() set at boot.  domeRotationTask() will also idle (see task body).
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
     bool enabled = configCacheDomeEnabled();
-    uint16_t neutralUs = cfg.dome_neutral_us;
 
     if (!enabled) {
         PA_LOG_INFO(TAG, "dome disabled");
         return;
     }
 
-    ledcPwmSetPulseWidth(LEDC_CH_DOME, neutralUs);
-    PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)neutralUs,
-                ESC_ARMING_DURATION_MS);
+    // Write, log, hold, as it always ran: the stop goes out first, so the
+    // arming line follows the first neutral pulse. The start-up rule then puts
+    // the same stop out again and holds it, which blocks.
+    domeRotationBackendStop(cfg);
+    PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)cfg.dome_neutral_us,
+                (int)kDomeRotationBackend.startupNeutralMs);
 
-    delay(ESC_ARMING_DURATION_MS);
+    domeRotationBackendStart(cfg);
 
     PA_LOG_INFO(TAG, "Dome ESC armed and ready");
 }
 
 // -----------------------------------------------------------------------------
-// domeTask()
+// domeRotationTask()
 // Main dome task loop. Task is only spawned when dome output is enabled at boot
 // (staged at reboot per ADR 0027).
 // -----------------------------------------------------------------------------
-void domeTask(void* pvParameters) {
+void domeRotationTask(void* pvParameters) {
     (void)pvParameters;
 
     // Register with task watchdog, and feed immediately: the 3 s window starts
@@ -272,7 +375,7 @@ void domeTask(void* pvParameters) {
     esp_task_wdt_add(NULL);
     esp_task_wdt_reset();
 
-    DomeCommand cmd;
+    DomeRotationCommand cmd;
     float currentSpeed = 0.0f;
     uint32_t lastCommandMs = 0;
     bool hasCommand = false;
@@ -281,6 +384,8 @@ void domeTask(void* pvParameters) {
 
     bool hwmLogged = false;
     bool sleepHolding = false;
+    bool estopHolding = false;        // the estop held on the previous tick
+    bool estopDiscardLogged = false;  // the discard below logs once per estop
     uint32_t seqMoveUntilMs = 0;
 
     while (true) {
@@ -309,7 +414,7 @@ void domeTask(void* pvParameters) {
                 sleepHolding = true;
             }
 
-            while (xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
+            while (xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
                 // discard while sleeping
             }
             hasCommand = false;
@@ -319,6 +424,13 @@ void domeTask(void* pvParameters) {
         }
         if (sleepHolding) {
             sleepHolding = false;
+            // The edge drain (#504): a command sent during the last sleeping
+            // tick's vTaskDelay() is still queued, and taken now it would run
+            // on the clear. One more drain closes that window; a command sent
+            // just after the clear goes too, and a continuous sender resends.
+            while (xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
+                // discard: sent while sleeping
+            }
             PA_LOG_INFO(TAG, "Sleep mode cleared - dome command processing resumed");
         }
 
@@ -330,11 +442,47 @@ void domeTask(void* pvParameters) {
             PA_LOG_WARN(TAG, "Estop active - dome neutral");
         }
 
+        // While the estop is latched every queued command is discarded, every
+        // tick, as Sleep Mode does above (#504): a turn sent during the estop
+        // must not run once it clears. Clearing the estop never starts the dome
+        // by itself. A turn to a bearing and "Front is here" go too: the turn
+        // would be refused anyway, the bearing being forgotten, and the press
+        // by its press time (bearingDeclareFront()).
+        // The tick the estop clears drains once more, the edge drain: a command
+        // sent during the last estop tick's vTaskDelay() is still queued, and
+        // taken now it would run on the clear. A command sent just after the
+        // clear goes too; a continuous sender resends.
+        if (estop || estopHolding) {
+            bool discarded = false;
+            while (xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
+                discarded = true;
+            }
+            hasCommand = false;
+            if (discarded && !estopDiscardLogged) {
+                PA_LOG_WARN(TAG, "Estop - queued dome commands discarded");
+                estopDiscardLogged = true;
+            }
+        }
+        if (!estop) {
+            estopDiscardLogged = false;
+        }
+        estopHolding = estop;
+
         bool manualCommandThisTick = false;
 
-        // Process any pending commands (non-blocking), skip if estop
-        while (!estop && xQueueReceive(domeCmdQueue, &cmd, 0) == pdTRUE) {
-            if (cmd.kind == DOME_CMD_FRONT_IS_HERE) {
+        // Process any pending commands (non-blocking). Under an estop, and on
+        // the tick it clears, the queue was just emptied; the guard keeps a
+        // command sent since out too while it holds.
+        while (!estop && xQueueReceive(domeRotationCmdQueue, &cmd, 0) == pdTRUE) {
+            // The timed-turn cap, on the command as received: a TURN_TO is
+            // still a TURN_TO here, so a planned bearing turn is never cut.
+            if (cmd.kind == DOME_ROTATION_CMD_SPEED && cmd.durationMs > DOME_TIMED_TURN_MAX_MS) {
+                PA_LOG_WARN(TAG, "[%s] timed dome turn of %u ms cut to %u ms",
+                            commandSourceToString(cmd.source), (unsigned)cmd.durationMs,
+                            (unsigned)DOME_TIMED_TURN_MAX_MS);
+                cmd.durationMs = DOME_TIMED_TURN_MAX_MS;
+            }
+            if (cmd.kind == DOME_ROTATION_CMD_FRONT_IS_HERE) {
                 const ConsoleReason notTaken = bearingDeclareFront(cmd.timestampMs);
                 if (notTaken == CONSOLE_REASON_NONE) {
                     PA_LOG_INFO(TAG, "[%s] front is here", commandSourceToString(cmd.source));
@@ -344,7 +492,7 @@ void domeTask(void* pvParameters) {
                 }
                 continue;
             }
-            if (cmd.kind == DOME_CMD_TURN_TO) {
+            if (cmd.kind == DOME_ROTATION_CMD_TURN_TO) {
                 const ConsoleReason notTurned = bearingPlanTurn(&cmd);
                 if (notTurned != CONSOLE_REASON_NONE) {
                     PA_LOG_INFO(TAG, "[%s] dome not turned - %s", commandSourceToString(cmd.source),
@@ -352,21 +500,37 @@ void domeTask(void* pvParameters) {
                     continue;
                 }
             }
-            if (cmd.kind != DOME_CMD_SPEED) {
+            if (cmd.kind != DOME_ROTATION_CMD_SPEED) {
                 continue;  // a kind this build does not know moves nothing
             }
             currentSpeed = cmd.speed;
             lastCommandMs = millis();
             hasCommand = true;
-            seqMoveUntilMs = (cmd.durationMs > 0) ? (millis() + cmd.durationMs) : 0;
             if (cmd.speed != 0.0f) {
                 manualCommandThisTick = true;
             }
 
-            setDomeSpeed(currentSpeed);
+            // A timed turn that has to wait out a reversing pause ends that
+            // much later, so it still turns for the time it asked for. The 30 s
+            // cap above bounds the turn; the pause before it is a stop.
+            const uint32_t pauseMs = sendDomeSpeed(currentSpeed);
+            seqMoveUntilMs = (cmd.durationMs > 0) ? (millis() + pauseMs + cmd.durationMs) : 0;
             if (currentSpeed != 0.0f) {
                 PA_LOG_INFO(TAG, "[%s] Dome command: speed %d%%",
                             commandSourceToString(cmd.source), (int)(cmd.speed * 100.0f));
+            }
+        }
+
+        // A turn waiting out Pause before reversing goes out once the pause is
+        // over. Silence is judged as for any turn, not paused with it: a timed
+        // turn and a random move keep themselves alive (below), and an
+        // untimed turn whose sender goes quiet falls to the 0.5 s silence
+        // stop while it waits, as it would on the wire. A stick resends every
+        // tick, so it is unaffected; a one-shot untimed reverse under a pause
+        // over 0.5 s does not run (#504, accepted by the coordinator).
+        if (s_reverse.waiting) {
+            if ((int32_t)(millis() - s_reverse.waitingUntilMs) >= 0) {
+                setDomeSpeed(s_reverse.waitingSpeed);
             }
         }
 
@@ -479,8 +643,8 @@ void domeTask(void* pvParameters) {
                     lastCommandMs = now;
                     hasCommand    = true;
                     rndState      = DOME_RND_MOVING;
-                    rndNextMs     = now + (uint32_t)rndMoveMs;
-                    setDomeSpeed(rndSpeed);
+                    // Moved out by a reversing pause, as a timed turn is.
+                    rndNextMs     = now + sendDomeSpeed(rndSpeed) + (uint32_t)rndMoveMs;
                     PA_LOG_INFO(TAG, "dome rnd move: %d%%", (int)(rndSpeed * 100.0f));
                 } else if (rndState == DOME_RND_MOVING) {
                     if ((int32_t)(now - rndNextMs) >= 0) {

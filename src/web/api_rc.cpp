@@ -40,8 +40,8 @@ static constexpr size_t RC_DEBUG_BODY_MAX = 128;
 // is 4608 so that sum keeps a margin (#389 added the RC task's own state); it
 // costs nothing below it, since the body is allocated at its measured size.
 // The rc SSE event is the tighter bound: it is serialised into s_sseBody
-// (STATUS_JSON_BUFFER_BYTES, 4320 B with no hosted link), so 4081 B leaves about
-// 240 B before that event is dropped (and logged once) in web_server.cpp.
+// (STATUS_JSON_BUFFER_BYTES, 4384 B with no hosted link), so 4081 B leaves about
+// 300 B before that event is dropped (and logged once) in web_server.cpp.
 // `pressed` (#486) costs about 17 B a radio cue; a slot holds a cue or a
 // Reaction, never both, so the widest is still all Reactions and `pressed:{}`,
 // about 4094 B.

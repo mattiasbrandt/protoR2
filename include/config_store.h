@@ -30,6 +30,9 @@
 // (old 2=Info/3=Debug become 3/4; see configLoad()).
 // 2 -> 3: component toggle identity rename (en_s1->en_drive, en_dome->en_dome_esc,
 // en_s3->en_r2link, en_s2->en_audio, rcp_snd->rcp_aud, rcs_snd->rcs_aud, rc_sound->rc_aud)
+// 3 -> 4: Dome Rotation rename (#504): en_dome_esc->en_dome_rot and each dome_* key
+// of a Dome Rotation Setting to its drot_* key; dome_min/dome_max, which nothing
+// read, are removed. dome_wip is protoR2link's and keeps its key.
 //
 // Deliberately NOT bumped for #345, which removed the five fixed servo key
 // sets. This number gates a migration that runs at load, and the removal needs
@@ -39,7 +42,7 @@
 // bump would buy nothing and cost something real: `stored > CURRENT` is the
 // reset-to-defaults branch, so an image from before this slice would wipe a
 // controller that had already been stamped by one after it.
-constexpr uint8_t CONFIG_SCHEMA_VERSION = 3;
+constexpr uint8_t CONFIG_SCHEMA_VERSION = 4;
 constexpr char CONFIG_SCHEMA_VERSION_KEY[] = "schema_ver";
 // The schema-1 log level, kept while its 1 -> 2 renumber is in flight so a
 // boot cut off before the stamp renumbers the same value again (configLoad()).
@@ -186,8 +189,6 @@ WifiConfigView wifiConfigToView(const WifiConfig& cfg);
 bool wifiConfigsDiffer(const WifiConfig& a, const WifiConfig& b);
 
 struct DomeConfig {
-    float dome_min_speed;
-    float dome_max_speed;
     uint16_t dome_neutral_us;
     uint16_t dome_min_pulse_us;
     uint16_t dome_max_pulse_us;
@@ -206,6 +207,13 @@ struct DomeConfig {
     uint16_t dome_full_turn_ms;
     uint8_t dome_full_turn_pct;
     uint8_t dome_positive_turn;  // DomeTurnDirection
+    // Smallest turn (#504): a Dome ESC's distance from neutral, in us, where
+    // every non-zero turn starts (domeSpeedToPulseUs()). 0 is off: the pulse
+    // grows from neutral, as it always did.
+    uint16_t dome_smallest_turn_us;
+    // Pause before reversing (#504): how long a stop is held on the wire
+    // before a turn the other way, for every Dome Rotation product. 0 is off.
+    uint16_t dome_reverse_pause_ms;
 };
 
 // A sequence name, "DM:" and at most 18 characters (PC_NAME_BODY_MAX,
@@ -380,7 +388,18 @@ struct ConfigSnapshot {
 // carried, so the struct grew by 20. Measured off a host build of this header,
 // and every chain re-walked with tools/check_task_stack_chains.py on both chips
 // before this number moved.
-static_assert(sizeof(ConfigSnapshot) == 944,
+//
+// #504 shrank it to 932 B: DomeConfig's two floats dome_min_speed and
+// dome_max_speed, saved and never read, were removed, and DomeConfig, no longer
+// 4-byte aligned, went 44 -> 34 B. Measured off a host build of this header. A
+// shrink only takes bytes off the frames that hold a snapshot, so no chain can
+// grow past its recipe; the artoo_esp32 chains were re-walked by the slice gate.
+//
+// #504 then grew it to 936 B: DomeConfig's Smallest turn and Pause before
+// reversing, two uint16_t, 34 -> 38 B. Measured off a host build of this
+// header, and every chain re-walked with tools/check_task_stack_chains.py on
+// both chips before this number moved.
+static_assert(sizeof(ConfigSnapshot) == 936,
               "ConfigSnapshot changed size - re-derive the Console task stack from a fresh "
               "chain measurement before moving this number");
 

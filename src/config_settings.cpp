@@ -19,6 +19,7 @@
 #include "component_registry.h"
 #include "config.h"               // SPEED_*, SBUS_TIMEOUT_MS, WEB_DRIVE_TIMEOUT_MS, PA_LOG_LEVEL*
 #include "dome_bearing.h"         // DomeTurnDirection - the dome's calibration words
+#include "dome_math.h"            // kDomePulseSetting*Us, DOME_REVERSE_PAUSE_MAX_MS - Dome Rotation bounds
 #include "mood_sound_mapping.h"   // MOOD_CATEGORY_MASK_MAX - a mood mask's bits
 #include "pca9685.h"              // PCA9685_ADDRESS_* - where one expander board may answer
 #include "protocol_check.h"       // PC_SM_MOVE_MIN/MAX - what bounds the Cadence Floor
@@ -115,8 +116,8 @@ const ConfigSetting kConfigSettings[] = {
     // The Component Toggles that are not an Output, and the Sound member: each
     // read once at start (ADR 0027, ADR 0042). The RC channel ticks are part of
     // the radio's start-up projection above, so they are a restart.
-    PA_BOOL("enableDomeEsc", "components.domeEsc.enabled", "en_dome_esc", AtReboot, System, SystemConfig,
-            enable_dome_esc, false),
+    PA_BOOL("enableDomeRotation", "components.domeRotation.enabled", "en_dome_rot", AtReboot, System,
+            SystemConfig, enable_dome_esc, false),
     PA_BOOL("enableRcCh1", "components.rcCh1.enabled", "en_rc_ch1", RestartRequired, System, SystemConfig,
             enable_rc_ch1, false),
     PA_BOOL("enableRcCh2", "components.rcCh2.enabled", "en_rc_ch2", RestartRequired, System, SystemConfig,
@@ -161,37 +162,49 @@ const ConfigSetting kConfigSettings[] = {
     PA_BOOL("enableAux2", nullptr, "en_aux2", AtReboot, System, SystemConfig, enable_aux2, false),
     PA_BOOL("enableAux3", nullptr, "en_aux3", AtReboot, System, SystemConfig, enable_aux3, false),
 
-    // The Dome ESC. The three pulses must stay in order: a rule across them,
-    // in configApply() and on load. DomeTask reads them from the cache on every
-    // command and every loop.
-    PA_RANGE("domeEscNeutralUs", "domeEsc.neutralUs", "dome_neu", Immediate, Dome, DomeConfig,
-             dome_neutral_us, 1000, 2000, 1500),
-    PA_RANGE("domeEscMinPulseUs", "domeEsc.minPulseUs", "dome_minp", Immediate, Dome, DomeConfig,
-             dome_min_pulse_us, 1000, 2000, 1000),
-    PA_RANGE("domeEscMaxPulseUs", "domeEsc.maxPulseUs", "dome_maxp", Immediate, Dome, DomeConfig,
-             dome_max_pulse_us, 1000, 2000, 2000),
-    PA_RANGE("domeEscSpeedLimitPct", "domeEsc.speedLimitPct", "dome_pct", Immediate, Dome, DomeConfig,
-             dome_speed_limit_pct, 0, 100, 100),
-    PA_BOOL("domeEscRndEnable", "domeEsc.rndEnable", "dome_rnd_en", Immediate, Dome, DomeConfig,
-            dome_rnd_enable, false),
-    PA_RANGE("domeEscRndSpeedPct", "domeEsc.rndSpeedPct", "dome_rnd_spd", Immediate, Dome, DomeConfig,
-             dome_rnd_speed_pct, 5, 100, 30),
-    PA_RANGE("domeEscRndPauseMin", "domeEsc.rndPauseMin", "dome_rnd_pmin", Immediate, Dome, DomeConfig,
-             dome_rnd_pause_min, 1, 120, 6),
-    PA_RANGE("domeEscRndPauseMax", "domeEsc.rndPauseMax", "dome_rnd_pmax", Immediate, Dome, DomeConfig,
-             dome_rnd_pause_max, 1, 120, 12),
-    PA_RANGE("domeEscRndMoveMs", "domeEsc.rndMoveMs", "dome_rnd_ms", Immediate, Dome, DomeConfig,
-             dome_rnd_move_ms, 500, 10000, 2500),
+    // Dome Rotation. The first three are the Dome ESC's pulses, which must stay
+    // in order: a rule across them, in configApply() and on load. The Dome
+    // Rotation task reads them from the cache on every command and every loop.
+    PA_RANGE("domeRotationNeutralUs", "domeRotation.neutralUs", "drot_neu", Immediate,
+             Dome, DomeConfig, dome_neutral_us, kDomePulseSettingMinUs,
+             kDomePulseSettingMaxUs, 1500),
+    PA_RANGE("domeRotationMinPulseUs", "domeRotation.minPulseUs", "drot_minp", Immediate,
+             Dome, DomeConfig, dome_min_pulse_us, kDomePulseSettingMinUs,
+             kDomePulseSettingMaxUs, 1000),
+    PA_RANGE("domeRotationMaxPulseUs", "domeRotation.maxPulseUs", "drot_maxp", Immediate,
+             Dome, DomeConfig, dome_max_pulse_us, kDomePulseSettingMinUs,
+             kDomePulseSettingMaxUs, 2000),
+    PA_RANGE("domeRotationSpeedLimitPct", "domeRotation.speedLimitPct", "drot_pct", Immediate,
+             Dome, DomeConfig, dome_speed_limit_pct, 0, 100, 100),
+    // Smallest turn and Pause before reversing (#504), both 0 = off. Smallest
+    // turn's bound is the widest half-range a pulse set can have; the mapping
+    // clamps it to the half-range a turn actually has (domeSpeedToPulseUs()).
+    PA_RANGE("domeRotationSmallestTurnUs", "domeRotation.smallestTurnUs", "drot_small_us",
+             Immediate, Dome, DomeConfig, dome_smallest_turn_us, 0,
+             kDomePulseSettingMaxUs - kDomePulseSettingMinUs, 0),
+    PA_RANGE("domeRotationReversePauseMs", "domeRotation.reversePauseMs", "drot_rev_ms",
+             Immediate, Dome, DomeConfig, dome_reverse_pause_ms, 0, DOME_REVERSE_PAUSE_MAX_MS, 0),
+    PA_BOOL("domeRotationRndEnable", "domeRotation.rndEnable", "drot_rnd_en", Immediate,
+            Dome, DomeConfig, dome_rnd_enable, false),
+    PA_RANGE("domeRotationRndSpeedPct", "domeRotation.rndSpeedPct", "drot_rnd_spd", Immediate,
+             Dome, DomeConfig, dome_rnd_speed_pct, 5, 100, 30),
+    PA_RANGE("domeRotationRndPauseMin", "domeRotation.rndPauseMin", "drot_rnd_pmin", Immediate,
+             Dome, DomeConfig, dome_rnd_pause_min, 1, 120, 6),
+    PA_RANGE("domeRotationRndPauseMax", "domeRotation.rndPauseMax", "drot_rnd_pmax", Immediate,
+             Dome, DomeConfig, dome_rnd_pause_max, 1, 120, 12),
+    PA_RANGE("domeRotationRndMoveMs", "domeRotation.rndMoveMs", "drot_rnd_ms", Immediate,
+             Dome, DomeConfig, dome_rnd_move_ms, 500, 10000, 2500),
     // The Dome Bearing's calibration (include/dome_bearing.h, #445). 0 - and
     // `unset` for the direction - is "never recorded", which is why each range
     // starts there: the bearing cannot be believed until all three are set.
-    // DomeTask reads them from the cache on every tick, so each is Immediate.
-    PA_RANGE("domeEscFullTurnMs", "domeEsc.fullTurnMs", "dome_turn_ms", Immediate, Dome, DomeConfig,
-             dome_full_turn_ms, 0, DOME_FULL_TURN_MS_MAX, 0),
-    PA_RANGE("domeEscFullTurnPct", "domeEsc.fullTurnPct", "dome_turn_pct", Immediate, Dome, DomeConfig,
-             dome_full_turn_pct, 0, 100, 0),
-    PA_WORDS("domeEscPositiveTurn", "domeEsc.positiveTurn", "dome_turn_dir", Immediate, Dome, DomeConfig,
-             dome_positive_turn, kDomeTurnDirectionWords, DOME_TURN_DIR_UNSET),
+    // The Dome Rotation task reads them from the cache on every tick, so each is
+    // Immediate.
+    PA_RANGE("domeRotationFullTurnMs", "domeRotation.fullTurnMs", "drot_turn_ms", Immediate,
+             Dome, DomeConfig, dome_full_turn_ms, 0, DOME_FULL_TURN_MS_MAX, 0),
+    PA_RANGE("domeRotationFullTurnPct", "domeRotation.fullTurnPct", "drot_turn_pct", Immediate,
+             Dome, DomeConfig, dome_full_turn_pct, 0, 100, 0),
+    PA_WORDS("domeRotationPositiveTurn", "domeRotation.positiveTurn", "drot_turn_dir", Immediate,
+             Dome, DomeConfig, dome_positive_turn, kDomeTurnDirectionWords, DOME_TURN_DIR_UNSET),
     {"protoR2linkWifiPeerIp", "protoR2link.wifiPeerIp", "dome_wip", ApplyTiming::Immediate,
      PA_SETTING_FIELD(Dome, DomeConfig, dome_wifi_peer_ip), SettingRule::Ipv4, 0, 0, 0, nullptr, 0,
      "must be empty or a valid IPv4 address"},
@@ -375,6 +388,28 @@ void forEachSetting(Fn fn) {
 
 
 constexpr size_t kConfigSettingCount = sizeof(kConfigSettings) / sizeof(kConfigSettings[0]);
+
+// The Dome Rotation rename (#504, operator 2026-11-09): every name these
+// Settings answered to as the Dome ESC's. Input only, until the next release
+// (include/config_settings.h, "Renamed Settings").
+const RenamedSetting kRenamedSettings[] = {
+    {"enableDomeEsc", "components.domeEsc.enabled", "enableDomeRotation"},
+    {"domeEscNeutralUs", "domeEsc.neutralUs", "domeRotationNeutralUs"},
+    {"domeEscMinPulseUs", "domeEsc.minPulseUs", "domeRotationMinPulseUs"},
+    {"domeEscMaxPulseUs", "domeEsc.maxPulseUs", "domeRotationMaxPulseUs"},
+    {"domeEscSpeedLimitPct", "domeEsc.speedLimitPct", "domeRotationSpeedLimitPct"},
+    {"domeEscRndEnable", "domeEsc.rndEnable", "domeRotationRndEnable"},
+    {"domeEscRndSpeedPct", "domeEsc.rndSpeedPct", "domeRotationRndSpeedPct"},
+    {"domeEscRndPauseMin", "domeEsc.rndPauseMin", "domeRotationRndPauseMin"},
+    {"domeEscRndPauseMax", "domeEsc.rndPauseMax", "domeRotationRndPauseMax"},
+    {"domeEscRndMoveMs", "domeEsc.rndMoveMs", "domeRotationRndMoveMs"},
+    {"domeEscFullTurnMs", "domeEsc.fullTurnMs", "domeRotationFullTurnMs"},
+    {"domeEscFullTurnPct", "domeEsc.fullTurnPct", "domeRotationFullTurnPct"},
+    {"domeEscPositiveTurn", "domeEsc.positiveTurn", "domeRotationPositiveTurn"},
+};
+constexpr size_t kRenamedSettingCount = sizeof(kRenamedSettings) / sizeof(kRenamedSettings[0]);
+static_assert(kRenamedSettingCount <= RENAMED_SETTING_MAX,
+              "a request's renamed inputs are one bit each (ConfigApplyResult)");
 
 // -----------------------------------------------------------------------------
 // Settings of an Output
@@ -740,6 +775,28 @@ const ConfigSetting* configSettingByForm(const char* form) {
     for (const ConfigSetting& setting : kConfigSettings) {
         if (strcmp(setting.form, form) == 0) {
             return &setting;
+        }
+    }
+    return nullptr;
+}
+
+// =============================================================================
+// Renamed Settings
+// =============================================================================
+size_t renamedSettingCount() { return kRenamedSettingCount; }
+
+const RenamedSetting& renamedSettingAt(size_t index) { return kRenamedSettings[index]; }
+
+const RenamedSetting* renamedSettingByForm(const char* form, size_t* index) {
+    if (form == nullptr) {
+        return nullptr;
+    }
+    for (size_t i = 0; i < kRenamedSettingCount; ++i) {
+        if (strcmp(kRenamedSettings[i].form, form) == 0) {
+            if (index != nullptr) {
+                *index = i;
+            }
+            return &kRenamedSettings[i];
         }
     }
     return nullptr;

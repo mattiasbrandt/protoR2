@@ -360,7 +360,7 @@ class BootHeapFigure(unittest.TestCase):
         recipes = json.loads(slice_verify.TASK_RECIPES.read_text())
         names = {task for task, _ in slice_verify.always_created_tasks("esp32", recipes)}
         self.assertIn("ReactionTask", names)
-        for conditional in ("RCInputTask", "DomeTask", "AudioTask", "AuxLedTask",
+        for conditional in ("RCInputTask", "DomeRotation", "AudioTask", "AuxLedTask",
                             "Pca9685Task", "ArduinoOTA", "HostedRecovery"):
             self.assertNotIn(conditional, names)
 

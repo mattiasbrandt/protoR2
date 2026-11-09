@@ -316,10 +316,13 @@ static void consoleExecuteDomeSequenceStop(uint32_t requestId, const char* opera
     }
 }
 
-// dome.action.move: speed=<-1.0..1.0>, the same single argument POST /api/dome
-// (handleDomeSpeedPost(), src/web/api_drive.cpp) reads. The guards and the send
-// are domeMoveRequest() (include/api_drive.h), the same Dispatch Core that handler
-// calls; this executor validates its schema and words the outcome.
+// dome.action.move: speed=<-1.0..1.0>, the argument POST /api/dome
+// (handleDomeSpeedPost(), src/web/api_drive.cpp) requires. That route also
+// takes an optional durationMs, the Dome page's calibration hold (#504); the
+// Console offers no duration, so its move is always the untimed one. The guards
+// and the send are domeMoveRequest() (include/api_drive.h), the same Dispatch
+// Core that handler calls; this executor validates its schema and words the
+// outcome.
 static void consoleExecuteDomeMove(uint32_t requestId, const char* operationName,
                                    const ConsoleArgs& args, ConsoleCommandSource source,
                                    const ConsoleRecordSink* sink) {

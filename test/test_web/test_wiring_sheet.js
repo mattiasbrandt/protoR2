@@ -56,7 +56,7 @@ const LANE_TOGGLES = {
   drive: { enabled: false, label: "S1" },
   audio: { enabled: false, label: "S2" },
   protoR2link: { enabled: false, label: "S3" },
-  domeEsc: { enabled: false, label: "DOME" },
+  domeRotation: { enabled: false, label: "DOME" },
 };
 
 // A set of rows as the droid reports them: every Output with a wired tick off
@@ -753,7 +753,7 @@ test("every wiring card paper prints can be opened on the screen, from a row of 
   const env = await boot({
     lanes: {
       audio: { enabled: true, label: "S2", member: "dy_sv5w" },
-      domeEsc: { enabled: true, label: "DOME" },
+      domeRotation: { enabled: true, label: "DOME" },
     },
     products: [
       { id: "dy_sv5w", name: "DY-SV5W", category: "sound", status: "supported", included: true },

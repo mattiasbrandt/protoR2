@@ -16,8 +16,8 @@
 //     Enqueues `:SE1x\r` to domeTxQueue -> DomeLinkTask -> UART2 -> AstroPixelsPlus.
 //     If the dome link is not active, this step is skipped (debug log only).
 //
-//   Resting dome movement (body, DomeTask):
-//     DomeTask reads robotState.activeMood every tick and scales the random
+//   Resting dome movement (body, DomeRotationTask):
+//     DomeRotationTask reads robotState.activeMood every tick and scales the random
 //     dome pause window by it (domeRndPauseMsForMood(), dome_math.h): Quiet
 //     starts no move, Mid-Awake pauses longer, Awake+ shorter. The stored
 //     window is Full-Awake's, and dome_rnd_enable still switches it off.
@@ -108,7 +108,7 @@ inline const char* moodAudioCommand(uint8_t moodId) {
 // -----------------------------------------------------------------------------
 // applyMood()
 // Execute a mood preset via the audio + dome TX paths, and store it where
-// AudioTask and DomeTask read it.
+// AudioTask and DomeRotationTask read it.
 //
 // moodId    : SE1x index  --  must be 10, 11, 13, or 14. Invalid values are
 //             ignored with a warning log.

@@ -568,23 +568,24 @@ void handleDomeCmdPost(WebRequest& req) {
     req.send(200, "application/json", "{\"ok\":true}");
 }
 
-DomeMoveOutcome domeMoveRequest(float speed, CommandSource source) {
+DomeMoveOutcome domeMoveRequest(float speed, CommandSource source, uint32_t durationMs) {
     if (sleepModeActive()) {
         return DomeMoveOutcome::Asleep;
     }
     // The Dome ESC as this boot runs it, not as saved: a switch saved since is
-    // staged until the restart (ADR 0027), and DomeTask runs or not by the
-    // boot's answer. With no DomeTask nothing reads the queue, so a send here
+    // staged until the restart (ADR 0027), and DomeRotationTask runs or not by the
+    // boot's answer. With no DomeRotationTask nothing reads the queue, so a send here
     // would answer "queued" for a move that never happens.
     if (!configCacheReadActiveDomeEnabled()) {
         return DomeMoveOutcome::DomeOff;
     }
 
-    DomeCommand cmd = {};
+    DomeRotationCommand cmd = {};
     cmd.speed = constrain(speed, -1.0f, 1.0f);
+    cmd.durationMs = durationMs;
     cmd.source = source;
     cmd.timestampMs = millis();
-    if (xQueueSend(domeCmdQueue, &cmd, 0) != pdTRUE) {
+    if (xQueueSend(domeRotationCmdQueue, &cmd, 0) != pdTRUE) {
         logQueueDrop(QUEUE_DOME_CMD, "dome move");
         return DomeMoveOutcome::QueueFull;
     }
@@ -606,7 +607,25 @@ void handleDomeSpeedPost(WebRequest& req) {
         return;
     }
 
-    switch (domeMoveRequest(speed, SRC_WEB_API)) {
+    // Optional: how long the turn holds before it stops by itself (#504), the
+    // Dome page's calibration helper's hold. Absent or 0 is the untimed move
+    // this route always sent. Above the 30 s cap it is refused here rather
+    // than cut later, so the answer never says "ok" to a shorter turn than
+    // the one asked for; the task's own cut stays as the backstop. A hold is
+    // bounded by its own duration and never refreshed, so it cannot outlive
+    // the page that asked for it by more than that.
+    // Borrowed, not copied: a copy-out buffer would cut an over-long value to
+    // a valid-looking prefix (a run of zeros before a real number reads as 0).
+    uint32_t durationMs = 0;
+    if (const char* durationRaw = req.paramRef("durationMs")) {
+        if (!parseUint32Value(durationRaw, &durationMs) || durationMs > DOME_TIMED_TURN_MAX_MS) {
+            static_assert(DOME_TIMED_TURN_MAX_MS == 30000, "the refusal below names the cap");
+            webSendJsonError(req, 400, "durationMs must be an integer in range 0..30000");
+            return;
+        }
+    }
+
+    switch (domeMoveRequest(speed, SRC_WEB_API, durationMs)) {
         case DomeMoveOutcome::Asleep:
             webSendJsonError(req, 423, "sleeping", "POST /api/wake");
             return;
@@ -620,7 +639,8 @@ void handleDomeSpeedPost(WebRequest& req) {
             break;
     }
 
-    PA_LOG_INFO(TAG, "[WEB] POST /api/dome speed=%.2f", (double)speed);
+    PA_LOG_INFO(TAG, "[WEB] POST /api/dome speed=%.2f durationMs=%u", (double)speed,
+                (unsigned)durationMs);
     req.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -633,7 +653,7 @@ DomeBearingActOutcome domeBearingActRequest(DomeBearingAct act, CommandSource so
     configCacheReadDome(&dome);
 
     // The Dome ESC as this boot runs it, not as saved: a switch saved since is
-    // staged until the restart (ADR 0027), and DomeTask runs or not by the
+    // staged until the restart (ADR 0027), and DomeRotationTask runs or not by the
     // boot's answer.
     DomeBearingActOutcome outcome = {
         domeBearingActRefusal(act, estopLatched, sleepMode, configCacheReadActiveDomeEnabled(),
@@ -644,12 +664,13 @@ DomeBearingActOutcome domeBearingActRequest(DomeBearingAct act, CommandSource so
         return outcome;
     }
 
-    DomeCommand cmd = {};
-    cmd.kind = (act == DOME_BEARING_ACT_FRONT_IS_HERE) ? DOME_CMD_FRONT_IS_HERE : DOME_CMD_TURN_TO;
+    DomeRotationCommand cmd = {};
+    cmd.kind = (act == DOME_BEARING_ACT_FRONT_IS_HERE) ? DOME_ROTATION_CMD_FRONT_IS_HERE
+                                                       : DOME_ROTATION_CMD_TURN_TO;
     cmd.targetTenths = 0;  // home is front
     cmd.source = source;
     cmd.timestampMs = millis();
-    outcome.queued = xQueueSend(domeCmdQueue, &cmd, 0) == pdTRUE;
+    outcome.queued = xQueueSend(domeRotationCmdQueue, &cmd, 0) == pdTRUE;
     if (!outcome.queued) {
         logQueueDrop(QUEUE_DOME_CMD, act == DOME_BEARING_ACT_FRONT_IS_HERE ? "dome front" : "dome home");
     }

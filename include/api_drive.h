@@ -49,11 +49,15 @@ DriveMoveOutcome driveMoveRequest(int16_t speed, int16_t steer);
 // A dome move asked for by `source`: refused in Sleep Mode, and when the Dome ESC
 // is off for this boot, which is the boot's answer and not the saved switch (ADR
 // 0027). Otherwise sent without waiting. QueueFull has already been logged.
+// `durationMs` 0 is an untimed move, which the 0.5 s silence stop ends unless
+// the sender repeats it; above 0 the move runs that long and then stops, and
+// DomeRotationTask cuts anything past DOME_TIMED_TURN_MAX_MS (#504). A caller
+// that takes a duration from outside bounds it first, as POST /api/dome does.
 enum class DomeMoveOutcome : uint8_t { Queued, Asleep, DomeOff, QueueFull };
-DomeMoveOutcome domeMoveRequest(float speed, CommandSource source);
+DomeMoveOutcome domeMoveRequest(float speed, CommandSource source, uint32_t durationMs = 0);
 
 // Front is here or go home, asked for by `source` (#445): the one way either
-// press reaches DomeTask, for the web routes above and the Console's two
+// press reaches DomeRotationTask, for the web routes above and the Console's two
 // actions alike. Decides with domeBearingActRefusal()
 // (include/dome_bearing_act.h) from the droid as it is now, and only on OK
 // sends the command, without waiting. `queued` false with OK is a full queue.

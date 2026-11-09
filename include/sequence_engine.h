@@ -397,7 +397,7 @@ enum SeqActionKind : uint8_t {
     SEQ_ACT_AUDIO_DOLLAR   = 2,  // payload -> audioQueueDollar()
     SEQ_ACT_AUDIO_CATEGORY = 3,  // audioCategory/audioFallbackSlot -> audioQueuePlayCategory()
     SEQ_ACT_AUDIO_STOP     = 4,  // audioQueueTrackStop() (ADR 0010)
-    SEQ_ACT_DOME_ROTATE    = 5,  // domeSpeedPct/domeDurationMs -> domeCmdQueue
+    SEQ_ACT_DOME_ROTATE    = 5,  // domeSpeedPct/domeDurationMs -> domeRotationCmdQueue
     SEQ_ACT_BODY_MOVE      = 6,  // payload (Part id) + bodyShape/bodyHowFar/
                                  // bodyFlutterMs -> the body servo path. The
                                  // Part is resolved to an Output by the

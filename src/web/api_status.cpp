@@ -13,7 +13,6 @@
 #include "api_json_response.h"  // webSendJsonError
 #include "board_outputs.h"  // boardComponentLabel, runningBoardName
 #include "config.h"
-#include "dome_task.h"
 #include "log_buffer.h"
 #include "logging.h"
 #include "web_request.h"

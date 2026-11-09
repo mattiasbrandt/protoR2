@@ -49,7 +49,9 @@ const HEALTHY_PAYLOAD = Object.freeze({
   dome_link: { state: "connected", transport: "uart" },
   audio: { state: "idle", driver: "CHIRP Audio Trigger", output: "on", link_ok: true, rx_status: "available" },
   domeEnabled: true,
-  domeEsc: { state: "idle" },
+  domeRotationSentPct: 0,
+  domeRotationPulseUs: 1500,
+  domeRotation: { state: "idle" },
 });
 
 // -----------------------------------------------------------------------------
@@ -220,29 +222,50 @@ test("a link reading refuses to guess the Live Reading's words", () => {
 // -----------------------------------------------------------------------------
 
 test("dome esc reports OFF when disabled or missing", () => {
-  const missing = toSignalMap({ domeEsc: { state: "idle" } });
+  const missing = toSignalMap({ domeRotation: { state: "idle" } });
   assert.equal(missing["h-dome-esc"].state, "off");
   assert.equal(missing["h-dome-esc"].reason, "Disabled");
 
-  const disabled = toSignalMap({ domeEnabled: false, domeEsc: { state: "spinning" } });
+  const disabled = toSignalMap({ domeEnabled: false, domeRotation: { state: "spinning" } });
   assert.equal(disabled["h-dome-esc"].state, "off");
   assert.equal(disabled["h-dome-esc"].reason, "Disabled");
 });
 
-// Idle and spinning are what the droid commands; a PWM ESC answers nothing
-// back, so the row is grey and its word carries the command (#399).
-test("dome esc reads OFF for idle and spinning, saying what is commanded", () => {
-  const idle = toSignalMap({ domeEnabled: true, domeEsc: { state: "idle", detail: "Target 0%" } });
-  assert.equal(idle["h-dome-esc"].state, "off");
-  assert.equal(idle["h-dome-esc"].reason, "Idle, Target 0%");
+// The row's word is what the droid reports it SENT (#504): Stopped at a sent
+// share of exactly 0, otherwise the direction from Positive turns, and
+// "Turning" while that is not set. A PWM ESC answers nothing back, so the row
+// stays grey. The word stands alone; the sent figure is the Readouts card's.
+test("dome esc reads OFF and names what was sent", () => {
+  const sent = (pct) => ({
+    domeEnabled: true,
+    domeRotationSentPct: pct,
+    domeRotationPulseUs: 1500 + pct * 5,
+    domeRotation: { state: pct === 0 ? "idle" : "spinning", detail: `${pct}%, ${1500 + pct * 5} us` },
+  });
+  const read = (pct, positiveTurn) => toSignalMap(sent(pct), { positiveTurn })["h-dome-esc"];
 
-  const spinning = toSignalMap({ domeEnabled: true, domeEsc: { state: "spinning" } });
-  assert.equal(spinning["h-dome-esc"].state, "off");
-  assert.equal(spinning["h-dome-esc"].reason, "Spinning");
+  assert.equal(read(0, "cw").state, "off");
+  assert.equal(read(0, "cw").reason, "Stopped");
+  assert.equal(read(40, "cw").state, "off");
+  assert.equal(read(40, "cw").reason, "Clockwise");
+  assert.equal(read(-0.1, "cw").reason, "Anticlockwise");
+  assert.equal(read(40, "ccw").reason, "Anticlockwise");
+  assert.equal(read(-40, "ccw").reason, "Clockwise");
+  assert.equal(read(40, "unset").reason, "Turning");
+  assert.equal(read(40, undefined).reason, "Turning");
+  assert.equal(read(0, undefined).reason, "Stopped");
+});
+
+// A firmware from before #504 reports only the speed asked for, not what was
+// sent: the row cannot say Stopped from that.
+test("dome esc reads the unknown word when the frame carries no sent figure", () => {
+  const older = toSignalMap({ domeEnabled: true, domeRotation: { state: "idle", detail: "Target 0%" } });
+  assert.equal(older["h-dome-esc"].state, "off");
+  assert.equal(older["h-dome-esc"].reason, UNKNOWN);
 });
 
 test("dome esc reads OFF for a state it does not recognise, keeping the state in the word", () => {
-  const unknown = toSignalMap({ domeEnabled: true, domeEsc: { state: "paused" } });
+  const unknown = toSignalMap({ domeEnabled: true, domeRotation: { state: "paused" } });
   assert.equal(unknown["h-dome-esc"].state, "off");
   assert.equal(unknown["h-dome-esc"].reason, `${UNKNOWN} (paused)`);
 
@@ -291,7 +314,7 @@ test("nothing that means 'we have not heard' reads amber or green", () => {
     dome_link: { state: "handshaking" },
     audio: { state: "booting" },
     domeEnabled: true,
-    domeEsc: { state: "paused" },
+    domeRotation: { state: "paused" },
   });
   unrecognised.forEach(({ id, state }) => {
     assert.notEqual(state, "warn", `${id} must not claim degradation for a state we cannot read`);

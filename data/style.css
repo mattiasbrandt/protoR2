@@ -2398,8 +2398,9 @@ body[data-page="firmware"] .form-grid {
    Dome (ADR 0066; redrawn by #399 from the #355 bench, 2026-09-28).
 
    What the dome is being told to do, as one wide gauge with its reading over
-   it, and the motor's numbers beside its idle turns. The gauge is a READOUT:
-   nothing on this surface turns the dome, so there is nothing here to drag.
+   it, and the motor's numbers beside its idle turns. The gauge is a READOUT,
+   so there is nothing here to drag: what turns the dome from this surface is
+   a press the droid bounds (Go home, the calibration helper's holds).
    --------------------------------------------------------------------------- */
 
 /* Switched off, the surface says so once: the disabled card, the Availability
@@ -2432,8 +2433,9 @@ body[data-page="firmware"] .form-grid {
   font-variant-numeric: tabular-nums;
 }
 
-/* Which way the dome is being turned, as a word. A value, not a symptom, so it
-   reads in the ink tier every other value on the droid reads in. */
+/* Which way the dome is being turned, as a word, and the pulse sent with it
+   (#504). Values, not symptoms, so they read in the ink tier every other value
+   on the droid reads in. */
 .dome-rotation-state {
   color: var(--text-dim);
   font-family: var(--font-mono);
@@ -2486,7 +2488,8 @@ body[data-page="firmware"] .form-grid {
   transition: width 0.16s ease, left 0.16s ease, opacity 0.16s ease;
 }
 
-/* The three marks under the gauge: full reverse, stop, full forward. */
+/* The three marks under the gauge: each end's direction once Positive turns
+   is set (or how far, until then), and the stop. */
 .slider-labels {
   display: flex;
   justify-content: space-between;
@@ -2540,6 +2543,45 @@ body[data-page="firmware"] .form-grid {
   margin-left: auto;
 }
 
+/* The calibration helper (#504), under the bearing row and set off by the
+   same seam: its name, the three holds as one joined bar at card scale, and
+   what it is waiting for; the vendor's steps beneath in the list voice the
+   ESC's set-up list reads in. */
+.dome-calibrate {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.dome-calibrate[hidden] {
+  display: none;
+}
+
+.dome-calibrate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.dome-calibrate-name {
+  color: var(--text-dim);
+  font-size: var(--fs-cell);
+}
+
+.dome-calibrate-steps {
+  margin-bottom: 0;
+}
+
+/* A choice on this surface the droid will not take now - a hold before Speed
+   limit is 100 %, Positive turns while Dome Rotation is off - reads as shut,
+   as Foot Drive's speed presets do (.drive-preset-seg). */
+.dome-rotation .seg > button:disabled,
+.dome-settings .seg > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* The dome's three settings lists share one bay, side by side: the motor, its
    idle turns and its full turn. The row's value column is not used here, so
    the name and the box take the width. */
@@ -2550,6 +2592,63 @@ body[data-page="firmware"] .form-grid {
 .dome-settings .setting-row {
   grid-template-columns: minmax(0, 1fr) max-content;
   justify-content: stretch;
+}
+
+/* The ESC's set-up and its symptoms (#504): folded under a quiet line each,
+   no frame, so a set-up droid's page is the settings alone. */
+.dome-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-height: 28px;
+  color: var(--text-dim);
+  font-size: var(--fs-cell);
+  cursor: pointer;
+  list-style: none;
+}
+
+.dome-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dome-more > summary .chev {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s;
+}
+
+.dome-more[open] > summary .chev {
+  transform: rotate(90deg);
+}
+
+.dome-more-list {
+  margin: var(--space-2xs) 0 var(--space-sm);
+  color: var(--text-dim);
+  font-size: var(--fs-cell);
+  line-height: 1.55;
+}
+
+ol.dome-more-list {
+  padding-left: var(--space-lg);
+}
+
+ol.dome-more-list b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+dl.dome-more-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-md);
+}
+
+dl.dome-more-list dt {
+  color: var(--text);
+}
+
+dl.dome-more-list dd {
+  margin: 0;
 }
 
 .fw-progress {

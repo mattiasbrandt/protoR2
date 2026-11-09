@@ -81,6 +81,87 @@ bool migrateSchema2To3(Preferences& prefs) {
     return ok;
 }
 
+// Schema 3 -> 4 migration: the Dome Rotation rename (#504). Each Dome Rotation
+// Setting's old key is carried to the key its declaration now names
+// (src/config_settings.cpp), in the declaration's own storage type: a value read
+// through the wrong type reads as the default, and the carry would then store
+// that default. Same rule as 2 -> 3: an old key stays when its new key did not
+// land, and false leaves the schema stamp for the next boot. dome_min and
+// dome_max were saved and never read, so they are removed and not carried.
+bool migrateSchema3To4(Preferences& prefs) {
+    struct KeyMap {
+        const char* oldKey;
+        const char* newKey;
+    };
+    static const KeyMap domeRotationMigrations[] = {
+        {"en_dome_esc", "en_dome_rot"},     {"dome_neu", "drot_neu"},
+        {"dome_minp", "drot_minp"},         {"dome_maxp", "drot_maxp"},
+        {"dome_pct", "drot_pct"},           {"dome_rnd_en", "drot_rnd_en"},
+        {"dome_rnd_spd", "drot_rnd_spd"},   {"dome_rnd_pmin", "drot_rnd_pmin"},
+        {"dome_rnd_pmax", "drot_rnd_pmax"}, {"dome_rnd_ms", "drot_rnd_ms"},
+        {"dome_turn_ms", "drot_turn_ms"},   {"dome_turn_pct", "drot_turn_pct"},
+        {"dome_turn_dir", "drot_turn_dir"},
+    };
+    static const char* const domeRemovedKeys[] = {"dome_min", "dome_max"};
+
+    PrefsReader reader(prefs);
+    PrefsWriter writer(prefs);
+    bool ok = true;
+    for (const KeyMap& map : domeRotationMigrations) {
+        if (!prefs.isKey(map.oldKey)) {
+            continue;
+        }
+        const ConfigSetting* setting = nullptr;
+        for (size_t i = 0; i < configSettingCount() && setting == nullptr; ++i) {
+            if (strcmp(configSettingAt(i).nvsKey, map.newKey) == 0) {
+                setting = &configSettingAt(i);
+            }
+        }
+        bool written = false;
+        if (setting != nullptr) {
+            // A typed read that fails answers its fallback, and that is what
+            // gets carried: so the fallback is the declaration's default, what
+            // the loader would have produced from the old key. A 0 would carry
+            // as a neutral pulse of 1000 us after the load's repair, which
+            // passes the order check and is full reverse.
+            const int32_t def = setting->def;
+            switch (setting->storage) {
+                case SettingStorage::Bool:
+                    written = writer.writeBool(map.newKey, reader.readBool(map.oldKey, def != 0));
+                    break;
+                case SettingStorage::U8:
+                    written = writer.writeU8(map.newKey, reader.readU8(map.oldKey, (uint8_t)def));
+                    break;
+                case SettingStorage::U16:
+                    written = writer.writeU16(map.newKey, reader.readU16(map.oldKey, (uint16_t)def));
+                    break;
+                case SettingStorage::I16:
+                    written = writer.writeI16(map.newKey, reader.readI16(map.oldKey, (int16_t)def));
+                    break;
+                case SettingStorage::U32:
+                    written = writer.writeU32(map.newKey, reader.readU32(map.oldKey, (uint32_t)def));
+                    break;
+                case SettingStorage::Text:
+                    // No Text Setting is in the table; an empty default is
+                    // every Text declaration's (include/config_settings.h).
+                    written = writer.writeStr(map.newKey, reader.readStr(map.oldKey, "").c_str());
+                    break;
+            }
+        } else {
+            // A key in this table that no declaration names: the table and
+            // src/config_settings.cpp disagree. The old key stays, unread.
+            PA_LOG_WARN("config", "schema 4 carry: no Setting is stored under %s", map.newKey);
+        }
+        ok = written && prefs.remove(map.oldKey) && ok;
+    }
+    for (const char* key : domeRemovedKeys) {
+        if (prefs.isKey(key)) {
+            ok = prefs.remove(key) && ok;
+        }
+    }
+    return ok;
+}
+
 // The one-time carry of #389 (rcCarrySingleSbusCh2TriggerLabels()), written
 // back place by place under the place table's keys (include/rc_map_store.h),
 // then the marker. Through a handle of its own opened for writing:
@@ -166,9 +247,6 @@ void configSnapshotDefaults(ConfigSnapshot* snap) {
     // No servo endpoints or component types here: a defaulted Servo Output row
     // carries both, and servoOutputTableDefaults() is where they are stated
     // (#345, ADR 0041).
-
-    snap->dome.dome_min_speed = 0.0f;
-    snap->dome.dome_max_speed = 1.0f;
 
     // Device WiFi Settings default to an Unprovisioned Controller (ADR 0015):
     // no saved posture yet, AP identity pre-filled with the documented,
@@ -1135,6 +1213,11 @@ bool configLoad(Preferences& prefs, ConfigSnapshot* out) {
     if (stored < 3) {
         // Schema 2 -> 3: component toggle identity rename (ADR 0033)
         migrated = migrateSchema2To3(prefs);
+    }
+    if (stored < 4) {
+        // Schema 3 -> 4: the Dome Rotation rename (#504). After 2 -> 3, so the
+        // en_dome_esc that step has just written is carried on to en_dome_rot.
+        migrated = migrateSchema3To4(prefs) && migrated;
     }
 
     // Now that migrations are done, deserialize from the migrated NVS

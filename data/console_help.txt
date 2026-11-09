@@ -8,7 +8,7 @@ drive.action.speed-preset-cycle|Speed Preset Cycle|Step the speed preset: Slow, 
 drive.status.current|Drive Status|What the feet are doing: speed, steer and failsafe.|buildStatusJson|
 drive.event.failsafe-triggered|Failsafe Triggered|The feet stopped: signal lost, estop or watchdog.|failsafeTrigger|
 drive.config.speed-limit|Speed Limit Setting|The most the Body Controller ever sends the wheels. Saved on the droid.|configApply|
-dome.action.set-speed|Dome Speed|Turn the dome. Bind it to a stick.|domeCmdQueue|
+dome.action.set-speed|Dome Speed|Turn the dome. Bind it to a stick.|domeRotationCmdQueue|
 dome.action.send-command|Send Dome Command|Send a raw Marcduino command to the dome.|sequenceStart|
 dome.action.marcduino-sequence|Marcduino Sequence|Play a numbered body sequence, usually SE30 to SE36.|parseMarcduinoCommand|
 dome.action.marcduino-command|Marcduino Command|Send one Marcduino command to the dome.|parseMarcduinoCommand|
@@ -39,7 +39,7 @@ dome.event.cue-heart|BD:HEART|The dome asks for a sentimental sound.|audioQueueP
 dome.event.cue-hello|BD:HELLO|The dome asks for a general sound.|audioQueuePlayCategory|
 dome.event.cue-reset|BD:RESET|The dome asks the body to stop the track. Chatter carries on.|audioQueueTrackStop|
 dome.status.current|Dome Status|Dome motor speed, whether the dome is linked, and where the dome believes it points, or unknown.|captureDomeStatusSnapshot|
-dome.action.move|Dome Speed (Web)|Turn the dome from the browser. Refused while asleep or with the dome motor off.|domeCmdQueue|speed:float:1
+dome.action.move|Dome Speed (Web)|Turn the dome from the browser. Refused while asleep or with the dome motor off. The REST route also takes an optional durationMs up to 30000, a timed turn the Console does not offer.|domeRotationCmdQueue|speed:float:1
 dome.action.front-is-here|Front Is Here|Say the dome points at the droid's front now, after turning it there by hand or by stick. Where the dome points is believed again from here. Refused while the estop is latched, asleep, with the dome motor off, or before its full turn is timed.|domeBearingActRequest|
 dome.action.go-home|Dome Go Home|Turn the dome the short way to where it believes front is, at the speed its full turn was timed at. Does not move the dome while where it points is unknown or its full turn is not timed.|domeBearingActRequest|
 dome.api.list-sequences|List Learned Sequences|Your Learned Sequences: name, toggle group, mute time, and whether each one checks out.|seqStoreIndexAt|
@@ -159,7 +159,7 @@ system.config.enable_arm2|{output}|Whether {output} has a Part on it. It follows
 system.config.enable_aux1|{output}|Whether {output} has a Part on it. It follows the Parts, so put one on it on Wiring.|configApply|
 system.config.enable_aux2|{output}|Whether {output} has a Part on it. It follows the Parts, so put one on it on Wiring.|configApply|
 system.config.enable_aux3|{output}|Whether {output} has a Part on it. It follows the Parts, so put one on it on Wiring.|configApply|
-system.config.enable_dome_esc|Dome Motor|Use the dome rotation motor.|configApply|
+system.config.enable_dome_esc|Dome Rotation|Off, the dome stays put, even through a sequence. On, the droid turns it. Takes effect after a restart.|configApply|
 system.config.enable_rc_ch1|RC CH1|Use the receiver signal connected to RC channel 1|configApply|
 system.config.enable_rc_ch2|RC CH2|Use the receiver signal connected to RC channel 2|configApply|
 system.config.enable_rc_ch3|RC CH3|Use the receiver signal connected to RC channel 3|configApply|

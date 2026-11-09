@@ -165,6 +165,23 @@ constexpr const char* componentPartDisplayName(const char* id) {
     return nullptr;
 }
 
+// The Component Protocol declared for one product, read straight out of the
+// manifest at compile time, for the same reason as the two above: a backend
+// profile that RETURNS its row's protocol cannot name a different one.
+// Returns nullptr for an id no row declares.
+constexpr const char* componentPartProtocol(const char* id) {
+#define PA_COMPONENT_CATEGORY(enumerator, token, name, member_key)
+#define PA_COMPONENT_PART(value, part_id, part_name, category, part_protocol, status, confirmed, \
+                          capabilities, gate, included)                                           \
+    if (component_registry_detail::idEquals(id, part_id)) {                                       \
+        return (part_protocol);                                                                   \
+    }
+#include "component_registry.inc"
+#undef PA_COMPONENT_PART
+#undef PA_COMPONENT_CATEGORY
+    return nullptr;
+}
+
 // Whether any row declares this id, resolved at compile time. A driver cites
 // its own row by id to read its capability word, and a typo there would
 // otherwise resolve to a silent 0 rather than to a build failure -- so each

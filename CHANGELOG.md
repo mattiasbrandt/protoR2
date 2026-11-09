@@ -25,6 +25,63 @@ the patch releases, whose notes live on their own GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+#### Dome
+- **The Dome page lists the ESC's set-up.** Calibrate first, then Forward and
+  Reverse, both curve ends at 100 and the BEC at 5.0 V: the two factory
+  settings that make a dome turn one way or crawl at 70 % are named before
+  you blame the ring. A short list beside it says what a dome that will not
+  turn is telling you.
+- **The dome readout says what the droid sent.** The Dome page and the
+  Dashboard show the speed that went out after your speed limit, with the
+  pulse for a Dome ESC, and name the turn in your droid's own direction once
+  Positive turns is set. They used to show the speed asked for, so a 10 %
+  limit read as full speed. The droid still cannot see the dome move: this is
+  what it sent. `GET /api/status` adds `domeRotationSentPct` and
+  `domeRotationPulseUs`, and the `domeRotation` entry's detail now carries the
+  sent figure.
+- **Smallest turn.** An ESC ignores a pulse close to neutral, so a slow turn
+  can leave the dome standing. Set Smallest turn to where your dome starts to
+  move and every turn starts there; the Dome Bearing counts nothing below it.
+  Off until you set it (`domeRotationSmallestTurnUs`, 0 = off).
+- **Until Smallest turn is set, the Dome page shows the pulse** full stick and
+  a random turn send, beside Speed limit and the random Speed, so a setting
+  too low to move the dome shows before you blame the ring.
+- **Pause before reversing.** An optional stop held between one direction
+  and the other, for every source: the stick, sequences, the Dome Controller,
+  random moves and turns to a bearing such as Go home. A timed turn that waits for it still turns as far as it
+  asked. Off until you set it (`domeRotationReversePauseMs`, 0 = off).
+
+### Changed
+
+- **The ISDT ESC70's protocol reads `rc_pwm`, not `ledc`.** The droid's parts
+  list says what the ESC takes, an RC pulse. A script that reads the old word
+  from the parts list needs the new one. The board's own servo outputs, Body
+  controller board GPIO, read `rc_pwm` too.
+- **The dome's turning settings are named Dome Rotation.** The screens say Dome
+  Rotation where they said Dome ESC. Saved settings carry over on the first
+  start with this firmware. `GET /api/config` and `GET /api/status` answer
+  with the new names only, so **a script that reads the old names breaks**;
+  `POST /api/config` and the Console still take the old names until the next
+  release, and the answer says what each is called now.
+
+  | Before | Now |
+  |---|---|
+  | `enableDomeEsc`, `components.domeEsc.enabled` | `enableDomeRotation`, `components.domeRotation.enabled` |
+  | `domeEsc<Name>` form fields (`domeEscNeutralUs` ... `domeEscPositiveTurn`) | `domeRotation<Name>` |
+  | `domeEsc.<key>` in `GET /api/config` | `domeRotation.<key>` |
+  | status component `domeEsc` | `domeRotation` |
+
+  A controller that has started this firmware cannot go back to an older one
+  with its settings: the older firmware starts it on defaults.
+
+### Removed
+
+- **Two dome settings nothing read.** The stored minimum and maximum dome
+  speed had no screen and no effect; the first start with this firmware
+  removes them.
+
 ## [1.5.0] - 2026-10-10
 
 ### Added

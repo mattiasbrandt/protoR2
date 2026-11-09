@@ -321,30 +321,41 @@ struct ServoCommandedPosition {
 };
 
 // -----------------------------------------------------------------------------
-// Dome command message (sent via domeCmdQueue)
+// Dome Rotation command message (sent via domeRotationCmdQueue)
 // -----------------------------------------------------------------------------
-// What a DomeCommand asks of DomeTask. SPEED is every command there was before
-// the Dome Bearing (#445), and it is 0, so a sender that zero-fills its command
-// and sets a speed keeps meaning exactly what it meant.
-enum DomeCommandKind : uint8_t {
-    DOME_CMD_SPEED = 0,          // speed and durationMs
-    DOME_CMD_FRONT_IS_HERE = 1,  // the builder says the dome points front now
-    DOME_CMD_TURN_TO = 2,        // turn the short way to targetTenths of Dome Bearing
+// What a DomeRotationCommand asks of DomeRotationTask. SPEED is every command
+// there was before the Dome Bearing (#445), and it is 0, so a sender that
+// zero-fills its command and sets a speed keeps meaning exactly what it meant.
+enum DomeRotationCommandKind : uint8_t {
+    DOME_ROTATION_CMD_SPEED = 0,          // speed and durationMs
+    DOME_ROTATION_CMD_FRONT_IS_HERE = 1,  // the builder says the dome points front now
+    DOME_ROTATION_CMD_TURN_TO = 2,        // turn the short way to targetTenths of Dome Bearing
 };
 
-struct DomeCommand {
+// The longest timed turn taken from a sender (#504): a Dome Controller
+// `dome=rot` line, a sequence step, or a timed POST /api/dome (the Dome page's
+// calibration helper). DomeRotationTask cuts a longer one to this and logs it;
+// the web route refuses one outright. A turn to a Dome Bearing is exempt: it
+// is planned in the task from the droid's own calibration (bearingPlanTurn()),
+// and half a turn can take longer (DOME_FULL_TURN_MS_MAX), so the task applies
+// the cap to the command as it arrives, before that plan replaces it.
+#define DOME_TIMED_TURN_MAX_MS 30000
+
+struct DomeRotationCommand {
     float speed;         // -1.0 (full reverse) .. +1.0 (full forward), 0 = stop
     uint32_t durationMs; // 0 = indefinite (RC/web), >0 = auto-stop after this many ms
+                         // (DOME_TIMED_TURN_MAX_MS at most, unless a TURN_TO)
     CommandSource source;
     // These two sit in the padding after `source`, so the struct is the size
     // it always was and no sender's frame grows - RC input's measured stack
     // chain among them. The assertion below holds that.
-    DomeCommandKind kind;
+    DomeRotationCommandKind kind;
     int16_t targetTenths;  // TURN_TO: the Dome Bearing to turn to, 0..3599
     uint32_t timestampMs;
 };
-static_assert(sizeof(DomeCommand) == 16,
-              "DomeCommand grew - every domeCmdQueue sender's frame grows with it");
+static_assert(sizeof(DomeRotationCommand) == 16,
+              "DomeRotationCommand grew - every domeRotationCmdQueue sender's frame grows"
+              " with it");
 
 // -----------------------------------------------------------------------------
 // RobotState  --  shared state, all access under robotStateMux
@@ -417,8 +428,17 @@ struct RobotState {
     bool webControlEnabled;
     bool rcDebugMode;
 
-    // --- Zone 4: Dome link (DomeLinkTask) ---
-    float domeTargetSpeed;  // -1.0 .. +1.0
+    // --- Zone 4: Dome Rotation (DomeRotationTask) and the Dome link (DomeLinkTask) ---
+    // Dome Rotation, written by DomeRotationTask alone, in one critical
+    // section per write: the speed asked for, before the speed limit, and what
+    // the Dome Rotation backend reports it put on the wire for it
+    // (DomeRotationOutput, include/dome_rotation_backend.h). The sent share is
+    // signed, -1..1 of the backend's FULL output after the speed limit, and is
+    // exactly 0 when a stop is on the wire; the pulse is 0 where the profile
+    // reports none, and 0 before the task's first write.
+    float domeTargetSpeed;  // -1.0 .. +1.0, as asked
+    float domeRotationSentShare;
+    uint16_t domeRotationPulseUs;
     float dome_speed;
     uint32_t domeHbRx;
     uint32_t bodyHbTx;
@@ -430,7 +450,7 @@ struct RobotState {
     uint32_t domeLastSeenUartMs;
     uint32_t domeLastSeenWifiMs;
     // The Dome Bearing (include/dome_bearing.h, ADR 0051, #445), written by
-    // DomeTask alone. A zeroed flag is UNKNOWN: `RobotState robotState = {}`
+    // DomeRotationTask alone. A zeroed flag is UNKNOWN: `RobotState robotState = {}`
     // is the boot path, and a boot forgets, so the zero value must never read
     // as a number - least of all as front. Read both through domeBearingRead(),
     // which hands out NaN for an unknown bearing.
@@ -521,7 +541,7 @@ struct RobotState {
 extern RobotState robotState;
 extern portMUX_TYPE robotStateMux;
 extern QueueHandle_t servoCmdQueue;
-extern QueueHandle_t domeCmdQueue;
+extern QueueHandle_t domeRotationCmdQueue;
 extern QueueHandle_t audioCmdQueue;
 extern QueueHandle_t domeTxQueue;
 extern QueueHandle_t sequenceQueue;

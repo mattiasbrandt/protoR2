@@ -13,8 +13,11 @@ a droid, or offline against the fixture server.
 - `_lib/checks.js` - the harness every script shares: `runCheck()`, the write
   guard, preconditions, the PASS/FAIL table, `STEP`, browser launch and close.
 - `_lib/fixture_routes.js` - the controller routes the fixture server does not
-  answer, loaded only with `FIXTURE=1`. Two droids: `artoo` (the default) and
-  `bench`; its header says what each models and from which source.
+  answer, loaded only with `FIXTURE=1` or by `fixture-look.js`. Three droids: `artoo` (the default),
+  `bench`, and `dome` (artoo with Dome Rotation on); its header says what each
+  models and from which source.
+- `fixture-look.js` - a fixture droid in a browser window for a live look, not
+  a check ("Run offline", "Look at a fixture droid").
 - A few older multi-rule scripts (`shell/stop-every-surface.js`,
   `shell/status-plate-truth.js`, `parts/parts-surface.js`, `console-sweep.js`)
   keep their own flow and take the `_lib/` pieces one by one.
@@ -96,4 +99,16 @@ after mount is not what the page already cached.
 `FIXTURE`, `BASE_URL` and `TARGET_URL`, and runs that folder's
 `// bench-auto: fixture` scripts. Stop a server you started by its PID.
 
-Stop the server by its PID when done.
+### Look at a fixture droid
+
+For a live look at the surfaces offline, one command stages the default asset
+set, serves it, and opens a browser on the `dome` droid's Dome page:
+
+```sh
+NODE_PATH=$HOME/.npm/_npx/e41f203b7505f1fb/node_modules node test/playwright/fixture-look.js
+```
+
+The droid answers from `_lib/fixture_routes.js` inside that browser only: a
+browser opened anywhere else on the same port meets no droid. `DROID` and
+`PAGE` pick another droid or first page. Closing the window, or Ctrl-C, stops
+the server and removes the staged copy. Run it again after a `data/` edit.

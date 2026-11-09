@@ -105,7 +105,10 @@ struct ConfigSetting {
     // Output's wired tick, which GET reads on the Output's row (`wired`) and
     // POST takes back there too.
     const char* path;
-    const char* nvsKey;   // unchanged from before the declarations, so a stored Configuration loads as it is
+    // Its NVS key. A key renamed after it was first stored is carried across by a
+    // schema migration (include/config_store.h), so a stored Configuration
+    // loads as it is.
+    const char* nvsKey;
     // When a saved value takes effect (include/apply_timing.h). The browser's
     // entry for the Setting states the same token.
     ApplyTiming timing;
@@ -161,6 +164,31 @@ struct OutputRowSetting {
 size_t configSettingCount();
 const ConfigSetting& configSettingAt(size_t index);
 const ConfigSetting* configSettingByForm(const char* form);
+
+// -----------------------------------------------------------------------------
+// Renamed Settings (#504)
+//
+// The names a droid Setting answered to before it was renamed: its old form
+// name and its old GET path. Input only, until the next release: POST
+// /api/config takes a renamed Setting under either old name, the Controller
+// Console under its old form name, and the reply says what it is called now.
+// GET writes the current names only, and nothing else reads this table, so a
+// name dropped from it is simply a name no door takes any more.
+// -----------------------------------------------------------------------------
+struct RenamedSetting {
+    const char* oldForm;
+    const char* oldPath;
+    const char* form;  // the Setting's form name now (configSettingByForm())
+};
+
+// How many a table may hold: a request records each one it used as a bit.
+constexpr size_t RENAMED_SETTING_MAX = 32;
+
+size_t renamedSettingCount();
+const RenamedSetting& renamedSettingAt(size_t index);
+// The entry for a Setting's current form name, or nullptr; `index`, when not
+// nullptr, takes its place in the table.
+const RenamedSetting* renamedSettingByForm(const char* form, size_t* index = nullptr);
 
 // The Setting's value, read out of its section of `snap`. Numbers, words and
 // members as their stored number; Bool as 0/1.

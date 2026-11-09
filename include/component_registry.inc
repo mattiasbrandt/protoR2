@@ -179,7 +179,7 @@ PA_COMPONENT_PART( 6, "rc_transmitter_elrs", "RC Receiver - ELRS", COMPONENT_CAT
 // has never been told keeps driving what it always drove.
 // -----------------------------------------------------------------------------
 // Confirmed on a droid: operator, 2026-09-30, #455.
-PA_COMPONENT_PART( 8, "esp32_gpio_ledc", "Body controller board GPIO", COMPONENT_CATEGORY_BODY_SERVO_CONTROLLER, "ledc",             COMPONENT_STATUS_SUPPORTED, COMPONENT_CONFIRMED_ON_DROID,     0, nullptr, 1)
+PA_COMPONENT_PART( 8, "esp32_gpio_ledc", "Body controller board GPIO", COMPONENT_CATEGORY_BODY_SERVO_CONTROLLER, "rc_pwm",           COMPONENT_STATUS_SUPPORTED, COMPONENT_CONFIRMED_ON_DROID,     0, nullptr, 1)
 PA_COMPONENT_PART( 9, "pca9685",         "PCA9685",                    COMPONENT_CATEGORY_BODY_SERVO_CONTROLLER, "i2c_pwm_expander", COMPONENT_STATUS_SUPPORTED, COMPONENT_NOT_CONFIRMED_ON_DROID, 0, nullptr, 1)
 PA_COMPONENT_PART(10, "pololu_maestro",  "Pololu Maestro",             COMPONENT_CATEGORY_BODY_SERVO_CONTROLLER, "maestro_serial",   COMPONENT_STATUS_ROADMAP,   COMPONENT_NOT_CONFIRMED_ON_DROID, 0, nullptr, 0)
 
@@ -187,7 +187,7 @@ PA_COMPONENT_PART(10, "pololu_maestro",  "Pololu Maestro",             COMPONENT
 // Dome Rotation -- what turns the dome.
 // -----------------------------------------------------------------------------
 // Confirmed on a droid: operator, 2026-09-30, #455.
-PA_COMPONENT_PART(11, "isdt_esc70", "ISDT ESC70 (RC ESC)", COMPONENT_CATEGORY_DOME_ROTATION, "ledc",             COMPONENT_STATUS_SUPPORTED, COMPONENT_CONFIRMED_ON_DROID,     0, nullptr, 1)
+PA_COMPONENT_PART(11, "isdt_esc70", "ISDT ESC70 (RC ESC)", COMPONENT_CATEGORY_DOME_ROTATION, "rc_pwm",           COMPONENT_STATUS_SUPPORTED, COMPONENT_CONFIRMED_ON_DROID,     0, nullptr, 1)
 PA_COMPONENT_PART(12, "syren10",    "SyRen 10",            COMPONENT_CATEGORY_DOME_ROTATION, "de_packet_serial", COMPONENT_STATUS_ROADMAP,   COMPONENT_NOT_CONFIRMED_ON_DROID, 0, nullptr, 0)
 
 // -----------------------------------------------------------------------------

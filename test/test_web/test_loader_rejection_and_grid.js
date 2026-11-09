@@ -145,9 +145,9 @@ test("A status field containing markup cannot inject into the grid", async (t) =
 test("the grid names each component by its Setting's label, as Configuration does", async () => {
   const env = await loadDashboard({ respond: healthyResponder });
 
-  const html = pushStatus(env, { audio: { state: "ok" }, protoR2link: { state: "ok" }, domeEsc: { state: "ok" } });
+  const html = pushStatus(env, { audio: { state: "ok" }, protoR2link: { state: "ok" }, domeRotation: { state: "ok" } });
 
-  for (const form of ["enableAudio", "enableProtoR2link", "enableDomeEsc"]) {
+  for (const form of ["enableAudio", "enableProtoR2link", "enableDomeRotation"]) {
     const label = env.window.PAApi.labelOf(form);
     assert.ok(html.includes(`<dt>${label}</dt>`), `${form} is not named ${label}: ${html}`);
   }

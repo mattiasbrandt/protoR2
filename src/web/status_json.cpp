@@ -16,11 +16,18 @@
 #include "api_aux_led.h"
 #include "audio_sound_member.h"
 #include "audio_task.h"
+#include "dome_math.h"  // kDomePulseSetting*Us - why one decimal is exact for the sent share
 #include "drive_speed_preset.h"
 #include "heap_reading.h"
 #include "web_admission.h"
 #include "web_event_stream.h"
 #include "web_response_deadline.h"
+
+// One decimal is exact for the Dome Rotation sent share only while no Dome
+// ESC half-range can pass 1,000 us (include/dome_math.h): wider, the smallest
+// turn would print 0.0 and read as Stopped on every surface.
+static_assert(kDomePulseSettingMaxUs - kDomePulseSettingMinUs <= 1000,
+              "a Dome ESC half-range over 1,000 us needs a second decimal on the sent share");
 
 namespace {
 
@@ -159,11 +166,18 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
     // Build the fixed system-health fields first.
     int written = snprintf(
         buffer, bufferSize,
-        "{\"estop\":%s,\"webControlEnabled\":%s,\"sbusSignalLost\":%s,\"sbusHwFailsafe\":%s,\"webDriveExpired\":%s,\"failsafeSource\":%d,\"driveSpeed\":%d,\"driveSteer\":%d,\"domeTargetSpeed\":%.3f,\"domeEnabled\":%s,\"domeBearing\":\"%s\",\"domeBearingDeg\":%s,\"speedLimitMax\":%d,\"speedPreset\":\"%s\",\"stationary\":%s,\"failsafeCount\":%lu,\"failsafeTriggerMs\":%lu,\"failsafeZeroMs\":%lu,\"failsafeTriggerToZeroMs\":%lu,\"failsafeWatchdogMs\":%lu,\"failsafeTriggerSource\":%d,\"queueOverflowCount\":%lu,\"uptimeMs\":%lu,\"firmwareVersion\":\"%s\",\"fsVersion\":\"%s\",\"resetReason\":\"%s\",\"heapFree\":%lu,\"heapMin\":%lu,\"heapLargestBlock\":%lu,\"heapLargest8bit\":%lu,\"failedAllocs\":%lu,\"sseClients\":%u,\"sseClientsPeak\":%lu,\"tcpAcceptRejectHeap\":%lu,\"tcpAcceptRejectRate\":%lu,\"tcpAcceptRejectAgeMs\":%ld,\"acceptGuardLastUs\":%lu,\"acceptGuardMaxUs\":%lu,\"acceptRejectLargestBlock\":%lu,\"acceptMinLargestBlockSeen\":%ld,\"inflightRequests\":%d,\"inflightRequestsPeak\":%d,\"refusedInflightCap\":%lu,\"refusedSseCap\":%lu,\"sseEvicted\":%lu,\"sseEvictAgeMs\":%ld,\"refusedHeapFloor\":%lu,\"refusedHeapFloorDiag\":%lu,\"busyRecoveryPagesServed\":%lu,\"otaActive\":%s,\"otaProgress\":%u,\"otaLastError\":\"%s\",\"wifiRssi\":%ld,\"wifiConnected\":%s,\"wifiClientConnected\":%s,\"littleFsReady\":%s,\"sleepMode\":%s,\"sleepSinceMs\":%lu,\"activeMood\":%u,\"lights\":%s",
+        "{\"estop\":%s,\"webControlEnabled\":%s,\"sbusSignalLost\":%s,\"sbusHwFailsafe\":%s,\"webDriveExpired\":%s,\"failsafeSource\":%d,\"driveSpeed\":%d,\"driveSteer\":%d,\"domeTargetSpeed\":%.3f,\"domeRotationSentPct\":%.1f,\"domeRotationPulseUs\":%u,\"domeEnabled\":%s,\"domeBearing\":\"%s\",\"domeBearingDeg\":%s,\"speedLimitMax\":%d,\"speedPreset\":\"%s\",\"stationary\":%s,\"failsafeCount\":%lu,\"failsafeTriggerMs\":%lu,\"failsafeZeroMs\":%lu,\"failsafeTriggerToZeroMs\":%lu,\"failsafeWatchdogMs\":%lu,\"failsafeTriggerSource\":%d,\"queueOverflowCount\":%lu,\"uptimeMs\":%lu,\"firmwareVersion\":\"%s\",\"fsVersion\":\"%s\",\"resetReason\":\"%s\",\"heapFree\":%lu,\"heapMin\":%lu,\"heapLargestBlock\":%lu,\"heapLargest8bit\":%lu,\"failedAllocs\":%lu,\"sseClients\":%u,\"sseClientsPeak\":%lu,\"tcpAcceptRejectHeap\":%lu,\"tcpAcceptRejectRate\":%lu,\"tcpAcceptRejectAgeMs\":%ld,\"acceptGuardLastUs\":%lu,\"acceptGuardMaxUs\":%lu,\"acceptRejectLargestBlock\":%lu,\"acceptMinLargestBlockSeen\":%ld,\"inflightRequests\":%d,\"inflightRequestsPeak\":%d,\"refusedInflightCap\":%lu,\"refusedSseCap\":%lu,\"sseEvicted\":%lu,\"sseEvictAgeMs\":%ld,\"refusedHeapFloor\":%lu,\"refusedHeapFloorDiag\":%lu,\"busyRecoveryPagesServed\":%lu,\"otaActive\":%s,\"otaProgress\":%u,\"otaLastError\":\"%s\",\"wifiRssi\":%ld,\"wifiConnected\":%s,\"wifiClientConnected\":%s,\"littleFsReady\":%s,\"sleepMode\":%s,\"sleepSinceMs\":%lu,\"activeMood\":%u,\"lights\":%s",
         in.diag.estop ? "true" : "false", in.webControlEnabled ? "true" : "false",
         in.diag.sbusSignalLost ? "true" : "false", in.diag.sbusHwFailsafe ? "true" : "false",
         in.diag.webDriveExpired ? "true" : "false", (int)in.diag.failsafeSource, in.driveSpeed, in.driveSteer,
-        (double)in.domeTargetSpeed, in.enableDome ? "true" : "false",
+        // What Dome Rotation sent, after the speed limit, beside what was asked
+        // for. One decimal is exact for the share: a Dome ESC's pulse moves in
+        // whole us over a half-range of at most 1,000 us (the pulse Settings'
+        // bounds, static_assert above), so the smallest turn that goes out -
+        // one us past neutral, or one past Smallest turn - is 0.1 % and never
+        // prints as 0.0 (include/dome_math.h).
+        (double)in.domeTargetSpeed, (double)(in.domeRotationSentShare * 100.0f),
+        (unsigned)in.domeRotationPulseUs, in.enableDome ? "true" : "false",
         domeBearingStateWord(in.domeBearing), domeBearingDeg,
         in.speedLimitMax, speedPresetIdToString(in.speedPresetActive), in.stationary ? "true" : "false",
         (unsigned long)in.diag.failsafeTriggerCount, (unsigned long)in.diag.failsafeLastTriggerMs, (unsigned long)in.diag.failsafeLastZeroOutputMs, (unsigned long)in.diag.failsafeLastTriggerToZeroMs,
@@ -337,13 +351,30 @@ bool formatStatusJson(char* buffer, size_t bufferSize, const StatusJsonInputs& i
                  ok;
         }
         if (in.enableDome) {
-            if (in.domeTargetSpeed > 0.001f || in.domeTargetSpeed < -0.001f) {
-                snprintf(detail, sizeof(detail), "Target %.0f%%",
-                         (double)(in.domeTargetSpeed * 100.0f));
-                ok = appendPeripheralStatus(pos, remaining, "domeEsc", "spinning", detail) && ok;
-            } else {
-                ok = appendPeripheralStatus(pos, remaining, "domeEsc", "idle", "Target 0%") && ok;
+            // Stopped is a share of exactly 0: a stop sends 0, and a turn a
+            // share of at least 0.1 %, its pulse one us or more past neutral
+            // or past Smallest turn, so no threshold is needed (#504). The one
+            // pulse off neutral with a share of 0 is a Speed limit no wider
+            // than Smallest turn, where every turn stays inside the dead band
+            // and the Dome page says so. The Dome page reads the same share.
+            // The tokens stay `spinning` / `idle` for the readers that key on
+            // them; the words a page shows are its own.
+            // The detail is the sent figure in the one rule every surface
+            // prints it by: the share at one decimal, exactly as
+            // "domeRotationSentPct" above carries it and the Dome page prints
+            // it (data/dome.js sentPercentText); then the pulse where the
+            // product sends one, its unit spelt with the micro sign (U+00B5,
+            // two bytes of UTF-8) as data/ spells it.
+            const bool stopped = in.domeRotationSentShare == 0.0f;
+            const int n = snprintf(detail, sizeof(detail), "%.1f%%",
+                                   (double)(in.domeRotationSentShare * 100.0f));
+            if (in.domeRotationPulseUs > 0 && n > 0 && n < (int)sizeof(detail)) {
+                snprintf(detail + n, sizeof(detail) - (size_t)n, ", %u \u00b5s",
+                         (unsigned)in.domeRotationPulseUs);
             }
+            ok = appendPeripheralStatus(pos, remaining, "domeRotation",
+                                        stopped ? "idle" : "spinning", detail) &&
+                 ok;
         }
         if (in.enableRcCh1 && !(in.rcInputMode == RC_INPUT_SINGLE_SBUS && in.singleSbusUseCh2)) {
             if (const char* idle = rcReadsNothingDetail(in.rcInputMode)) {

@@ -886,11 +886,11 @@ void rcInputTask(void* pvParameters) {
                 }
             }
             if (stepSbus2Out.shouldStopDome && domeOutputActive) {
-                DomeCommand stopCmd = {};
+                DomeRotationCommand stopCmd = {};
                 stopCmd.speed = 0.0f;
                 stopCmd.source = SRC_INTERNAL;
                 stopCmd.timestampMs = nowMs;
-                xQueueSend(domeCmdQueue, &stopCmd, 0);
+                xQueueSend(domeRotationCmdQueue, &stopCmd, 0);
             }
             if (stepSbus2Out.clearSbus2SignalLost) {
                 taskENTER_CRITICAL(&robotStateMux);

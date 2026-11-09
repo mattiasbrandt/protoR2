@@ -453,7 +453,7 @@ void test_configApply_speedLimitMax_falls_back_to_normal_when_unmatched(void) {
 
 // --- transition action ---
 void test_configApply_dome_enable_transition_queues_dome_on_cue(void) {
-    std::map<std::string, std::string> m = {{"enableDomeEsc", "1"}};
+    std::map<std::string, std::string> m = {{"enableDomeRotation", "1"}};
     ConfigSnapshot snap = makeDefaultSnap();
     snap.system.enable_dome_esc = false;
     ConfigApplyResult result;
@@ -463,7 +463,7 @@ void test_configApply_dome_enable_transition_queues_dome_on_cue(void) {
 }
 
 void test_configApply_dome_already_enabled_no_cue(void) {
-    std::map<std::string, std::string> m = {{"enableDomeEsc", "1"}};
+    std::map<std::string, std::string> m = {{"enableDomeRotation", "1"}};
     ConfigSnapshot snap = makeDefaultSnap();
     snap.system.enable_dome_esc = true;
     ConfigApplyResult result;
@@ -582,9 +582,9 @@ void test_configApply_multiple_fields_record_applied_lines_in_order(void) {
 // included - they once changed the stored config without one.
 void test_configApply_every_scalar_records_an_applied_line(void) {
     std::map<std::string, std::string> m = {
-        {"sbusRecvCh2", "true"},          {"domeEscNeutralUs", "1500"},
-        {"domeEscMinPulseUs", "1100"},    {"domeEscMaxPulseUs", "1900"},
-        {"domeEscSpeedLimitPct", "40"},   {"protoR2linkWifiPeerIp", "192.168.4.2"},
+        {"sbusRecvCh2", "true"},          {"domeRotationNeutralUs", "1500"},
+        {"domeRotationMinPulseUs", "1100"},    {"domeRotationMaxPulseUs", "1900"},
+        {"domeRotationSpeedLimitPct", "40"},   {"protoR2linkWifiPeerIp", "192.168.4.2"},
     };
     ConfigSnapshot snap = makeDefaultSnap();
     ConfigApplyResult result;
@@ -592,10 +592,10 @@ void test_configApply_every_scalar_records_an_applied_line(void) {
     TEST_ASSERT_FALSE(result.error.hasError);
     TEST_ASSERT_EQUAL(6, result.applied.count);
     TEST_ASSERT_EQUAL_STRING("[CFG] sbusRecvCh2 updated to true", result.applied.lines[0]);
-    TEST_ASSERT_EQUAL_STRING("[CFG] domeEscNeutralUs updated to 1500", result.applied.lines[1]);
-    TEST_ASSERT_EQUAL_STRING("[CFG] domeEscMinPulseUs updated to 1100", result.applied.lines[2]);
-    TEST_ASSERT_EQUAL_STRING("[CFG] domeEscMaxPulseUs updated to 1900", result.applied.lines[3]);
-    TEST_ASSERT_EQUAL_STRING("[CFG] domeEscSpeedLimitPct updated to 40", result.applied.lines[4]);
+    TEST_ASSERT_EQUAL_STRING("[CFG] domeRotationNeutralUs updated to 1500", result.applied.lines[1]);
+    TEST_ASSERT_EQUAL_STRING("[CFG] domeRotationMinPulseUs updated to 1100", result.applied.lines[2]);
+    TEST_ASSERT_EQUAL_STRING("[CFG] domeRotationMaxPulseUs updated to 1900", result.applied.lines[3]);
+    TEST_ASSERT_EQUAL_STRING("[CFG] domeRotationSpeedLimitPct updated to 40", result.applied.lines[4]);
     TEST_ASSERT_EQUAL_STRING("[CFG] protoR2linkWifiPeerIp updated to 192.168.4.2", result.applied.lines[5]);
 }
 
@@ -822,7 +822,7 @@ void test_configApply_a_part_move_missing_or_misspelling_an_end_is_refused(void)
 // page-side checks went (#431); refused here, as a conflict named on the pause
 // that was sent.
 void test_configApply_a_shortest_pause_above_the_longest_is_refused(void) {
-    std::map<std::string, std::string> m = {{"domeEscRndPauseMin", "40"}};
+    std::map<std::string, std::string> m = {{"domeRotationRndPauseMin", "40"}};
     ConfigSnapshot snap = makeDefaultSnap();
     snap.dome.dome_rnd_pause_min = 6;
     snap.dome.dome_rnd_pause_max = 12;
@@ -830,10 +830,10 @@ void test_configApply_a_shortest_pause_above_the_longest_is_refused(void) {
     configApply(makeSource(&m), &snap, false, &result);
     TEST_ASSERT_TRUE(result.error.hasError);
     TEST_ASSERT_EQUAL(ApplyRefusalReason::Conflict, result.error.refusal.reason);
-    TEST_ASSERT_EQUAL_STRING("domeEscRndPauseMin", result.error.refusal.field);
+    TEST_ASSERT_EQUAL_STRING("domeRotationRndPauseMin", result.error.refusal.field);
     TEST_ASSERT_EQUAL_STRING("", result.error.refusal.accepts);
 
-    std::map<std::string, std::string> equal = {{"domeEscRndPauseMax", "6"}};
+    std::map<std::string, std::string> equal = {{"domeRotationRndPauseMax", "6"}};
     ConfigSnapshot fine = makeDefaultSnap();
     fine.dome.dome_rnd_pause_min = 6;
     fine.dome.dome_rnd_pause_max = 12;
@@ -878,7 +878,7 @@ void test_configApply_a_stored_preset_clash_names_the_preset_sent(void) {
 // reach - a direct POST, or a restore.
 void test_configApply_an_out_of_order_dome_pulse_set_is_refused(void) {
     std::map<std::string, std::string> full = {
-        {"domeEscMinPulseUs", "1800"}, {"domeEscNeutralUs", "1500"}, {"domeEscMaxPulseUs", "1200"}};
+        {"domeRotationMinPulseUs", "1800"}, {"domeRotationNeutralUs", "1500"}, {"domeRotationMaxPulseUs", "1200"}};
     ConfigSnapshot snap = makeDefaultSnap();
     snap.dome.dome_min_pulse_us = 1000;
     snap.dome.dome_neutral_us = 1500;
@@ -887,12 +887,12 @@ void test_configApply_an_out_of_order_dome_pulse_set_is_refused(void) {
     configApply(makeSource(&full), &snap, false, &result);
     TEST_ASSERT_TRUE(result.error.hasError);
     TEST_ASSERT_EQUAL_STRING(
-        "domeEscMinPulseUs 1800, domeEscNeutralUs 1500, domeEscMaxPulseUs 1200: "
+        "domeRotationMinPulseUs 1800, domeRotationNeutralUs 1500, domeRotationMaxPulseUs 1200: "
         "must be min <= neutral <= max",
         result.error.message);
 
     // One field, legal alone, that puts neutral above the stored max.
-    std::map<std::string, std::string> partial = {{"domeEscMaxPulseUs", "1400"}};
+    std::map<std::string, std::string> partial = {{"domeRotationMaxPulseUs", "1400"}};
     ConfigSnapshot stored = makeDefaultSnap();
     stored.dome.dome_min_pulse_us = 1000;
     stored.dome.dome_neutral_us = 1500;
@@ -901,12 +901,12 @@ void test_configApply_an_out_of_order_dome_pulse_set_is_refused(void) {
     configApply(makeSource(&partial), &stored, false, &partialResult);
     TEST_ASSERT_TRUE(partialResult.error.hasError);
     TEST_ASSERT_EQUAL_STRING(
-        "domeEscMinPulseUs 1000, domeEscNeutralUs 1500, domeEscMaxPulseUs 1400: "
+        "domeRotationMinPulseUs 1000, domeRotationNeutralUs 1500, domeRotationMaxPulseUs 1400: "
         "must be min <= neutral <= max",
         partialResult.error.message);
 
     // An ordered set, neutral on an end, still goes through.
-    std::map<std::string, std::string> ordered = {{"domeEscNeutralUs", "2000"}};
+    std::map<std::string, std::string> ordered = {{"domeRotationNeutralUs", "2000"}};
     ConfigSnapshot fine = makeDefaultSnap();
     fine.dome.dome_min_pulse_us = 1000;
     fine.dome.dome_neutral_us = 1500;

@@ -166,35 +166,35 @@
       }
     },
     {
-      "task": "DomeTask",
+      "task": "DomeRotation",
       "created_in": "src/main.cpp",
       "create_site": {
         "function": "setup",
         "guard": "bootCfg.system.enable_dome_esc"
       },
-      "chain_constant": "DOME_TASK_MEASURED_CHAIN_BYTES",
-      "stack_constant": "DOME_TASK_STACK_BYTES",
+      "chain_constant": "DOME_ROTATION_TASK_MEASURED_CHAIN_BYTES",
+      "stack_constant": "DOME_ROTATION_TASK_STACK_BYTES",
       "chips": {
         "esp32": {
           "env": "artoo_esp32",
           "roots": [
-            "domeTask"
+            "domeRotationTask"
           ],
           "frames": [],
-          "chain_bytes": 3024,
+          "chain_bytes": 3040,
           "stack_bytes": 4096,
-          "note": "Deepest route: domeTask -> setDomeSpeed() -> paLogf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> writeFrameCounted() -> HardwareSerial::write() -> uartWriteBuf -> ... (25 more); widest frames emitFramedLineCounted() 432 B, paLogf() 336 B, paLogIdfVprintf() 320 B, _svfiprintf_r 176 B. A log line on this route formats in paLogf() (src/logging.cpp, 336 B with its 256 B line buffer), which is on the chain only while the line is written; since #491 no function that logs carries that buffer in its own frame.",
+          "note": "Deepest route: domeRotationTask -> setDomeSpeed() -> paLogf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> writeFrameCounted() -> HardwareSerial::write() -> uartWriteBuf -> ... (25 more); widest frames emitFramedLineCounted() 432 B, paLogf() 336 B, paLogIdfVprintf() 320 B, _svfiprintf_r 176 B. A log line on this route formats in paLogf() (src/logging.cpp, 336 B with its 256 B line buffer), which is on the chain only while the line is written; since #491 no function that logs carries that buffer in its own frame. The Dome Rotation backend seam (#504) added 16 B to this route (3024 -> 3040 B), still inside the rule's 4096 B.",
           "created": "only when bootCfg.system.enable_dome_esc: dome output is enabled at boot (ADR 0027)"
         },
         "esp32p4": {
           "env": "firebeetle2",
           "roots": [
-            "domeTask"
+            "domeRotationTask"
           ],
           "frames": [],
-          "chain_bytes": 3680,
-          "stack_bytes": 4608,
-          "note": "Deepest route: domeTask -> setDomeSpeed() -> ledcPwmSetPulseWidth() -> ledc_set_duty -> esp_log -> paLogIdfVprintf() -> paLogLine() -> consoleSerialEmitFramedLine() -> emitFramedLineCounted() -> ... (18 more); widest frames _svfprintf_r 1152 B, emitFramedLineCounted() 432 B, _dtoa_r 416 B, paLogf() 336 B.",
+          "chain_bytes": 3760,
+          "stack_bytes": 5120,
+          "note": "Deepest route: domeRotationTask -> setDomeSpeed() -> domeRotationBackendWrite() -> ledcPwmSetPulseWidth() -> ledc_set_duty -> esp_log -> paLogIdfVprintf() -> paLogLine() -> consoleSerialEmitFramedLine() -> ... (19 more); widest frames _svfprintf_r 1152 B, emitFramedLineCounted() 432 B, _dtoa_r 416 B, paLogf() 336 B. The Dome Rotation backend seam (#504) puts domeRotationBackendWrite() on this route: the chain went 3680 -> 3744 B, past the rule's 4608 B step (3744 x 1.25 = 4680), so the stack moved 4608 -> 5120 B (+512 B RAM). Pause before reversing (#504) inlines sendDomeSpeed() into domeRotationTask so it adds no frame above setDomeSpeed(); the task's own frame grew 16 B, 3744 -> 3760 B, inside the 5120 B step (3760 x 1.25 = 4700).",
           "created": "only when bootCfg.system.enable_dome_esc: dome output is enabled at boot (ADR 0027)"
         }
       }

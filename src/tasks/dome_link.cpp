@@ -377,12 +377,12 @@ static bool parseDomeRxLine(const char* line, DomeRxSource source, uint32_t nowM
         if (sscanf(line + 9, "%d,%u", &speedPct, &durMs) == 2) {
             if (speedPct > 100) speedPct = 100;
             if (speedPct < -100) speedPct = -100;
-            DomeCommand rotCmd = {};
+            DomeRotationCommand rotCmd = {};
             rotCmd.speed      = (float)speedPct / 100.0f;
             rotCmd.durationMs = (uint32_t)durMs;
             rotCmd.source     = SRC_INTERNAL;
             rotCmd.timestampMs = nowMs;
-            if (xQueueSend(domeCmdQueue, &rotCmd, 0) != pdTRUE) {
+            if (xQueueSend(domeRotationCmdQueue, &rotCmd, 0) != pdTRUE) {
                 PA_LOG_WARN(TAG, "dome=rot dropped: queue full");
             } else {
                 PA_LOG_INFO(TAG, "dome seq rot: %d%% for %u ms", speedPct, durMs);
@@ -785,9 +785,10 @@ static bool fetchDomeLayoutOverWifi(const IPAddress& peerIp) {
 
 // Whether the dome link is switched on, read once when the task starts.
 //
-// noinline, deliberately: the ConfigSnapshot it reads through is 944 B, and
-// held in domeLinkTask()'s own frame it sat under every call the task makes for
-// as long as it runs - the dome layout fetch included, the deepest route in the
+// noinline, deliberately: the ConfigSnapshot it reads through is nearly 1 KB
+// (its size is the static_assert in include/config_store.h), and held in
+// domeLinkTask()'s own frame it sat under every call the task makes for as
+// long as it runs - the dome layout fetch included, the deepest route in the
 // task (tools/task_stack_recipes.json). Here it is a leaf frame that is gone
 // before that fetch can start (#451).
 static bool __attribute__((noinline)) domeLinkEnabledAtStart() {

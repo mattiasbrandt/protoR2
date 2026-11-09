@@ -1,17 +1,35 @@
 // =============================================================================
 // include/dome_math.h
 //
-// Pure-logic dome ESC pulse mapping and random-move pause arithmetic  --  no
-// hardware, no FreeRTOS.
-// Extracted for testability. Used by DomeTask and native tests.
+// Pure-logic Dome ESC pulse mapping, the Pause before reversing decision and
+// random-move pause arithmetic  --  no hardware, no FreeRTOS.
+// Extracted for testability. The pulse mapping is the Dome ESC backend's
+// (src/drivers/dome_rotation_backend_rc_pwm.cpp); the reversing pause and the
+// random-move arithmetic are DomeRotationTask's. The mapping and the random
+// moves are exercised by native tests.
 //
-// ESC PWM semantics (standard RC PWM, 50 Hz):
-//   1000us = full reverse / max brake
+// Dome ESC pulse semantics (standard RC PWM, 50 Hz):
+//   1000us = full reverse in a forward-and-reverse running mode; in a mode
+//            with a brake, a reverse from forward brakes first
 //   1500us = neutral / stop
 //   2000us = full forward
 // =============================================================================
 #pragma once
 #include <stdint.h>
+
+// -----------------------------------------------------------------------------
+// The bounds every Dome ESC pulse Setting (neutral, min, max) is held to, at
+// the config door and on load (src/config_settings.cpp). With the pulses in
+// order, no half-range can be wider than these two apart: 1,000 us. The
+// status document leans on that (src/web/status_json.cpp): a pulse moves in
+// whole us, so one us past neutral - or past Smallest turn, when one is set,
+// where every turn starts (domeSpeedToPulseUs()) - is at least 0.1 % of a
+// half-range, and one decimal never prints it as 0.0, which reads as Stopped.
+// The one pulse off neutral that reads 0.0 is a Speed limit no wider than
+// Smallest turn, which leaves every turn inside it; the Dome page says so.
+// -----------------------------------------------------------------------------
+inline constexpr uint16_t kDomePulseSettingMinUs = 1000;
+inline constexpr uint16_t kDomePulseSettingMaxUs = 2000;
 
 // -----------------------------------------------------------------------------
 // domePulsesInOrder()
@@ -23,8 +41,8 @@
 // about 60% reverse on an ESC in a forward/reverse mode, with nobody
 // commanding it (#417). So the config door refuses such a set, the loader
 // replaces a stored one with the defaults, and the mapping falls back to
-// neutral rather than trust it. data/dome.js applies the same rule before it
-// sends.
+// neutral rather than trust it. data/dome.js sends what the builder typed and
+// leaves this rule to the droid, whose refusal it shows.
 // -----------------------------------------------------------------------------
 inline bool domePulsesInOrder(uint16_t minPulseUs, uint16_t neutralUs, uint16_t maxPulseUs) {
     return minPulseUs <= neutralUs && neutralUs <= maxPulseUs;
@@ -38,6 +56,21 @@ inline bool domePulsesInOrder(uint16_t minPulseUs, uint16_t neutralUs, uint16_t 
 // neutral. Asymmetric neutral trimming (neutral != midpoint of min..max) is
 // handled correctly: forward and reverse half-ranges are computed independently.
 //
+// Smallest turn (#504): an ESC ignores pulses near neutral, and the width of
+// that dead band is not published (ISDT ESC70 spec sheet, section 6.4), so a
+// slow turn can put a pulse out that moves nothing. With `smallestTurnUs` set,
+// every non-zero speed starts one us PAST it and grows from there to the
+// limited end: neutral +/- (start + |speed| x (limited half-range - start)),
+// start = offset + 1, the distance truncated to whole us the same way on both
+// sides. One past, not on it: a pulse on the edge has a share of 0
+// (domePulseToShare()), so it would read Stopped and look like a stop to Pause
+// before reversing while a pulse is out. Speed 0 is still exactly neutral.
+// The offset is clamped to the limited half-range on its side, so it never
+// pushes a pulse past the speed limit; where that half-range is no wider than
+// the offset there is no "past" to start at, and every turn on that side is
+// the limited end itself (the Dome page says so). A limit of 0 still sends
+// neutral for every speed. 0 is off, and gives the mapping as it always was.
+//
 // Returns pulse width clamped to [minPulseUs, maxPulseUs] - or neutralUs for
 // every speed when the set is out of order (domePulsesInOrder()), since then
 // there is no range to clamp into and a stop must still be a stop. A safety
@@ -45,7 +78,8 @@ inline bool domePulsesInOrder(uint16_t minPulseUs, uint16_t neutralUs, uint16_t 
 // this is what holds if one gets past them anyway.
 // -----------------------------------------------------------------------------
 inline uint16_t domeSpeedToPulseUs(float speed, uint16_t neutralUs, uint16_t minPulseUs,
-                                   uint16_t maxPulseUs, uint8_t speedLimitPct) {
+                                   uint16_t maxPulseUs, uint8_t speedLimitPct,
+                                   uint16_t smallestTurnUs = 0) {
     if (!domePulsesInOrder(minPulseUs, neutralUs, maxPulseUs)) {
         return neutralUs;
     }
@@ -59,11 +93,22 @@ inline uint16_t domeSpeedToPulseUs(float speed, uint16_t neutralUs, uint16_t min
     float reverseRange = (float)(neutralUs - minPulseUs) * limitScale;
     float forwardRange = (float)(maxPulseUs - neutralUs) * limitScale;
 
-    int16_t pulseUs;
-    if (speed >= 0.0f) {
-        pulseUs = (int16_t)((float)neutralUs + speed * forwardRange);
-    } else {
-        pulseUs = (int16_t)((float)neutralUs + speed * reverseRange);
+    int16_t pulseUs = (int16_t)neutralUs;
+    if (smallestTurnUs == 0) {
+        // The mapping as it always was, truncation included.
+        if (speed >= 0.0f) {
+            pulseUs = (int16_t)((float)neutralUs + speed * forwardRange);
+        } else {
+            pulseUs = (int16_t)((float)neutralUs + speed * reverseRange);
+        }
+    } else if (speed != 0.0f) {
+        const float rangeUs = (speed > 0.0f) ? forwardRange : reverseRange;
+        const float offsetUs = (float)smallestTurnUs;
+        const float edgeUs = (offsetUs < rangeUs) ? offsetUs : rangeUs;
+        const float startUs = (rangeUs - edgeUs >= 1.0f) ? edgeUs + 1.0f : edgeUs;
+        const float magnitude = (speed > 0.0f) ? speed : -speed;
+        const int16_t distUs = (int16_t)(startUs + magnitude * (rangeUs - startUs));
+        pulseUs = (speed > 0.0f) ? (int16_t)(neutralUs + distUs) : (int16_t)(neutralUs - distUs);
     }
 
     if (pulseUs < (int16_t)minPulseUs)
@@ -72,6 +117,77 @@ inline uint16_t domeSpeedToPulseUs(float speed, uint16_t neutralUs, uint16_t min
         pulseUs = (int16_t)maxPulseUs;
 
     return (uint16_t)pulseUs;
+}
+
+// -----------------------------------------------------------------------------
+// domePulseToShare()
+// The pulse on the wire as a signed share of the ESC's FULL output (-1..1):
+// its distance from neutral over the full half-range on its side, never over
+// the speed limit's. This is what a Dome ESC reports back through the Dome
+// Rotation seam (include/dome_rotation_backend.h), and the scale the Dome
+// Bearing's full-turn speed is recorded on. 0 at neutral, and on a side with
+// no range (min == neutral or max == neutral).
+//
+// With Smallest turn set (#504) the share is measured from its edge, not from
+// neutral: a pulse at or inside it is 0, and the full end is still 1. The
+// dome stands still inside the dead band Smallest turn is set against, and a
+// share counted there would move the Dome Bearing while the dome does not.
+// The edge is clamped as domeSpeedToPulseUs() clamps it, against the full
+// half-range here; an edge at the full end leaves only the end itself, as 1.
+// -----------------------------------------------------------------------------
+inline float domePulseShareOfSide(uint16_t distUs, uint16_t sideUs, uint16_t smallestTurnUs) {
+    if (distUs >= sideUs) {
+        return 1.0f;
+    }
+    const uint16_t edgeUs = (smallestTurnUs < sideUs) ? smallestTurnUs : sideUs;
+    if (distUs <= edgeUs) {
+        return 0.0f;
+    }
+    return (float)(distUs - edgeUs) / (float)(sideUs - edgeUs);
+}
+
+inline float domePulseToShare(uint16_t pulseUs, uint16_t neutralUs, uint16_t minPulseUs,
+                              uint16_t maxPulseUs, uint16_t smallestTurnUs = 0) {
+    if (pulseUs > neutralUs && maxPulseUs > neutralUs) {
+        return domePulseShareOfSide(pulseUs - neutralUs, maxPulseUs - neutralUs, smallestTurnUs);
+    }
+    if (pulseUs < neutralUs && neutralUs > minPulseUs) {
+        return -domePulseShareOfSide(neutralUs - pulseUs, neutralUs - minPulseUs, smallestTurnUs);
+    }
+    return 0.0f;
+}
+
+// -----------------------------------------------------------------------------
+// Pause before reversing (#504)
+//
+// A Dome ESC has no ramp of its own (spec sheet, section 8.3), so a turn one
+// way replaced by a turn the other way goes out in one 20 ms tick. With a
+// pause set, the stop is held on the wire first. The rule is about the WIRE,
+// for every source alike (stick, sequence, Dome Controller line, random moves,
+// bearing turns):
+//
+//   - a turn the same way as the last turn on the wire, or a stop, goes at once;
+//   - a turn the other way waits until a stop has been on the wire for the
+//     pause: the whole pause while the old turn is still on it, the rest of
+//     the pause when a stop has been on it for less. A stick flicked through
+//     the centre in one tick still gets its pause;
+//   - from rest - a stop held for the pause or longer, or no turn since boot -
+//     there is no pause, so a turn from a standstill is unchanged.
+//
+// `wireSign` is the sign of the last non-zero output put on the wire (0 for
+// none), and `stopHeldMs` how long a stop has been on the wire since it (0
+// while that output is still there). Returns how long the turn must still
+// wait, in ms; 0 means it goes now. `pauseMs` 0 is off.
+// -----------------------------------------------------------------------------
+inline constexpr uint16_t DOME_REVERSE_PAUSE_MAX_MS = 2000;
+
+inline uint32_t domeReversePauseMs(int8_t wireSign, uint32_t stopHeldMs, float speed,
+                                   uint16_t pauseMs) {
+    const int8_t sign = (speed > 0.0f) ? 1 : (speed < 0.0f) ? -1 : 0;
+    if (pauseMs == 0 || sign == 0 || wireSign == 0 || sign == wireSign) {
+        return 0;
+    }
+    return (stopHeldMs >= pauseMs) ? 0 : (uint32_t)pauseMs - stopHeldMs;
 }
 
 // -----------------------------------------------------------------------------
@@ -103,7 +219,7 @@ inline bool domeRndMoodStartsMoves(uint8_t mood) {
 // its turns is running. Whether the dome goes to neutral with it: yes, unless
 // a manual command was taken on this very tick, which owns the dome now and
 // must not be overwritten by a turn that is only ending (#450). The estop and
-// Sleep Mode still win, and need no word here: DomeTask takes no command
+// Sleep Mode still win, and need no word here: DomeRotationTask takes no command
 // under either, so no manual command exists on such a tick.
 inline bool domeRndStandDownGoesNeutral(bool manualCommandThisTick) {
     return !manualCommandThisTick;

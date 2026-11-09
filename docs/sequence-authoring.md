@@ -106,7 +106,7 @@ A rotation step specifies a target speed and duration:
 ```
 
 - `speedPct`: signed integer -100..100 (negative = left/reverse, positive = right/forward)
-- `durationMs`: rotation duration in milliseconds; must be positive except for explicit neutral stop (see below)
+- `durationMs`: rotation duration in milliseconds; must be positive except for explicit neutral stop (see below). A duration over 30 s (30000 ms) is cut to 30 s when the step runs
 - A **neutral stop** uses `speedPct: 0, durationMs: 0` and may appear anywhere; any other zero value is rejected
 
 Dome rotation does **not** depend on RC/SBUS input and requires no manual cleanup — the engine stops
@@ -128,8 +128,9 @@ speed its full turn was timed at, and stops on time (the full turn is timed on
 the Dome page). The Part's bearing is read when the step runs, so a corrected
 `bearing_deg` reaches every saved step.
 
-It is a different promise from `domeRotate`: a duration always completes, and a
-turn to a target may not. While where the dome points is unknown (after a boot,
+It is a different promise from `domeRotate`: a duration always completes (cut
+to 30 s if longer), and a turn to a target may not, though it is never cut to
+30 s. While where the dome points is unknown (after a boot,
 an estop or Sleep Mode, until the builder confirms front on the Dome page), the
 dome not calibrated or the Dome ESC off, the step does not move the dome; the run reports `bearing-unknown`,
 `dome-not-calibrated` or `component-disabled` and carries on. It saves either
@@ -480,7 +481,7 @@ the format cannot express a bypass for.
 | `:SE` | exactly 2 digits (e.g. `:SE09`); not allowed inside a loop |
 | `@`/`*`/`$` | length- and charset-bounded; recognised prefix |
 | `DV:`/`DL:`/`DT:`/`DH:` | a known Visual Preset name; each light command's fields within range ([dome-visual-authoring-contract.md](dome-visual-authoring-contract.md)) |
-| `domeRotate` | speedPct -100..100; durationMs positive (or 0 paired with speedPct=0 for neutral stop) |
+| `domeRotate` | speedPct -100..100; durationMs positive (or 0 paired with speedPct=0 for neutral stop); a durationMs over 30000 saves, and is cut to 30 s when it runs |
 | `domeBearing` | `target` is `front` or a dome Part the catalog gives a bearing; nothing about the dome's calibration or belief is checked on save |
 | `body` | `part` in the Droid Parts Catalog; `shape` open/close/flutter; `howFar` 1..100; a flutter's `flutterMs` 50..60000 and no duration on any other shape |
 | `loop` | period 100..60000, duration `<=120000`, no nesting, body within branch |

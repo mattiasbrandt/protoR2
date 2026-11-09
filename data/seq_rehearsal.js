@@ -646,7 +646,9 @@
   // A step aimed at hardware this droid has switched off does nothing at all.
   // The toggles are GET /api/config's components; a body Part's is the wired
   // tick on the Output it is on (data/outputs.js). Nothing is said about a
-  // toggle that was not read.
+  // toggle that was not read. `what` is a plain word, lower-cased mid-sentence;
+  // `setting` names a toggle whose label is a name (Dome Rotation), which the
+  // words table carries (data/web_api.js) and which keeps its capitals.
   const SWITCHES = [
     { types: ["dome", "random"], key: "protoR2link", what: "The dome link", steps: ["dome step", "dome steps"] },
     {
@@ -655,7 +657,7 @@
       what: "Sound",
       steps: ["sound step", "sound steps"],
     },
-    { types: ["domeRotate", "domeBearing"], key: "domeEsc", what: "The dome motor", steps: ["dome turn", "dome turns"] },
+    { types: ["domeRotate", "domeBearing"], key: "domeRotation", setting: "enableDomeRotation", steps: ["dome turn", "dome turns"] },
   ];
 
   const switchedOff = (events, context) => {
@@ -683,11 +685,12 @@
         );
       }
       const { toggle } = first;
+      const named = toggle.setting ? window.PAApi.labelOf(toggle.setting) : "";
       return finding(
         "warning",
         "switched-off",
-        `${toggle.what} is off on this droid, so ${plural(n, toggle.steps[0], toggle.steps[1])} ${n === 1 ? "does" : "do"} nothing.`,
-        `Turn ${toggle.what.toLowerCase()} on in Configuration, or delete the ${n === 1 ? "step" : "steps"}.`,
+        `${named || toggle.what} is off on this droid, so ${plural(n, toggle.steps[0], toggle.steps[1])} ${n === 1 ? "does" : "do"} nothing.`,
+        `Turn ${named || toggle.what.toLowerCase()} on in Configuration, or delete the ${n === 1 ? "step" : "steps"}.`,
         { step: first.event.step, n },
       );
     });

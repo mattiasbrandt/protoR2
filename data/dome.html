@@ -24,35 +24,42 @@
       </div>
     </div>
 
-    <!-- Dome ESC switched off in Configuration. An Availability Family "change it
+    <!-- Dome Rotation switched off in Configuration. An Availability Family "change it
          here" (GLOSSARY.md): the card names the move and routes to it, and it is
          told apart by treatment and never by hue. -->
     <div id="dome-disabled-card" class="card disabled-card hidden" role="status" aria-live="polite" aria-atomic="true">
-      <div class="sect"><h2>Dome rotation</h2><span class="sub">switched off in Configuration</span></div>
-      <p class="note"><b>Off:</b> the dome stays put, even through a sequence. <a class="setup-link" href="/configuration.html">Switch Dome ESC on in Configuration</a></p>
+      <div class="sect"><h2>Dome Rotation</h2><span class="sub">switched off in Configuration</span></div>
+      <p class="note"><b>Off:</b> the dome stays put, even through a sequence. <a class="setup-link" href="/configuration.html">Switch Dome Rotation on in Configuration</a></p>
     </div>
 
-    <!-- What the dome is being told to do, right now. A readout and nothing
-         else: this page has no control that turns the dome, so the gauge is
-         not draggable and does not pretend to be. -->
+    <!-- What the droid sent to Dome Rotation, right now, after the speed
+         limit: the droid cannot see the dome move (#504). The gauge is a
+         readout, so it is not draggable and does not pretend to be. What
+         turns the dome from here is a press the droid bounds: Go home, and
+         the calibration helper's holds. -->
     <div class="card dome-rotation">
-      <div class="sect"><h2>Dome rotation</h2><span class="sub waiting" id="dome-hardware-state"></span></div>
+      <div class="sect"><h2>Dome Rotation</h2><span class="sub waiting" id="dome-hardware-state"></span></div>
       <div class="dome-live-meta">
-        <div class="slider-value" id="dome-speed-display">0%</div>
+        <div class="slider-value" id="dome-speed-display"></div>
+        <!-- The pulse that went with it, for a Dome ESC; empty where the
+             product sends no pulse. -->
+        <span id="dome-pulse-display" class="dome-rotation-state"></span>
         <!-- The direction the dome is being turned is a value, not a symptom,
              so it is a word and never a color (GLOSSARY.md "Status Color").
-             Forward used to read green and reverse amber, which promised the
-             builder something to do about turning left. -->
-        <span id="dome-rotation-state" class="dome-rotation-state">Idle</span>
+             One direction used to read green and the other amber, which
+             promised the builder something to do about turning left. -->
+        <span id="dome-rotation-state" class="dome-rotation-state"></span>
       </div>
-      <div class="dome-live-track" role="img" aria-label="Live dome rotation target from RC input">
+      <div class="dome-live-track" role="img" aria-label="What the droid sends to Dome Rotation">
         <div id="dome-live-fill" class="dome-live-fill"></div>
         <div class="dome-live-center"></div>
       </div>
+      <!-- The gauge's two ends name the way each side turns once Positive
+           turns is set; until then, only the side of the stop is known. -->
       <div class="slider-labels">
-        <span>Reverse</span>
+        <span id="dome-track-negative">-100%</span>
         <span>Stop</span>
-        <span>Forward</span>
+        <span id="dome-track-positive">100%</span>
       </div>
       <!-- Where the dome believes it points (#445): the number, and the word
            that says it is believed, in the row it qualifies. Unknown is a word
@@ -67,7 +74,32 @@
           <button id="dome-home-button" class="btn btn-sm icon-act act-keeps-words" type="button"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-home-outline"/></svg><span class="act-label">Go home</span></button>
         </div>
       </div>
-      <div id="dome-feedback" class="feedback" role="status" aria-live="polite" aria-atomic="true">Dome ready.</div>
+      <!-- The calibration helper (#504), for a Dome ESC only: dome.js shows
+           it while the droid reports a pulse. Each press is one timed turn
+           through POST /api/dome, Neutral included, under the same speed limit
+           as every other turn, so a full press waits for Speed limit at 100 %
+           and asks the droid for it first; it stops by itself after 30 s and
+           nothing in the browser refreshes it. The lit choice
+           is what the droid reports sending, not the last press. The ESC
+           counts its own beeps; the steps are the vendor's order. -->
+      <div id="dome-calibrate" class="dome-calibrate" hidden>
+        <div class="dome-calibrate-row">
+          <span class="dome-calibrate-name" id="dome-calibrate-name">Calibrate</span>
+          <div class="seg seg-sm" id="dome-calibrate-holds" role="group" aria-labelledby="dome-calibrate-name">
+            <button type="button" data-speed="1" aria-pressed="false">Full one way</button>
+            <button type="button" data-speed="0" aria-pressed="false">Neutral</button>
+            <button type="button" data-speed="-1" aria-pressed="false">Full the other way</button>
+          </div>
+          <span id="dome-calibrate-gate" class="hint"></span>
+        </div>
+        <ol class="dome-more-list dome-calibrate-steps">
+          <li>Calibrate before any other ISD Go setting.</li>
+          <li>Hold full one way, then switch the ESC on.</li>
+          <li>At each beep, press the next: neutral, full one way, neutral, full the other way, neutral.</li>
+          <li>Restart the ESC.</li>
+        </ol>
+      </div>
+      <div id="dome-feedback" class="feedback" role="status" aria-live="polite" aria-atomic="true">Waiting for the droid.</div>
     </div>
 
     <!-- The motor and its idle turns, side by side in one bay: two short lists
@@ -76,25 +108,60 @@
     <div class="bay dome-settings">
       <section>
         <div class="sect"><h2>Dome ESC</h2><span class="sub">saved as you change</span></div>
-        <div class="note note-info" role="note">
-          Calibration, PWM frequency and voltage cutoff live in the <b>ISD Go</b> app, over Bluetooth.
-        </div>
+        <!-- What the droid cannot see (#504). The ESC is write-only: its
+             running mode, curve and faults live in the ISD Go app and its own
+             LED, so the two traps that look like a broken dome are named here,
+             the one maker text both asset sets carry. Folded, because a set-up
+             droid never needs them; the wiring card holds the same facts. -->
+        <details class="dome-more">
+          <summary><svg class="i chev" aria-hidden="true" focusable="false"><use href="#i-chevron-right"/></svg>Set up in the ISD Go app</summary>
+          <ol class="dome-more-list">
+            <li>Calibrate the throttle first. Nothing else can be set until it is done.</li>
+            <li>Running mode: <b>Forward and Reverse</b>. The default only brakes on the first reverse.</li>
+            <li>Throttle curve: both ends at 100, not Novice. Novice caps the dome at 70%.</li>
+            <li>BEC voltage: <b>5.0 V</b>. Its centre wire stays off the board.</li>
+            <li>Start force: high.</li>
+            <li>Active brake: off.</li>
+          </ol>
+        </details>
+        <details class="dome-more">
+          <summary><svg class="i chev" aria-hidden="true" focusable="false"><use href="#i-chevron-right"/></svg>Dome not turning?</summary>
+          <dl class="dome-more-list">
+            <dt>One way only</dt><dd>Running mode, before the mechanics.</dd>
+            <dt>Never moves</dt><dd>Calibrate the throttle, or raise Speed limit.</dd>
+            <dt>Weak</dt><dd>The Novice throttle curve.</dd>
+            <dt>Red LED</dt><dd>ISD Go names the error.</dd>
+            <dt>No LED</dt><dd>The ESC's power or its switch.</dd>
+            <dt>Green LED, still</dt><dd>The signal wire or its ground.</dd>
+          </dl>
+          <p class="hint">Only the ESC's LED and ISD Go show its state. The droid knows what it sent.</p>
+        </details>
         <form id="esc-form" class="setting-rows">
           <label class="setting-row">
             <span class="setting-name">Neutral pulse<span class="hint">Wrong, and the dome creeps on its own.</span></span>
-            <span class="setting-number"><input id="dome-neutral" class="number-cell" name="domeEscNeutralUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+            <span class="setting-number"><input id="dome-neutral" class="number-cell" name="domeRotationNeutralUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Minimum pulse<span class="hint">Narrower than neutral.</span></span>
-            <span class="setting-number"><input id="dome-min-pulse" class="number-cell" name="domeEscMinPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+            <span class="setting-number"><input id="dome-min-pulse" class="number-cell" name="domeRotationMinPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Maximum pulse<span class="hint">Wider than neutral.</span></span>
-            <span class="setting-number"><input id="dome-max-pulse" class="number-cell" name="domeEscMaxPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+            <span class="setting-number"><input id="dome-max-pulse" class="number-cell" name="domeRotationMaxPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Speed limit<span class="hint">20 is a slow scan, 100 is as fast as the dome turns.</span></span>
-            <span class="setting-number"><input id="dome-speed-limit" class="number-cell" name="domeEscSpeedLimitPct" type="number" step="1"><span class="setting-unit">%</span></span>
+            <span class="setting-name">Smallest turn<span class="hint">From neutral, where the dome starts to move. 0 is off.</span></span>
+            <span class="setting-number"><input id="dome-smallest-turn" class="number-cell" name="domeRotationSmallestTurnUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+          </label>
+          <!-- While Smallest turn is 0, dome.js puts the pulse full stick sends
+               in this hint, so a limit too low to move the dome shows. -->
+          <label class="setting-row">
+            <span class="setting-name">Speed limit<span class="hint" id="dome-speed-limit-hint">20 is a slow scan, 100 sends the ESC's full range.</span></span>
+            <span class="setting-number"><input id="dome-speed-limit" class="number-cell" name="domeRotationSpeedLimitPct" type="number" step="1"><span class="setting-unit">%</span></span>
+          </label>
+          <label class="setting-row">
+            <span class="setting-name">Pause before reversing<span class="hint">A stop held between directions. 0 is off.</span></span>
+            <span class="setting-number"><input id="dome-reverse-pause" class="number-cell" name="domeRotationReversePauseMs" type="number" step="50"><span class="setting-unit">ms</span></span>
           </label>
         </form>
         <div class="setting-foot">
@@ -105,30 +172,29 @@
 
       <section>
         <div class="sect"><h2>Random movement</h2><span class="sub">idle turns</span></div>
-        <p class="hint">Only while the sticks are still and no sequence runs. These pauses are Full-Awake's: Awake+ is quicker, Mid-Awake slower, Quiet never turns.</p>
         <form id="rnd-dome-form" class="setting-rows">
           <!-- The tick is drawn as a switch: it turns a behaviour on and off,
                and it stays an <input type="checkbox"> underneath, so dome.js
                reads .checked exactly as before. -->
           <label class="setting-row">
-            <span class="setting-name">Turn the dome on its own</span>
-            <input id="dome-rnd-enable" class="switch" name="domeEscRndEnable" type="checkbox">
+            <span class="setting-name">Turn the dome on its own<span class="hint">With the sticks still and no sequence running. Never in Quiet.</span></span>
+            <input id="dome-rnd-enable" class="switch" name="domeRotationRndEnable" type="checkbox">
           </label>
           <label class="setting-row">
-            <span class="setting-name">Speed<span class="hint">A share of the dome's own limit, not of the ESC's full rate.</span></span>
-            <span class="setting-number"><input id="dome-rnd-speed" class="number-cell" name="domeEscRndSpeedPct" type="number" step="1"><span class="setting-unit">%</span></span>
+            <span class="setting-name">Speed<span class="hint" id="dome-rnd-speed-hint">A share of the dome's own limit, not of the ESC's full rate.</span></span>
+            <span class="setting-number"><input id="dome-rnd-speed" class="number-cell" name="domeRotationRndSpeedPct" type="number" step="1"><span class="setting-unit">%</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Move duration<span class="hint">How long one turn lasts.</span></span>
-            <span class="setting-number"><input id="dome-rnd-move-ms" class="number-cell" name="domeEscRndMoveMs" type="number" step="100"><span class="setting-unit">ms</span></span>
+            <span class="setting-number"><input id="dome-rnd-move-ms" class="number-cell" name="domeRotationRndMoveMs" type="number" step="100"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Shortest pause</span>
-            <span class="setting-number"><input id="dome-rnd-pause-min" class="number-cell" name="domeEscRndPauseMin" type="number" step="1"><span class="setting-unit">s</span></span>
+            <span class="setting-name">Shortest pause<span class="hint">Full-Awake's. Awake+ is quicker, Mid-Awake slower.</span></span>
+            <span class="setting-number"><input id="dome-rnd-pause-min" class="number-cell" name="domeRotationRndPauseMin" type="number" step="1"><span class="setting-unit">s</span></span>
           </label>
           <label class="setting-row">
             <span class="setting-name">Longest pause</span>
-            <span class="setting-number"><input id="dome-rnd-pause-max" class="number-cell" name="domeEscRndPauseMax" type="number" step="1"><span class="setting-unit">s</span></span>
+            <span class="setting-number"><input id="dome-rnd-pause-max" class="number-cell" name="domeRotationRndPauseMax" type="number" step="1"><span class="setting-unit">s</span></span>
           </label>
         </form>
         <div class="setting-foot">
@@ -143,12 +209,12 @@
         <div class="sect"><h2>Full turn</h2><span class="sub" id="dome-turn-state">not set</span></div>
         <form id="dome-turn-form" class="setting-rows">
           <label class="setting-row">
-            <span class="setting-name">Time for one turn<span class="hint">Stopwatch one full turn.</span></span>
-            <span class="setting-number"><input id="dome-turn-ms" class="number-cell" name="domeEscFullTurnMs" type="number" step="10" placeholder="-"><span class="setting-unit">ms</span></span>
+            <span class="setting-name">Time for one turn<span class="hint">Stopwatch one full turn at your usual speed.</span></span>
+            <span class="setting-number"><input id="dome-turn-ms" class="number-cell" name="domeRotationFullTurnMs" type="number" step="10" placeholder="-"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Timed at<span class="hint">Full stick under a 60% speed limit is 60.</span></span>
-            <span class="setting-number"><input id="dome-turn-pct" class="number-cell" name="domeEscFullTurnPct" type="number" step="1" placeholder="-"><span class="setting-unit">%</span></span>
+            <span class="setting-name">Timed at<span class="hint">The % the readout shows while you time it. Re-time after an ISD Go, Speed limit or Smallest turn change.</span></span>
+            <span class="setting-number"><input id="dome-turn-pct" class="number-cell" name="domeRotationFullTurnPct" type="number" step="1" placeholder="-"><span class="setting-unit">%</span></span>
           </label>
           <div class="setting-row">
             <span class="setting-name" id="dome-turn-dir-name">Positive turns<span class="hint">Seen from above.</span></span>

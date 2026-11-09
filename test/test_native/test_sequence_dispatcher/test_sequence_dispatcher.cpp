@@ -147,8 +147,8 @@ void test_dome_rotate_action_maps_to_sequence_dome_command() {
     act.domeSpeedPct = -35;
     act.domeDurationMs = 900;
 
-    DomeCommand cmd = {};
-    TEST_ASSERT_TRUE(sequenceActionToDomeCommand(act, 123456, cmd));
+    DomeRotationCommand cmd = {};
+    TEST_ASSERT_TRUE(sequenceActionToDomeRotationCommand(act, 123456, cmd));
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, -0.35f, cmd.speed);
     TEST_ASSERT_EQUAL_UINT32(900, cmd.durationMs);
     TEST_ASSERT_EQUAL_INT(SRC_SEQ, (int)cmd.source);
@@ -162,8 +162,8 @@ void test_dome_rotate_max_positive_speed() {
     act.domeSpeedPct = 100;
     act.domeDurationMs = 1000;
 
-    DomeCommand cmd = {};
-    TEST_ASSERT_TRUE(sequenceActionToDomeCommand(act, 0, cmd));
+    DomeRotationCommand cmd = {};
+    TEST_ASSERT_TRUE(sequenceActionToDomeRotationCommand(act, 0, cmd));
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, cmd.speed);
     TEST_ASSERT_EQUAL_UINT32(1000, cmd.durationMs);
 }
@@ -175,8 +175,8 @@ void test_dome_rotate_max_negative_speed() {
     act.domeSpeedPct = -100;
     act.domeDurationMs = 2000;
 
-    DomeCommand cmd = {};
-    TEST_ASSERT_TRUE(sequenceActionToDomeCommand(act, 0, cmd));
+    DomeRotationCommand cmd = {};
+    TEST_ASSERT_TRUE(sequenceActionToDomeRotationCommand(act, 0, cmd));
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, -1.0f, cmd.speed);
     TEST_ASSERT_EQUAL_UINT32(2000, cmd.durationMs);
 }
@@ -188,8 +188,8 @@ void test_dome_rotate_neutral_stop() {
     act.domeSpeedPct = 0;
     act.domeDurationMs = 0;
 
-    DomeCommand cmd = {};
-    TEST_ASSERT_TRUE(sequenceActionToDomeCommand(act, 500, cmd));
+    DomeRotationCommand cmd = {};
+    TEST_ASSERT_TRUE(sequenceActionToDomeRotationCommand(act, 500, cmd));
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, cmd.speed);
     TEST_ASSERT_EQUAL_UINT32(0, cmd.durationMs);
     TEST_ASSERT_EQUAL_INT(SRC_SEQ, (int)cmd.source);
@@ -200,8 +200,8 @@ void test_non_rotate_action_does_not_map_to_dome_command() {
     act.kind = SEQ_ACT_DOME_CMD;
     strncpy(act.payload, "@0T1", sizeof(act.payload) - 1);
 
-    DomeCommand cmd = {};
-    TEST_ASSERT_FALSE(sequenceActionToDomeCommand(act, 1, cmd));
+    DomeRotationCommand cmd = {};
+    TEST_ASSERT_FALSE(sequenceActionToDomeRotationCommand(act, 1, cmd));
 }
 
 // =============================================================================
