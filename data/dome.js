@@ -139,8 +139,9 @@
 
   // A Dome ESC is the Dome Rotation product that reports a pulse
   // (kDomeRotationBackend.reportsPulse, include/dome_rotation_backend.h); the
-  // droid reports one from its first neutral at start-up, and firmware that
-  // cannot take a timed hold reports none.
+  // droid reports one from its first neutral at start-up. The pulse report
+  // and the timed hold ship in the same release (#504), so released firmware
+  // that cannot take a hold reports no pulse and gets no helper.
   const isDomeEsc = () => lastSent !== null && lastSent.pulseUs > 0;
 
   // Which hold the droid is sending: full throw is the whole output, so at
