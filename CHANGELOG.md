@@ -25,6 +25,8 @@ the patch releases, whose notes live on their own GitHub Release.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-09
+
 ### Added
 
 #### Dome
