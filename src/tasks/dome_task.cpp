@@ -36,9 +36,9 @@
 #include "dome_bearing.h"
 #include "dome_bearing_act.h"  // domeBearingRefusalReason() - the one copy of those reasons
 #include "dome_math.h"
+#include "dome_rotation_backend.h"  // the seam every turn and stop goes out through
 #include "dome_turn_calibration.h"
 #include "drive_motion.h"  // driveMotionIsDriving() - Resting Behaviour waits while driving
-#include "ledc_pwm.h"
 #include "logging.h"
 #include "robot_state.h"
 
@@ -48,7 +48,6 @@ static const char* TAG = "DOME";
 // Constants
 // -----------------------------------------------------------------------------
 #define DOME_COMMAND_TIMEOUT_MS 500  // Zero speed if no command for 500ms
-#define ESC_ARMING_DURATION_MS 2000  // Time to hold neutral for arming
 // The longest timed turn taken from a sender (#504): a Dome Controller
 // `dome=rot` line or a sequence step. A longer one is cut to this and logged.
 // A turn to a Dome Bearing is exempt: it is planned here from the droid's own
@@ -61,13 +60,14 @@ static const char* TAG = "DOME";
 // The Dome Bearing (include/dome_bearing.h, ADR 0051 as amended 2026-09-30,
 // #445)
 //
-// Every pulse the dome gets is written by this task - RC, web, sequences, the
+// Every turn the dome gets is written by this task - RC, web, sequences, the
 // dome link, the Console and random movement all end in setDomeSpeed() or
 // setDomeNeutral() - so this is the one place the belief can be integrated, and
-// it is integrated from the pulse ACTUALLY written, after the speed limit has
-// scaled it, never from a speed somebody asked for. Each write first moves the
-// belief by what the pulse being replaced did over the measured time it was on
-// the wire, and the loop moves it once a tick as well: a tick is vTaskDelay(20)
+// it is integrated from what the Dome Rotation backend reports it ACTUALLY put
+// on the wire, after the speed limit has scaled it, never from a speed somebody
+// asked for. Each write first moves the belief by what the output being
+// replaced did over the measured time it was on the wire, and the loop moves it
+// once a tick as well: a tick is vTaskDelay(20)
 // after the loop's work, not a fixed period, so the elapsed time is always
 // measured, never assumed.
 //
@@ -82,7 +82,7 @@ static const char* TAG = "DOME";
 // route that is this task's deepest. They run on this task only.
 // -----------------------------------------------------------------------------
 static struct {
-    uint16_t pulseUs;  // the pulse on the wire since atMs
+    float    share;    // the backend's output on the wire since atMs (-1..1)
     uint32_t atMs;     // when the belief was last moved
     bool     believed;
     float    deg;      // meaningful only while believed
@@ -90,7 +90,7 @@ static struct {
     // Front is here pressed at or before it is stale: the dome may have
     // coasted since (bearingDeclareFront()).
     uint32_t forgotAtMs;
-} s_bearing = {0, 0, false, 0.0f, 0};
+} s_bearing = {0.0f, 0, false, 0.0f, 0};
 
 // The RobotState mirror, which every surface reads through domeBearingRead().
 static void bearingPublish() {
@@ -116,7 +116,7 @@ static void __attribute__((noinline)) bearingAdvance(const DomeConfig& cfg, uint
         s_bearing.believed = false;
     } else {
         s_bearing.deg = domeBearingWrap(
-            s_bearing.deg + domeBearingRateDegPerMs(s_bearing.pulseUs, cal) * (float)elapsedMs);
+            s_bearing.deg + domeBearingRateDegPerMs(s_bearing.share, cal) * (float)elapsedMs);
     }
     bearingPublish();
 }
@@ -193,46 +193,42 @@ static ConsoleReason __attribute__((noinline)) bearingPlanTurn(DomeCommand* cmd)
     return CONSOLE_REASON_NONE;
 }
 
-// The one pulse write: the belief catches up on the pulse it replaces first.
-static void writeDomePulse(const DomeConfig& cfg, uint16_t pulseUs) {
-    bearingAdvance(cfg, millis());
-    ledcPwmSetPulseWidth(LEDC_CH_DOME, pulseUs);
-    s_bearing.pulseUs = pulseUs;
-}
-
 // -----------------------------------------------------------------------------
 // setDomeSpeed()
-// Read persisted ESC config, compute pulse width, and output via LEDC.
+// One signed speed out through the Dome Rotation backend, under the stored
+// speed limit. The belief catches up on the output it replaces first, then
+// follows the one the backend reports.
 // -----------------------------------------------------------------------------
 static void setDomeSpeed(float speed) {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
 
-    uint16_t pulseUs = domeSpeedToPulseUs(speed, cfg.dome_neutral_us, cfg.dome_min_pulse_us,
-                                          cfg.dome_max_pulse_us, cfg.dome_speed_limit_pct);
-
-    writeDomePulse(cfg, pulseUs);
+    bearingAdvance(cfg, millis());
+    const DomeRotationOutput out =
+        domeRotationBackendWrite(cfg, speed, cfg.dome_speed_limit_pct);
+    s_bearing.share = out.share;
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = speed;
     taskEXIT_CRITICAL(&robotStateMux);
 
     PA_LOG_DEBUG(TAG, "Dome speed %d%% -> %d us (neutral=%d min=%d max=%d lim=%d%%)",
-                 (int)(speed * 100.0f), (int)pulseUs, (int)cfg.dome_neutral_us,
+                 (int)(speed * 100.0f), (int)out.pulseUs, (int)cfg.dome_neutral_us,
                  (int)cfg.dome_min_pulse_us, (int)cfg.dome_max_pulse_us,
                  (int)cfg.dome_speed_limit_pct);
 }
 
 // -----------------------------------------------------------------------------
 // setDomeNeutral()
-// Output the configured neutral pulse  --  safe idle output.
+// The backend's stop on the wire  --  safe idle output, never a released line.
 // Used on disable, estop, timeout, and startup.
 // -----------------------------------------------------------------------------
 static void setDomeNeutral() {
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
 
-    writeDomePulse(cfg, cfg.dome_neutral_us);
+    bearingAdvance(cfg, millis());
+    s_bearing.share = domeRotationBackendStop(cfg).share;
 
     taskENTER_CRITICAL(&robotStateMux);
     robotState.domeTargetSpeed = 0.0f;
@@ -241,28 +237,29 @@ static void setDomeNeutral() {
 
 // -----------------------------------------------------------------------------
 // domeTaskInit()
-// Initialize dome ESC with auto-arm sequence.
-// Outputs the configured neutral pulse for ESC arming.
+// The Dome Rotation backend's start-up rule (domeRotationBackendStart()): for
+// a Dome ESC, the configured neutral pulse held for the profile's
+// startupNeutralMs before the loop's first turn.
 // -----------------------------------------------------------------------------
 void domeTaskInit() {
-    // Feature toggle: skip ESC arming entirely when dome is disabled.
-    // No LEDC pulse is written; the channel stays at whatever neutral value
+    // Feature toggle: skip the start-up rule entirely when dome is disabled.
+    // Nothing is written; the channel stays at whatever neutral value
     // ledcPwmInit() set at boot.  domeTask() will also idle (see task body).
     DomeConfig cfg = {};
     configCacheReadDome(&cfg);
     bool enabled = configCacheDomeEnabled();
-    uint16_t neutralUs = cfg.dome_neutral_us;
 
     if (!enabled) {
         PA_LOG_INFO(TAG, "dome disabled");
         return;
     }
 
-    ledcPwmSetPulseWidth(LEDC_CH_DOME, neutralUs);
-    PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)neutralUs,
-                ESC_ARMING_DURATION_MS);
+    // Logged before the hold, which blocks: the backend writes neutral and
+    // then holds it.
+    PA_LOG_INFO(TAG, "Dome ESC arming (neutral=%d us for %d ms)", (int)cfg.dome_neutral_us,
+                (int)kDomeRotationBackend.startupNeutralMs);
 
-    delay(ESC_ARMING_DURATION_MS);
+    domeRotationBackendStart(cfg);
 
     PA_LOG_INFO(TAG, "Dome ESC armed and ready");
 }

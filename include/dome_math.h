@@ -75,6 +75,26 @@ inline uint16_t domeSpeedToPulseUs(float speed, uint16_t neutralUs, uint16_t min
 }
 
 // -----------------------------------------------------------------------------
+// domePulseToShare()
+// The pulse on the wire as a signed share of the ESC's FULL output (-1..1):
+// its distance from neutral over the full half-range on its side, never over
+// the speed limit's. This is what a Dome ESC reports back through the Dome
+// Rotation seam (include/dome_rotation_backend.h), and the scale the Dome
+// Bearing's full-turn speed is recorded on. 0 at neutral, and on a side with
+// no range (min == neutral or max == neutral).
+// -----------------------------------------------------------------------------
+inline float domePulseToShare(uint16_t pulseUs, uint16_t neutralUs, uint16_t minPulseUs,
+                              uint16_t maxPulseUs) {
+    if (pulseUs > neutralUs && maxPulseUs > neutralUs) {
+        return (float)(pulseUs - neutralUs) / (float)(maxPulseUs - neutralUs);
+    }
+    if (pulseUs < neutralUs && neutralUs > minPulseUs) {
+        return -(float)(neutralUs - pulseUs) / (float)(neutralUs - minPulseUs);
+    }
+    return 0.0f;
+}
+
+// -----------------------------------------------------------------------------
 // Random dome movement: the Mood sets how often (#452)
 //
 // The pause window the builder stores (dome_rnd_pause_min/max, whole seconds)

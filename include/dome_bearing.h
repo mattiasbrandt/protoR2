@@ -7,14 +7,17 @@
 // clockwise from above is 90. Never a heading in the room; there is no sensor
 // for one.
 //
-// It is integrated, not measured. DomeTask writes every pulse the dome gets,
-// and moves the belief by the turn that pulse makes at the calibrated rate over
-// the measured time it was on the wire (domeBearingRateDegPerMs()). Two facts
+// It is integrated, not measured. DomeTask writes every turn the dome gets,
+// through the Dome Rotation backend (include/dome_rotation_backend.h), and
+// moves the belief by the turn the backend's output makes at the calibrated
+// rate over the measured time it was on the wire (domeBearingRateDegPerMs()).
+// The backend reports that output as a signed share of its FULL output, so the
+// belief never reads a pulse and a backend with no pulse can feed it. Two facts
 // make that possible and nothing on the droid knows either, so the builder
 // records them:
 //
 //   - the full-turn time, and the speed it was taken at, as a share of the
-//     ESC's FULL pulse range - the scale of the pulse DomeTask writes after the
+//     backend's FULL output - the scale of what DomeTask writes after the
 //     speed limit has scaled it, so a later change of the limit cannot make
 //     the two disagree;
 //   - which way a positive command turns the dome, seen from above.
@@ -34,7 +37,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "dome_math.h"  // domePulsesInOrder(), domeSpeedToPulseUs()
+#include "dome_math.h"  // domePulsesInOrder(), domeSpeedToPulseUs(), domePulseToShare()
 
 // -----------------------------------------------------------------------------
 // Which way a positive command turns the dome, seen from above. Unset until the
@@ -143,27 +146,21 @@ inline float domeBearingShortWay(float fromDeg, float toDeg) {
 
 // -----------------------------------------------------------------------------
 // domeBearingRateDegPerMs()
-// How fast the pulse on the wire turns the dome, in degrees per ms, positive
-// clockwise from above. 0 when uncalibrated, at neutral, or with the pulse set
-// out of order (then domeSpeedToPulseUs() writes neutral for every speed).
+// How fast the output on the wire turns the dome, in degrees per ms, positive
+// clockwise from above. 0 when uncalibrated or at a stop.
 //
-// The pulse is read as a share of the ESC's FULL half-range on its side of
-// neutral - not of the speed limit - because that is the scale the full-turn
-// speed was recorded on. A pulse half way from neutral to max, timed at 50,
-// turns at exactly the calibrated rate; at 25 it turns at half of it. Linear,
-// as the reference simulator integrates its throttle (`domeYaw +=
-// (effDome()/127) * CFG.domeRate * dt`); an ESC's dead band is part of what
-// "believed" admits.
+// `share` is what the Dome Rotation backend reports it put on the wire: a
+// signed share of its FULL output (-1..1), not of the speed limit, because
+// that is the scale the full-turn speed was recorded on. For a Dome ESC that
+// is the pulse's distance from neutral over the full half-range on its side
+// (domePulseToShare()). Half of full output, timed at 50, turns at exactly the
+// calibrated rate; at 25 it turns at half of it. Linear, as the reference
+// simulator integrates its throttle (`domeYaw += (effDome()/127) *
+// CFG.domeRate * dt`); an ESC's dead band is part of what "believed" admits.
 // -----------------------------------------------------------------------------
-inline float domeBearingRateDegPerMs(uint16_t pulseUs, const DomeTurnCalibration& cal) {
+inline float domeBearingRateDegPerMs(float share, const DomeTurnCalibration& cal) {
     if (!domeTurnCalibrated(cal)) {
         return 0.0f;
-    }
-    float share = 0.0f;
-    if (pulseUs > cal.neutralUs && cal.maxPulseUs > cal.neutralUs) {
-        share = (float)(pulseUs - cal.neutralUs) / (float)(cal.maxPulseUs - cal.neutralUs);
-    } else if (pulseUs < cal.neutralUs && cal.neutralUs > cal.minPulseUs) {
-        share = -(float)(cal.neutralUs - pulseUs) / (float)(cal.neutralUs - cal.minPulseUs);
     }
     const float timedShare = (float)cal.fullTurnPct / 100.0f;
     const float sign = (cal.positiveTurn == DOME_TURN_DIR_CW) ? 1.0f : -1.0f;
@@ -241,9 +238,14 @@ inline DomeTurnPlan domeBearingTurnPlan(float fromDeg, float toDeg, const DomeTu
         magnitude = 1.0f;
     }
     const float speed = sign * magnitude;
+    // The share the Dome ESC will report for this speed, read through the
+    // pulse it will write: the pulse is whole microseconds (truncated), so the
+    // share of that pulse is the one the integration will follow, and the turn
+    // is timed on it. A backend with no pulse (#309) supplies its own share.
     const uint16_t pulseUs =
         domeSpeedToPulseUs(speed, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs, speedLimitPct);
-    const float rate = fabsf(domeBearingRateDegPerMs(pulseUs, cal));
+    const float share = domePulseToShare(pulseUs, cal.neutralUs, cal.minPulseUs, cal.maxPulseUs);
+    const float rate = fabsf(domeBearingRateDegPerMs(share, cal));
     if (rate <= 0.0f) {
         return plan;
     }
