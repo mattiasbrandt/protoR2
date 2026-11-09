@@ -75,10 +75,11 @@
         </div>
       </div>
       <!-- The calibration helper (#504), for a Dome ESC only: dome.js shows
-           it while the droid reports a pulse. Each full press is one timed
-           turn through POST /api/dome, under the same speed limit as every
-           other turn, so it waits for Speed limit at 100 %; it stops by itself
-           after 30 s and nothing in the browser refreshes it. The lit choice
+           it while the droid reports a pulse. Each press is one timed turn
+           through POST /api/dome, Neutral included, under the same speed limit
+           as every other turn, so a full press waits for Speed limit at 100 %
+           and asks the droid for it first; it stops by itself after 30 s and
+           nothing in the browser refreshes it. The lit choice
            is what the droid reports sending, not the last press. The ESC
            counts its own beeps; the steps are the vendor's order. -->
       <div id="dome-calibrate" class="dome-calibrate" hidden>

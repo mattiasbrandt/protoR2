@@ -132,7 +132,10 @@
   // A hold is the droid's to end: it stops after CALIBRATE_HOLD_MS, the
   // droid's 30 s cap on a timed turn (DOME_TIMED_TURN_MAX_MS,
   // include/robot_state.h), and nothing here repeats it, so it can never
-  // outlive this page by more than that. Neutral ends it sooner.
+  // outlive this page by more than that. Neutral is a timed hold too: an
+  // untimed stop would end the timed turn that keeps random idle turns off,
+  // and one going out while the maker waits for the neutral beep teaches the
+  // ESC out of order. A full press replaces it.
   // ---------------------------------------------------------------------------
   const CALIBRATE_HOLD_MS = 30000;
   const CALIBRATE_HOLD_WORDS = { "1": "Full one way", "-1": "Full the other way" };
@@ -158,8 +161,12 @@
     if (!domeCalibrate) return;
     const esc = isDomeEsc();
     domeCalibrate.hidden = !esc;
-    const blocker = estopLatched ? "Estop latched. Clear it first."
-      : asleep ? "The droid is asleep. Wake it first."
+    // The limit is unknown until a config load succeeds; until then the
+    // helper waits rather than asking for a change that may already be made.
+    const blocker = !domeHardwareEnabled ? "Dome Rotation off."
+      : estopLatched ? "Estop latched. Nothing moves until it is cleared."
+      : asleep ? "Asleep. Nothing moves until it wakes."
+      : savedSpeedLimitPct === null ? "Waiting for the droid."
       : savedSpeedLimitPct !== 100 ? "Set Speed limit to 100 % to calibrate"
       : "";
     const open = domeHardwareEnabled && esc && blocker === "";
@@ -178,11 +185,32 @@
     setText(domeCalibrateGate, blocker || "A hold stops after 30 s.");
   };
 
+  // The Speed limit as the droid holds it now. GET /api/status does not
+  // carry it, and another browser, a restore or a script can change it after
+  // this page loaded, so a full press asks once, just before it sends. The
+  // window left is the time between this answer and the hold reaching the
+  // droid: one round trip, never a timer. False means send nothing.
+  const speedLimitIsFull = async () => {
+    try {
+      const result = await window.PAApi.get("/api/config", { timeoutMs: 3000 });
+      const limit = result.data?.domeRotation?.speedLimitPct;
+      if (limit !== undefined) {
+        savedSpeedLimitPct = Number(limit);
+        // The box shows the droid's answer unless the builder is typing in it.
+        if (domeSpeedLimit && document.activeElement !== domeSpeedLimit) domeSpeedLimit.value = limit;
+      }
+    } catch (error) {
+      showFeedback(domeFeedback, window.PAApi.messageFor(error), "warning");
+      return false;
+    }
+    paintCalibrate();
+    return savedSpeedLimitPct === 100;
+  };
+
   const pressCalibrate = async (speed) => {
     if (!window.PAApi) return;
-    const form = speed === "0"
-      ? { speed: "0" }
-      : { speed: `${speed}.0`, durationMs: String(CALIBRATE_HOLD_MS) };
+    if (speed !== "0" && !(await speedLimitIsFull())) return;
+    const form = { speed: speed === "0" ? "0" : `${speed}.0`, durationMs: String(CALIBRATE_HOLD_MS) };
     try {
       await window.PAApi.postForm("/api/dome", form, { timeoutMs: 3000 });
       // What this page did, not what the dome is doing: the lit hold is the
