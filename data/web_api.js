@@ -436,6 +436,8 @@
       word: "maximum pulse", unit: US, path: "domeRotation.maxPulseUs", clash: "must be at least the neutral pulse",
     },
     domeRotationSpeedLimitPct: { applies: "immediate", word: "dome speed limit", unit: PCT, path: "domeRotation.speedLimitPct" },
+    domeRotationSmallestTurnUs: { applies: "immediate", word: "smallest turn", unit: US, path: "domeRotation.smallestTurnUs" },
+    domeRotationReversePauseMs: { applies: "immediate", word: "pause before reversing", unit: MS, path: "domeRotation.reversePauseMs" },
     domeRotationRndEnable: { applies: "immediate", word: "dome turning on its own", path: "domeRotation.rndEnable" },
     domeRotationRndSpeedPct: { applies: "immediate", word: "turn speed", unit: PCT, path: "domeRotation.rndSpeedPct" },
     domeRotationRndPauseMin: {

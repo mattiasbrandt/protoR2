@@ -150,8 +150,18 @@
             <span class="setting-number"><input id="dome-max-pulse" class="number-cell" name="domeRotationMaxPulseUs" type="number" step="1"><span class="setting-unit">µs</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Speed limit<span class="hint">20 is a slow scan, 100 is as fast as the dome turns.</span></span>
+            <span class="setting-name">Smallest turn<span class="hint">From neutral, where the dome starts to move. 0 is off.</span></span>
+            <span class="setting-number"><input id="dome-smallest-turn" class="number-cell" name="domeRotationSmallestTurnUs" type="number" step="1"><span class="setting-unit">µs</span></span>
+          </label>
+          <!-- While Smallest turn is 0, dome.js puts the pulse full stick sends
+               in this hint, so a limit too low to move the dome shows. -->
+          <label class="setting-row">
+            <span class="setting-name">Speed limit<span class="hint" id="dome-speed-limit-hint">A share of the ESC's full range.</span></span>
             <span class="setting-number"><input id="dome-speed-limit" class="number-cell" name="domeRotationSpeedLimitPct" type="number" step="1"><span class="setting-unit">%</span></span>
+          </label>
+          <label class="setting-row">
+            <span class="setting-name">Pause before reversing<span class="hint">A stop held between directions. 0 is off.</span></span>
+            <span class="setting-number"><input id="dome-reverse-pause" class="number-cell" name="domeRotationReversePauseMs" type="number" step="50"><span class="setting-unit">ms</span></span>
           </label>
         </form>
         <div class="setting-foot">
@@ -171,7 +181,7 @@
             <input id="dome-rnd-enable" class="switch" name="domeRotationRndEnable" type="checkbox">
           </label>
           <label class="setting-row">
-            <span class="setting-name">Speed<span class="hint">A share of the dome's own limit, not of the ESC's full rate.</span></span>
+            <span class="setting-name">Speed<span class="hint" id="dome-rnd-speed-hint">A share of the dome's own limit, not of the ESC's full rate.</span></span>
             <span class="setting-number"><input id="dome-rnd-speed" class="number-cell" name="domeRotationRndSpeedPct" type="number" step="1"><span class="setting-unit">%</span></span>
           </label>
           <label class="setting-row">
@@ -203,7 +213,7 @@
             <span class="setting-number"><input id="dome-turn-ms" class="number-cell" name="domeRotationFullTurnMs" type="number" step="10" placeholder="-"><span class="setting-unit">ms</span></span>
           </label>
           <label class="setting-row">
-            <span class="setting-name">Timed at<span class="hint">Full stick under a 60% speed limit is 60. Re-time after an ISD Go or Speed limit change.</span></span>
+            <span class="setting-name">Timed at<span class="hint">The % the readout shows while you time it. Re-time after an ISD Go, Speed limit or Smallest turn change.</span></span>
             <span class="setting-number"><input id="dome-turn-pct" class="number-cell" name="domeRotationFullTurnPct" type="number" step="1" placeholder="-"><span class="setting-unit">%</span></span>
           </label>
           <div class="setting-row">
