@@ -238,6 +238,7 @@ static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeer
         return false;
     }
 
+    const bool wasManual = *outUsingManualIp;
     *outUsingManualIp = false;
 
     IPAddress manualIp;
@@ -245,6 +246,15 @@ static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeer
         *inOutPeerIp = manualIp;
         *outUsingManualIp = true;
         return true;
+    }
+
+    // Manual peer just cleared: the cached address and its heartbeats belong
+    // to the manual setting, not to discovery, so they must not suppress the
+    // lookup (#507 review).
+    if (wasManual) {
+        *inOutPeerIp    = IPAddress();
+        cachedPeerValid = false;
+        peerAnswering   = false;
     }
 
     if (!staConnected) {
@@ -880,8 +890,13 @@ void domeLinkTask(void* pvParameters) {
 
         const bool peerAnswering = peerKnown && lastPeerWifiHbMs != 0 &&
                                    (uint32_t)(now - lastPeerWifiHbMs) < kDomeLinkHeartbeatTimeoutMs;
+        const IPAddress prevPeerIp = peerIp;
         peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, arbiter, peerAnswering,
                                       &lastMdnsLookupMs, &peerIp, &peerManual);
+        // A heartbeat stamp is only evidence for the address it came from.
+        if (!peerKnown || peerIp != prevPeerIp) {
+            lastPeerWifiHbMs = 0;
+        }
 
         const uint32_t prevUartHbMs = lastUartHeartbeatMs;
         processUartRx(now, &lastUartHeartbeatMs);
