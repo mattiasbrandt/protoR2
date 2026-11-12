@@ -890,11 +890,11 @@ void domeLinkTask(void* pvParameters) {
 
         const bool peerAnswering = peerKnown && lastPeerWifiHbMs != 0 &&
                                    (uint32_t)(now - lastPeerWifiHbMs) < kDomeLinkHeartbeatTimeoutMs;
-        const IPAddress prevPeerIp = peerIp;
+        const uint32_t prevPeerV4 = (uint32_t)peerIp;  // 4 B, not a whole IPAddress on this frame
         peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, arbiter, peerAnswering,
                                       &lastMdnsLookupMs, &peerIp, &peerManual);
         // A heartbeat stamp is only evidence for the address it came from.
-        if (!peerKnown || peerIp != prevPeerIp) {
+        if (!peerKnown || (uint32_t)peerIp != prevPeerV4) {
             lastPeerWifiHbMs = 0;
         }
 
