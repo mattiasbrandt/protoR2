@@ -102,9 +102,9 @@ bool domeLinkPeerLookupDue(const DomeLinkArbiterState&    s,
     if (s.uartEverSeen) {
         return false;
     }
-    // A known peer that is answering needs no re-lookup; once it goes quiet
-    // (dome off, or its address changed) the lookup comes back.
-    if (in.peerKnown && in.domeConnected) {
+    // A known peer answering from its cached address needs no re-lookup; once
+    // that address goes quiet (dome off, or moved) the lookup comes back.
+    if (in.peerKnown && in.peerAnswering) {
         return false;
     }
     return (uint32_t)(in.nowMs - in.lastLookupMs) >= kDomeLinkPeerLookupIntervalMs;

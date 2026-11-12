@@ -93,17 +93,18 @@ struct DomeLinkArbiterActions {
 
 struct DomeLinkPeerLookupInputs {
     uint32_t nowMs;
-    uint32_t lastLookupMs;   // when the last lookup ran (0 = never)
+    uint32_t lastLookupMs;   // when the last lookup ran; 0 at boot, so the first
+                             // lookup waits one interval (covers the UART grace)
     bool     manualPeerIp;   // a dome peer IP is configured; no lookup needed
     bool     staConnected;   // WiFi STA connected
     bool     peerKnown;      // a peer IP is cached
-    bool     domeConnected;  // dome heartbeat seen within timeout
+    bool     peerAnswering;  // a heartbeat from the cached peer IP within timeout
 };
 
 // True when the shell should run the mDNS lookup this tick. False with a
 // manual peer IP, without STA, once the UART has been seen this boot, and
-// while a known peer is answering heartbeats (before the UART is seen that
-// can only be WiFi). Otherwise true every kDomeLinkPeerLookupIntervalMs.
+// while the cached peer IP itself is answering heartbeats (a dome that moved
+// to a new address does not count). Otherwise true every kDomeLinkPeerLookupIntervalMs.
 bool domeLinkPeerLookupDue(const DomeLinkArbiterState&    s,
                            const DomeLinkPeerLookupInputs& in);
 

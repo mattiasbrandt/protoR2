@@ -231,7 +231,7 @@ static bool readConfiguredPeerIp(IPAddress* out) {
 // ESPmDNS default 2000 ms when nobody answers; domeLinkPeerLookupDue() lets it
 // run only when its answer could carry traffic (#507).
 static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeerValid,
-                              const DomeLinkArbiterState& arbiter, bool domeIsConnected,
+                              const DomeLinkArbiterState& arbiter, bool peerAnswering,
                               uint32_t* inOutLastMdnsLookupMs, IPAddress* inOutPeerIp,
                               bool* outUsingManualIp) {
     if (inOutLastMdnsLookupMs == nullptr || inOutPeerIp == nullptr || outUsingManualIp == nullptr) {
@@ -257,7 +257,7 @@ static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeer
     lookup.manualPeerIp  = false;  // handled above
     lookup.staConnected  = staConnected;
     lookup.peerKnown     = cachedPeerValid;
-    lookup.domeConnected = domeIsConnected;
+    lookup.peerAnswering = peerAnswering;
     if (!domeLinkPeerLookupDue(arbiter, lookup)) {
         return cachedPeerValid;
     }
@@ -445,7 +445,11 @@ static void processUartRx(uint32_t nowMs, uint32_t* inOutLastUartHeartbeatMs) {
     }
 }
 
-static void processUdpRx(uint32_t nowMs, uint32_t* inOutLastWifiHeartbeatMs) {
+// inOutLastWifiHeartbeatMs is stamped only for a heartbeat sent from
+// expectedPeer: the dome keeps sending #APHB from a new address after a lease
+// change, and that must not count as the cached peer answering (#507).
+static void processUdpRx(uint32_t nowMs, const IPAddress& expectedPeer,
+                         uint32_t* inOutLastWifiHeartbeatMs) {
     char lineBuf[kRxBufLen] = {0};
 
     int packetLen = s_domeUdp.parsePacket();
@@ -481,7 +485,8 @@ static void processUdpRx(uint32_t nowMs, uint32_t* inOutLastWifiHeartbeatMs) {
 
         bool heartbeatSeen = false;
         parseDomeRxLine(lineBuf, DOME_RX_WIFI, nowMs, &heartbeatSeen);
-        if (heartbeatSeen && inOutLastWifiHeartbeatMs != nullptr) {
+        if (heartbeatSeen && inOutLastWifiHeartbeatMs != nullptr &&
+            s_domeUdp.remoteIP() == expectedPeer) {
             *inOutLastWifiHeartbeatMs = nowMs;
         }
 
@@ -854,6 +859,7 @@ void domeLinkTask(void* pvParameters) {
     DomeLinkArbiterState arbiter    = {};
     uint32_t lastUartHeartbeatMs    = 0;
     uint32_t lastMdnsLookupMs       = 0;
+    uint32_t lastPeerWifiHbMs       = 0;  // last #APHB from the cached peerIp (#507)
     DomeLinkTransport lastLoggedTransport = DOME_LINK_TRANSPORT_UART;
 
     IPAddress peerIp;
@@ -872,13 +878,15 @@ void domeLinkTask(void* pvParameters) {
             }
         }
 
-        peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, arbiter, domeConnected(),
+        const bool peerAnswering = peerKnown && lastPeerWifiHbMs != 0 &&
+                                   (uint32_t)(now - lastPeerWifiHbMs) < kDomeLinkHeartbeatTimeoutMs;
+        peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, arbiter, peerAnswering,
                                       &lastMdnsLookupMs, &peerIp, &peerManual);
 
         const uint32_t prevUartHbMs = lastUartHeartbeatMs;
         processUartRx(now, &lastUartHeartbeatMs);
         if (udpReady) {
-            processUdpRx(now, nullptr);
+            processUdpRx(now, peerIp, &lastPeerWifiHbMs);
         }
 
         // Dome sequence timeout watchdog  --  untouched; ADR 0004 replaces these.

@@ -353,23 +353,19 @@ void test_uart_recovery_from_wifi_probe_sets_uart_ever_seen() {
 }
 
 // =============================================================================
-// Test runner
-// =============================================================================
-
-// =============================================================================
 // Peer lookup gate (#507)
 // =============================================================================
 
 static DomeLinkPeerLookupInputs makeLookup(uint32_t nowMs, uint32_t lastLookupMs,
                                            bool manual = false, bool sta = true,
-                                           bool peerKnown = false, bool domeConn = false) {
+                                           bool peerKnown = false, bool answering = false) {
     DomeLinkPeerLookupInputs in = {};
     in.nowMs         = nowMs;
     in.lastLookupMs  = lastLookupMs;
     in.manualPeerIp  = manual;
     in.staConnected  = sta;
     in.peerKnown     = peerKnown;
-    in.domeConnected = domeConn;
+    in.peerAnswering = answering;
     return in;
 }
 
@@ -405,10 +401,10 @@ void test_peer_lookup_not_due_once_uart_seen() {
 void test_peer_lookup_not_due_while_known_peer_answers_then_back_when_quiet() {
     DomeLinkArbiterState s = {};
     TEST_ASSERT_FALSE(domeLinkPeerLookupDue(
-        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*domeConn=*/true)));
-    // Dome goes quiet (off, or its address changed): lookup comes back.
+        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*answering=*/true)));
+    // Cached address goes quiet (dome off, or it moved): lookup comes back.
     TEST_ASSERT_TRUE(domeLinkPeerLookupDue(
-        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*domeConn=*/false)));
+        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*answering=*/false)));
 }
 
 void test_wifi_fallback_still_engages_when_uart_never_heard() {
@@ -424,6 +420,10 @@ void test_wifi_fallback_still_engages_when_uart_never_heard() {
         s, makeLookup(2 * kDomeLinkPeerLookupIntervalMs, kDomeLinkPeerLookupIntervalMs,
                       false, true, true, false)));
 }
+
+// =============================================================================
+// Test runner
+// =============================================================================
 
 int main() {
     UNITY_BEGIN();
