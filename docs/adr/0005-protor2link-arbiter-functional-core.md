@@ -48,6 +48,10 @@ Addendum (#507): the arbiter also decides when the shell may run the blocking mD
 dome peer lookup (`domeLinkPeerLookupDue()`): never once the UART has been seen this
 boot, never with a manual peer IP, and not while a known peer is answering, because the
 lookup stalls the `domeTxQueue` drain and its answer could not be used.
+The dome peer cache (`DomeLinkPeerCache`) lives beside it: which address the WiFi
+fallback sends to, whether it came from the manual setting, and whether that address
+itself is answering, so a cleared manual peer or a dome that moved cannot hold the
+lookup closed.
 
 Public interface that survives unchanged: `domeQueueTx()`, `domeConnected()`,
 `domeUartAcquire()/Release()/OwnedBy()`, and `robotState.domeActiveTransport`

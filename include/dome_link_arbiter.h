@@ -109,6 +109,44 @@ bool domeLinkPeerLookupDue(const DomeLinkArbiterState&    s,
                            const DomeLinkPeerLookupInputs& in);
 
 // ---------------------------------------------------------------------------
+// Dome peer cache (#507)
+//
+// Which dome IP the WiFi fallback sends to, where it came from, and whether
+// that address itself is answering. IPv4 addresses are plain uint32_t (the
+// IPAddress operator uint32_t value; 0 = none) so this stays Arduino-free.
+// The shell calls, each tick:
+//   1. domeLinkPeerCacheBeginTick()  -- true: run the mDNS lookup now
+//   2. domeLinkPeerCacheLookupResult() with what the lookup returned
+//   3. domeLinkPeerCacheHeartbeat() for every UDP #APHB, with its sender
+// ---------------------------------------------------------------------------
+
+struct DomeLinkPeerCache {
+    uint32_t ipV4;          // cached peer address (0 = none)
+    uint32_t lastLookupMs;  // when the last lookup ran
+    uint32_t lastPeerHbMs;  // last #APHB from ipV4 itself (0 = none)
+    bool     known;         // ipV4 may carry traffic
+    bool     manual;        // ipV4 came from the configured peer IP
+};
+
+// Applies the configured peer IP (manualIpV4, 0 = none) and STA state to the
+// cache, then answers whether the lookup is due (domeLinkPeerLookupDue). A
+// cleared manual IP or a lost STA forgets the cached peer and its heartbeats,
+// so they cannot hold the lookup closed.
+bool domeLinkPeerCacheBeginTick(DomeLinkPeerCache& c, const DomeLinkArbiterState& s,
+                                uint32_t nowMs, bool staConnected, uint32_t manualIpV4);
+
+// Records a lookup's answer (0 = not found: the cache is kept). A different
+// address drops the old address's heartbeat stamp.
+void domeLinkPeerCacheLookupResult(DomeLinkPeerCache& c, uint32_t resolvedIpV4);
+
+// Records a dome heartbeat received over UDP from senderIpV4. Only one sent
+// from the cached address counts: the dome keeps sending after it moves.
+void domeLinkPeerCacheHeartbeat(DomeLinkPeerCache& c, uint32_t senderIpV4, uint32_t nowMs);
+
+// True while the cached address has sent a heartbeat within the timeout.
+bool domeLinkPeerAnswering(const DomeLinkPeerCache& c, uint32_t nowMs);
+
+// ---------------------------------------------------------------------------
 // Step function
 // ---------------------------------------------------------------------------
 
