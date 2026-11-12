@@ -64,7 +64,6 @@ static IPAddress s_lastMdnsResolvedIp;
 namespace {
 
 constexpr uint16_t    kDomeUdpPort      = 4901;
-constexpr uint32_t    kMdnsRefreshMs    = 5000;
 constexpr const char* kDomeMdnsHost     = "astropixelsplus";
 constexpr const char* kDomeCmdEndpoint  = "/api/cmd";
 constexpr const char* kDomeLayoutEndpoint = "/api/dome/layout";
@@ -228,48 +227,32 @@ static bool readConfiguredPeerIp(IPAddress* out) {
     return true;
 }
 
-static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeerValid,
-                              uint32_t* inOutLastMdnsLookupMs, IPAddress* inOutPeerIp,
-                              bool* outUsingManualIp) {
-    if (inOutLastMdnsLookupMs == nullptr || inOutPeerIp == nullptr || outUsingManualIp == nullptr) {
-        return false;
-    }
-
-    *outUsingManualIp = false;
-
+// The lookup blocks this task (and so the domeTxQueue drain) for up to the
+// ESPmDNS default 2000 ms when nobody answers; the protoR2link Arbiter's peer
+// cache lets it run only when its answer could carry traffic (#507).
+static void refreshDomePeer(uint32_t nowMs, bool staConnected,
+                            const DomeLinkArbiterState& arbiter, DomeLinkPeerCache* cache) {
     IPAddress manualIp;
-    if (readConfiguredPeerIp(&manualIp)) {
-        *inOutPeerIp = manualIp;
-        *outUsingManualIp = true;
-        return true;
+    const uint32_t manualV4 = readConfiguredPeerIp(&manualIp) ? (uint32_t)manualIp : 0;
+    if (!domeLinkPeerCacheBeginTick(*cache, arbiter, nowMs, staConnected, manualV4)) {
+        return;
     }
-
-    if (!staConnected) {
-        return false;
-    }
-
-    if ((uint32_t)(nowMs - *inOutLastMdnsLookupMs) < kMdnsRefreshMs) {
-        return cachedPeerValid;
-    }
-
-    *inOutLastMdnsLookupMs = nowMs;
 
     IPAddress resolved = MDNS.queryHost(kDomeMdnsHost);
-    if (resolved[0] == 0 && resolved[1] == 0 && resolved[2] == 0 && resolved[3] == 0) {
+    const uint32_t resolvedV4 = (uint32_t)resolved;
+    domeLinkPeerCacheLookupResult(*cache, resolvedV4);
+    if (resolvedV4 == 0) {
         PA_LOG_DEBUG(TAG, "mDNS lookup failed for %s.local", kDomeMdnsHost);
-        return cachedPeerValid;
+        return;
     }
-
-    *inOutPeerIp = resolved;
     if (resolved != s_lastMdnsResolvedIp) {
         s_lastMdnsResolvedIp = resolved;
         PA_LOG_INFO(TAG, "mDNS resolved %s.local -> %s", kDomeMdnsHost,
-                    inOutPeerIp->toString().c_str());
+                    resolved.toString().c_str());
     } else {
         PA_LOG_DEBUG(TAG, "mDNS re-resolved %s.local -> %s (unchanged)", kDomeMdnsHost,
-                     inOutPeerIp->toString().c_str());
+                     resolved.toString().c_str());
     }
-    return true;
 }
 
 static bool sendCommandOverWifi(const IPAddress& peerIp, const char* cmd) {
@@ -435,7 +418,9 @@ static void processUartRx(uint32_t nowMs, uint32_t* inOutLastUartHeartbeatMs) {
     }
 }
 
-static void processUdpRx(uint32_t nowMs, uint32_t* inOutLastWifiHeartbeatMs) {
+// Every #APHB goes to the peer cache with its sender; only one from the cached
+// address counts as that peer answering (#507).
+static void processUdpRx(uint32_t nowMs, DomeLinkPeerCache* peerCache) {
     char lineBuf[kRxBufLen] = {0};
 
     int packetLen = s_domeUdp.parsePacket();
@@ -471,8 +456,8 @@ static void processUdpRx(uint32_t nowMs, uint32_t* inOutLastWifiHeartbeatMs) {
 
         bool heartbeatSeen = false;
         parseDomeRxLine(lineBuf, DOME_RX_WIFI, nowMs, &heartbeatSeen);
-        if (heartbeatSeen && inOutLastWifiHeartbeatMs != nullptr) {
-            *inOutLastWifiHeartbeatMs = nowMs;
+        if (heartbeatSeen && peerCache != nullptr) {
+            domeLinkPeerCacheHeartbeat(*peerCache, (uint32_t)s_domeUdp.remoteIP(), nowMs);
         }
 
         packetLen = s_domeUdp.parsePacket();
@@ -843,12 +828,10 @@ void domeLinkTask(void* pvParameters) {
 
     DomeLinkArbiterState arbiter    = {};
     uint32_t lastUartHeartbeatMs    = 0;
-    uint32_t lastMdnsLookupMs       = 0;
+    DomeLinkPeerCache peerCache     = {};
     DomeLinkTransport lastLoggedTransport = DOME_LINK_TRANSPORT_UART;
 
     IPAddress peerIp;
-    bool peerKnown  = false;
-    bool peerManual = false;
     bool udpReady   = false;
 
     for (;;) {
@@ -862,13 +845,15 @@ void domeLinkTask(void* pvParameters) {
             }
         }
 
-        peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, &lastMdnsLookupMs, &peerIp,
-                                      &peerManual);
+        refreshDomePeer(now, staConnected, arbiter, &peerCache);
+        peerIp                = IPAddress(peerCache.ipV4);
+        const bool peerKnown  = peerCache.known;
+        const bool peerManual = peerCache.manual;
 
         const uint32_t prevUartHbMs = lastUartHeartbeatMs;
         processUartRx(now, &lastUartHeartbeatMs);
         if (udpReady) {
-            processUdpRx(now, nullptr);
+            processUdpRx(now, &peerCache);
         }
 
         // Dome sequence timeout watchdog  --  untouched; ADR 0004 replaces these.

@@ -6,6 +6,7 @@
 // Slice 1 (issue #3): transport selection, probe cadence, and heartbeat gate.
 // Slice 2 (issue #4): sleep-sync state machine.
 // Slice 3 (issue #5): WiFi-fallback gating on UART boot contact.
+// #507: mDNS peer lookup gate (domeLinkPeerLookupDue) and dome peer cache.
 // =============================================================================
 
 #include <unity.h>
@@ -352,6 +353,176 @@ void test_uart_recovery_from_wifi_probe_sets_uart_ever_seen() {
 }
 
 // =============================================================================
+// Peer lookup gate (#507)
+// =============================================================================
+
+static DomeLinkPeerLookupInputs makeLookup(uint32_t nowMs, uint32_t lastLookupMs,
+                                           bool manual = false, bool sta = true,
+                                           bool peerKnown = false, bool answering = false) {
+    DomeLinkPeerLookupInputs in = {};
+    in.nowMs         = nowMs;
+    in.lastLookupMs  = lastLookupMs;
+    in.manualPeerIp  = manual;
+    in.staConnected  = sta;
+    in.peerKnown     = peerKnown;
+    in.peerAnswering = answering;
+    return in;
+}
+
+void test_peer_lookup_due_on_cadence_when_searching() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(kDomeLinkPeerLookupIntervalMs - 1, 0)));
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(s, makeLookup(kDomeLinkPeerLookupIntervalMs, 0)));
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(12000, 10000)));
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(s, makeLookup(15000, 10000)));
+}
+
+void test_peer_lookup_not_due_without_sta() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(60000, 0, false, /*sta=*/false)));
+}
+
+void test_peer_lookup_not_due_with_manual_peer_ip() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(60000, 0, /*manual=*/true)));
+}
+
+void test_peer_lookup_not_due_once_uart_seen() {
+    DomeLinkArbiterState s = {};
+    domeLinkArbiterStep(s, makeInputs(1000, /*uartHbSeen=*/true, true, false));
+    TEST_ASSERT_TRUE(s.uartEverSeen);
+
+    // UART later goes quiet and the dome is gone: still no lookup this boot,
+    // because the WiFi fallback cannot reopen.
+    domeLinkArbiterStep(s, makeInputs(60000, false, true, false));
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(60000, 0)));
+}
+
+void test_peer_lookup_not_due_while_known_peer_answers_then_back_when_quiet() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(
+        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*answering=*/true)));
+    // Cached address goes quiet (dome off, or it moved): lookup comes back.
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(
+        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*answering=*/false)));
+}
+
+void test_wifi_fallback_still_engages_when_uart_never_heard() {
+    DomeLinkArbiterState s = {};
+    // Slip ring disconnected: no #APHB ever. Lookup is due and finds the peer.
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(s, makeLookup(kDomeLinkPeerLookupIntervalMs, 0)));
+    DomeLinkArbiterActions a = domeLinkArbiterStep(
+        s, makeInputs(kDomeLinkHeartbeatTimeoutMs, false, /*sta=*/true, /*peerKnown=*/true));
+    TEST_ASSERT_EQUAL_INT(DOME_LINK_TRANSPORT_WIFI, (int)a.txRoute);
+    TEST_ASSERT_FALSE(s.uartEverSeen);
+    // Not yet answering: the search continues on cadence.
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(
+        s, makeLookup(2 * kDomeLinkPeerLookupIntervalMs, kDomeLinkPeerLookupIntervalMs,
+                      false, true, true, false)));
+}
+
+// =============================================================================
+// Dome peer cache (#507): the review scenarios
+// =============================================================================
+
+static const uint32_t kIpA = 0x0A00000Au;  // any two distinct non-zero IPv4 values
+static const uint32_t kIpB = 0x0B00000Au;
+static const uint32_t kIpC = 0x0C00000Au;
+
+void test_peer_cache_cleared_manual_peer_reopens_lookup() {
+    // Codex review: manual A answering, setting cleared, dome named B elsewhere.
+    DomeLinkArbiterState s = {};
+    DomeLinkPeerCache c = {};
+    TEST_ASSERT_FALSE(domeLinkPeerCacheBeginTick(c, s, 10000, true, kIpA));
+    TEST_ASSERT_TRUE(c.known);
+    domeLinkPeerCacheHeartbeat(c, kIpA, 10000);
+    TEST_ASSERT_TRUE(domeLinkPeerAnswering(c, 10000));
+
+    // Cleared: A keeps sending, but the lookup runs and B replaces A.
+    TEST_ASSERT_TRUE(domeLinkPeerCacheBeginTick(c, s, 10010, true, 0));
+    TEST_ASSERT_FALSE(c.known);
+    TEST_ASSERT_FALSE(c.manual);
+    domeLinkPeerCacheHeartbeat(c, kIpA, 10010);
+    TEST_ASSERT_FALSE(domeLinkPeerAnswering(c, 10010));
+    domeLinkPeerCacheLookupResult(c, kIpB);
+    TEST_ASSERT_TRUE(c.known);
+    TEST_ASSERT_EQUAL_UINT32(kIpB, c.ipV4);
+}
+
+void test_peer_cache_heartbeat_from_moved_dome_does_not_count() {
+    // code-reviewer: the dome moved to C and keeps sending; cached A is stale.
+    DomeLinkArbiterState s = {};
+    DomeLinkPeerCache c = {};
+    TEST_ASSERT_TRUE(domeLinkPeerCacheBeginTick(c, s, 5000, true, 0));
+    domeLinkPeerCacheLookupResult(c, kIpA);
+    domeLinkPeerCacheHeartbeat(c, kIpA, 5100);
+    TEST_ASSERT_FALSE(domeLinkPeerCacheBeginTick(c, s, 9000, true, 0));  // A answering
+
+    // From here only C sends. Once A's last heartbeat is older than the
+    // timeout, the lookup is due again.
+    for (uint32_t t = 9000; t < 5100 + kDomeLinkHeartbeatTimeoutMs; t += 1000) {
+        domeLinkPeerCacheHeartbeat(c, kIpC, t);
+    }
+    TEST_ASSERT_TRUE(domeLinkPeerCacheBeginTick(c, s, 5100 + kDomeLinkHeartbeatTimeoutMs, true, 0));
+    domeLinkPeerCacheLookupResult(c, kIpC);
+    TEST_ASSERT_EQUAL_UINT32(kIpC, c.ipV4);
+}
+
+void test_peer_cache_new_address_drops_old_heartbeat_stamp() {
+    DomeLinkArbiterState s = {};
+    DomeLinkPeerCache c = {};
+    domeLinkPeerCacheBeginTick(c, s, 5000, true, 0);
+    domeLinkPeerCacheLookupResult(c, kIpA);
+    domeLinkPeerCacheHeartbeat(c, kIpA, 5000);
+    domeLinkPeerCacheLookupResult(c, kIpB);
+    TEST_ASSERT_FALSE(domeLinkPeerAnswering(c, 5001));
+    // Same address again keeps the stamp.
+    domeLinkPeerCacheHeartbeat(c, kIpB, 5002);
+    domeLinkPeerCacheLookupResult(c, kIpB);
+    TEST_ASSERT_TRUE(domeLinkPeerAnswering(c, 5003));
+}
+
+void test_peer_cache_manual_address_change_drops_stamp() {
+    DomeLinkArbiterState s = {};
+    DomeLinkPeerCache c = {};
+    domeLinkPeerCacheBeginTick(c, s, 1000, true, kIpA);
+    domeLinkPeerCacheHeartbeat(c, kIpA, 1000);
+    domeLinkPeerCacheBeginTick(c, s, 1010, true, kIpB);
+    TEST_ASSERT_EQUAL_UINT32(kIpB, c.ipV4);
+    TEST_ASSERT_FALSE(domeLinkPeerAnswering(c, 1010));
+}
+
+void test_peer_cache_lookup_miss_keeps_peer() {
+    DomeLinkArbiterState s = {};
+    DomeLinkPeerCache c = {};
+    domeLinkPeerCacheBeginTick(c, s, 5000, true, 0);
+    domeLinkPeerCacheLookupResult(c, kIpA);
+    TEST_ASSERT_TRUE(domeLinkPeerCacheBeginTick(c, s, 10000, true, 0));
+    domeLinkPeerCacheLookupResult(c, 0);
+    TEST_ASSERT_TRUE(c.known);
+    TEST_ASSERT_EQUAL_UINT32(kIpA, c.ipV4);
+}
+
+void test_peer_cache_sta_loss_forgets_peer() {
+    DomeLinkArbiterState s = {};
+    DomeLinkPeerCache c = {};
+    domeLinkPeerCacheBeginTick(c, s, 5000, true, 0);
+    domeLinkPeerCacheLookupResult(c, kIpA);
+    domeLinkPeerCacheHeartbeat(c, kIpA, 5000);
+    TEST_ASSERT_FALSE(domeLinkPeerCacheBeginTick(c, s, 5010, false, 0));
+    TEST_ASSERT_FALSE(c.known);
+    TEST_ASSERT_FALSE(domeLinkPeerAnswering(c, 5010));
+}
+
+void test_peer_cache_no_lookup_after_uart_seen_even_when_manual_cleared() {
+    DomeLinkArbiterState s = {};
+    domeLinkArbiterStep(s, makeInputs(1000, /*uartHbSeen=*/true, true, false));
+    DomeLinkPeerCache c = {};
+    domeLinkPeerCacheBeginTick(c, s, 2000, true, kIpA);
+    TEST_ASSERT_FALSE(domeLinkPeerCacheBeginTick(c, s, 60000, true, 0));
+}
+
+// =============================================================================
 // Test runner
 // =============================================================================
 
@@ -381,6 +552,21 @@ int main() {
     RUN_TEST(test_wifi_fallback_suppressed_after_uart_contact);
     RUN_TEST(test_wifi_fallback_allowed_when_uart_never_seen);
     RUN_TEST(test_uart_recovery_from_wifi_probe_sets_uart_ever_seen);
+
+    RUN_TEST(test_peer_lookup_due_on_cadence_when_searching);
+    RUN_TEST(test_peer_lookup_not_due_without_sta);
+    RUN_TEST(test_peer_lookup_not_due_with_manual_peer_ip);
+    RUN_TEST(test_peer_lookup_not_due_once_uart_seen);
+    RUN_TEST(test_peer_lookup_not_due_while_known_peer_answers_then_back_when_quiet);
+    RUN_TEST(test_wifi_fallback_still_engages_when_uart_never_heard);
+
+    RUN_TEST(test_peer_cache_cleared_manual_peer_reopens_lookup);
+    RUN_TEST(test_peer_cache_heartbeat_from_moved_dome_does_not_count);
+    RUN_TEST(test_peer_cache_new_address_drops_old_heartbeat_stamp);
+    RUN_TEST(test_peer_cache_manual_address_change_drops_stamp);
+    RUN_TEST(test_peer_cache_lookup_miss_keeps_peer);
+    RUN_TEST(test_peer_cache_sta_loss_forgets_peer);
+    RUN_TEST(test_peer_cache_no_lookup_after_uart_seen_even_when_manual_cleared);
 
     return UNITY_END();
 }

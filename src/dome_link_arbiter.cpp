@@ -91,3 +91,84 @@ DomeLinkArbiterActions domeLinkArbiterStep(DomeLinkArbiterState&        s,
 
     return a;
 }
+
+bool domeLinkPeerLookupDue(const DomeLinkArbiterState&    s,
+                           const DomeLinkPeerLookupInputs& in) {
+    if (in.manualPeerIp || !in.staConnected) {
+        return false;
+    }
+    // The WiFi fallback never opens again this boot (see wantWifi above), so
+    // a resolved address could not be sent to.
+    if (s.uartEverSeen) {
+        return false;
+    }
+    // A known peer answering from its cached address needs no re-lookup; once
+    // that address goes quiet (dome off, or moved) the lookup comes back.
+    if (in.peerKnown && in.peerAnswering) {
+        return false;
+    }
+    return (uint32_t)(in.nowMs - in.lastLookupMs) >= kDomeLinkPeerLookupIntervalMs;
+}
+
+static void forgetPeer(DomeLinkPeerCache& c) {
+    c.ipV4         = 0;
+    c.known        = false;
+    c.manual       = false;
+    c.lastPeerHbMs = 0;
+}
+
+bool domeLinkPeerAnswering(const DomeLinkPeerCache& c, uint32_t nowMs) {
+    return c.known && c.lastPeerHbMs != 0 &&
+           (uint32_t)(nowMs - c.lastPeerHbMs) < kDomeLinkHeartbeatTimeoutMs;
+}
+
+bool domeLinkPeerCacheBeginTick(DomeLinkPeerCache& c, const DomeLinkArbiterState& s,
+                                uint32_t nowMs, bool staConnected, uint32_t manualIpV4) {
+    if (manualIpV4 != 0) {
+        if (!c.manual || c.ipV4 != manualIpV4) {
+            c.lastPeerHbMs = 0;
+        }
+        c.ipV4   = manualIpV4;
+        c.known  = true;
+        c.manual = true;
+        return false;
+    }
+    // A cleared manual setting: its address and heartbeats are not discovery's.
+    if (c.manual) {
+        forgetPeer(c);
+    }
+    if (!staConnected) {
+        forgetPeer(c);
+        return false;
+    }
+
+    DomeLinkPeerLookupInputs in = {};
+    in.nowMs         = nowMs;
+    in.lastLookupMs  = c.lastLookupMs;
+    in.manualPeerIp  = false;
+    in.staConnected  = true;
+    in.peerKnown     = c.known;
+    in.peerAnswering = domeLinkPeerAnswering(c, nowMs);
+    if (!domeLinkPeerLookupDue(s, in)) {
+        return false;
+    }
+    c.lastLookupMs = nowMs;
+    return true;
+}
+
+void domeLinkPeerCacheLookupResult(DomeLinkPeerCache& c, uint32_t resolvedIpV4) {
+    if (resolvedIpV4 == 0) {
+        return;
+    }
+    if (resolvedIpV4 != c.ipV4) {
+        c.lastPeerHbMs = 0;
+    }
+    c.ipV4  = resolvedIpV4;
+    c.known = true;
+}
+
+void domeLinkPeerCacheHeartbeat(DomeLinkPeerCache& c, uint32_t senderIpV4, uint32_t nowMs) {
+    if (c.known && senderIpV4 != 0 && senderIpV4 == c.ipV4) {
+        c.lastPeerHbMs = (nowMs == 0) ? 1 : nowMs;  // 0 means "none"
+    }
+}
