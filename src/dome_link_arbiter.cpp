@@ -91,3 +91,21 @@ DomeLinkArbiterActions domeLinkArbiterStep(DomeLinkArbiterState&        s,
 
     return a;
 }
+
+bool domeLinkPeerLookupDue(const DomeLinkArbiterState&    s,
+                           const DomeLinkPeerLookupInputs& in) {
+    if (in.manualPeerIp || !in.staConnected) {
+        return false;
+    }
+    // The WiFi fallback never opens again this boot (see wantWifi above), so
+    // a resolved address could not be sent to.
+    if (s.uartEverSeen) {
+        return false;
+    }
+    // A known peer that is answering needs no re-lookup; once it goes quiet
+    // (dome off, or its address changed) the lookup comes back.
+    if (in.peerKnown && in.domeConnected) {
+        return false;
+    }
+    return (uint32_t)(in.nowMs - in.lastLookupMs) >= kDomeLinkPeerLookupIntervalMs;
+}

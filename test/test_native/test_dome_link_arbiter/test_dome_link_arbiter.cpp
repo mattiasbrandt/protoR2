@@ -6,6 +6,7 @@
 // Slice 1 (issue #3): transport selection, probe cadence, and heartbeat gate.
 // Slice 2 (issue #4): sleep-sync state machine.
 // Slice 3 (issue #5): WiFi-fallback gating on UART boot contact.
+// #507: mDNS peer lookup gate (domeLinkPeerLookupDue).
 // =============================================================================
 
 #include <unity.h>
@@ -355,6 +356,75 @@ void test_uart_recovery_from_wifi_probe_sets_uart_ever_seen() {
 // Test runner
 // =============================================================================
 
+// =============================================================================
+// Peer lookup gate (#507)
+// =============================================================================
+
+static DomeLinkPeerLookupInputs makeLookup(uint32_t nowMs, uint32_t lastLookupMs,
+                                           bool manual = false, bool sta = true,
+                                           bool peerKnown = false, bool domeConn = false) {
+    DomeLinkPeerLookupInputs in = {};
+    in.nowMs         = nowMs;
+    in.lastLookupMs  = lastLookupMs;
+    in.manualPeerIp  = manual;
+    in.staConnected  = sta;
+    in.peerKnown     = peerKnown;
+    in.domeConnected = domeConn;
+    return in;
+}
+
+void test_peer_lookup_due_on_cadence_when_searching() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(kDomeLinkPeerLookupIntervalMs - 1, 0)));
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(s, makeLookup(kDomeLinkPeerLookupIntervalMs, 0)));
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(12000, 10000)));
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(s, makeLookup(15000, 10000)));
+}
+
+void test_peer_lookup_not_due_without_sta() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(60000, 0, false, /*sta=*/false)));
+}
+
+void test_peer_lookup_not_due_with_manual_peer_ip() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(60000, 0, /*manual=*/true)));
+}
+
+void test_peer_lookup_not_due_once_uart_seen() {
+    DomeLinkArbiterState s = {};
+    domeLinkArbiterStep(s, makeInputs(1000, /*uartHbSeen=*/true, true, false));
+    TEST_ASSERT_TRUE(s.uartEverSeen);
+
+    // UART later goes quiet and the dome is gone: still no lookup this boot,
+    // because the WiFi fallback cannot reopen.
+    domeLinkArbiterStep(s, makeInputs(60000, false, true, false));
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(s, makeLookup(60000, 0)));
+}
+
+void test_peer_lookup_not_due_while_known_peer_answers_then_back_when_quiet() {
+    DomeLinkArbiterState s = {};
+    TEST_ASSERT_FALSE(domeLinkPeerLookupDue(
+        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*domeConn=*/true)));
+    // Dome goes quiet (off, or its address changed): lookup comes back.
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(
+        s, makeLookup(60000, 0, false, true, /*peerKnown=*/true, /*domeConn=*/false)));
+}
+
+void test_wifi_fallback_still_engages_when_uart_never_heard() {
+    DomeLinkArbiterState s = {};
+    // Slip ring disconnected: no #APHB ever. Lookup is due and finds the peer.
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(s, makeLookup(kDomeLinkPeerLookupIntervalMs, 0)));
+    DomeLinkArbiterActions a = domeLinkArbiterStep(
+        s, makeInputs(kDomeLinkHeartbeatTimeoutMs, false, /*sta=*/true, /*peerKnown=*/true));
+    TEST_ASSERT_EQUAL_INT(DOME_LINK_TRANSPORT_WIFI, (int)a.txRoute);
+    TEST_ASSERT_FALSE(s.uartEverSeen);
+    // Not yet answering: the search continues on cadence.
+    TEST_ASSERT_TRUE(domeLinkPeerLookupDue(
+        s, makeLookup(2 * kDomeLinkPeerLookupIntervalMs, kDomeLinkPeerLookupIntervalMs,
+                      false, true, true, false)));
+}
+
 int main() {
     UNITY_BEGIN();
 
@@ -381,6 +451,13 @@ int main() {
     RUN_TEST(test_wifi_fallback_suppressed_after_uart_contact);
     RUN_TEST(test_wifi_fallback_allowed_when_uart_never_seen);
     RUN_TEST(test_uart_recovery_from_wifi_probe_sets_uart_ever_seen);
+
+    RUN_TEST(test_peer_lookup_due_on_cadence_when_searching);
+    RUN_TEST(test_peer_lookup_not_due_without_sta);
+    RUN_TEST(test_peer_lookup_not_due_with_manual_peer_ip);
+    RUN_TEST(test_peer_lookup_not_due_once_uart_seen);
+    RUN_TEST(test_peer_lookup_not_due_while_known_peer_answers_then_back_when_quiet);
+    RUN_TEST(test_wifi_fallback_still_engages_when_uart_never_heard);
 
     return UNITY_END();
 }

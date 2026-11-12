@@ -29,6 +29,7 @@ constexpr uint32_t kDomeLinkHeartbeatIntervalMs  = 1000;
 constexpr uint32_t kDomeLinkHeartbeatTimeoutMs   = 5000;
 constexpr uint32_t kDomeLinkUartProbeIntervalMs  = 30000;
 constexpr uint32_t kDomeLinkUartProbeWindowMs    = 150;
+constexpr uint32_t kDomeLinkPeerLookupIntervalMs = 5000;  // mDNS dome peer re-lookup cadence
 
 // ---------------------------------------------------------------------------
 // Sleep-sync action
@@ -79,6 +80,32 @@ struct DomeLinkArbiterActions {
     bool              sendHeartbeat;      // shell sends 1 Hz #PAHB on txRoute
     SleepSyncAction   sleepSync;          // shell sends sleep/wake command on txRoute
 };
+
+// ---------------------------------------------------------------------------
+// Peer lookup gate (#507)
+//
+// The mDNS dome peer lookup blocks the task loop that drains domeTxQueue (up
+// to its 2000 ms timeout when nobody answers). It is only worth running when
+// its answer could be used: the peer IP only carries traffic on the WiFi
+// fallback, which is closed for the rest of the boot once the UART has been
+// seen.
+// ---------------------------------------------------------------------------
+
+struct DomeLinkPeerLookupInputs {
+    uint32_t nowMs;
+    uint32_t lastLookupMs;   // when the last lookup ran (0 = never)
+    bool     manualPeerIp;   // a dome peer IP is configured; no lookup needed
+    bool     staConnected;   // WiFi STA connected
+    bool     peerKnown;      // a peer IP is cached
+    bool     domeConnected;  // dome heartbeat seen within timeout
+};
+
+// True when the shell should run the mDNS lookup this tick. False with a
+// manual peer IP, without STA, once the UART has been seen this boot, and
+// while a known peer is answering heartbeats (before the UART is seen that
+// can only be WiFi). Otherwise true every kDomeLinkPeerLookupIntervalMs.
+bool domeLinkPeerLookupDue(const DomeLinkArbiterState&    s,
+                           const DomeLinkPeerLookupInputs& in);
 
 // ---------------------------------------------------------------------------
 // Step function

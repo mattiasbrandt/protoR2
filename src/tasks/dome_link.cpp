@@ -64,7 +64,6 @@ static IPAddress s_lastMdnsResolvedIp;
 namespace {
 
 constexpr uint16_t    kDomeUdpPort      = 4901;
-constexpr uint32_t    kMdnsRefreshMs    = 5000;
 constexpr const char* kDomeMdnsHost     = "astropixelsplus";
 constexpr const char* kDomeCmdEndpoint  = "/api/cmd";
 constexpr const char* kDomeLayoutEndpoint = "/api/dome/layout";
@@ -228,7 +227,11 @@ static bool readConfiguredPeerIp(IPAddress* out) {
     return true;
 }
 
+// The lookup blocks this task (and so the domeTxQueue drain) for up to the
+// ESPmDNS default 2000 ms when nobody answers; domeLinkPeerLookupDue() lets it
+// run only when its answer could carry traffic (#507).
 static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeerValid,
+                              const DomeLinkArbiterState& arbiter, bool domeIsConnected,
                               uint32_t* inOutLastMdnsLookupMs, IPAddress* inOutPeerIp,
                               bool* outUsingManualIp) {
     if (inOutLastMdnsLookupMs == nullptr || inOutPeerIp == nullptr || outUsingManualIp == nullptr) {
@@ -248,7 +251,14 @@ static bool resolveDomePeerIp(uint32_t nowMs, bool staConnected, bool cachedPeer
         return false;
     }
 
-    if ((uint32_t)(nowMs - *inOutLastMdnsLookupMs) < kMdnsRefreshMs) {
+    DomeLinkPeerLookupInputs lookup = {};
+    lookup.nowMs         = nowMs;
+    lookup.lastLookupMs  = *inOutLastMdnsLookupMs;
+    lookup.manualPeerIp  = false;  // handled above
+    lookup.staConnected  = staConnected;
+    lookup.peerKnown     = cachedPeerValid;
+    lookup.domeConnected = domeIsConnected;
+    if (!domeLinkPeerLookupDue(arbiter, lookup)) {
         return cachedPeerValid;
     }
 
@@ -862,8 +872,8 @@ void domeLinkTask(void* pvParameters) {
             }
         }
 
-        peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, &lastMdnsLookupMs, &peerIp,
-                                      &peerManual);
+        peerKnown = resolveDomePeerIp(now, staConnected, peerKnown, arbiter, domeConnected(),
+                                      &lastMdnsLookupMs, &peerIp, &peerManual);
 
         const uint32_t prevUartHbMs = lastUartHeartbeatMs;
         processUartRx(now, &lastUartHeartbeatMs);
