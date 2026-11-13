@@ -1,11 +1,11 @@
-# protoR2
-
 [![Verification](https://github.com/mattiasbrandt/protoR2/actions/workflows/verification.yml/badge.svg?branch=main)](https://github.com/mattiasbrandt/protoR2/actions/workflows/verification.yml)
 [![Release](https://github.com/mattiasbrandt/protoR2/actions/workflows/release.yml/badge.svg)](https://github.com/mattiasbrandt/protoR2/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/mattiasbrandt/protoR2)](https://github.com/mattiasbrandt/protoR2/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform: ESP32, PlatformIO](https://img.shields.io/badge/platform-ESP32%20%7C%20PlatformIO-orange)](#what-it-supports)
 [![Last commit](https://img.shields.io/github/last-commit/mattiasbrandt/protoR2/main)](https://github.com/mattiasbrandt/protoR2/commits/main)
+
+# protoR2
 
 <p align="center">
   <a href="https://github.com/user-attachments/assets/b742ec64-1bab-459e-be03-396f3bf6899a">
