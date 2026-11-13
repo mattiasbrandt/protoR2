@@ -1,0 +1,183 @@
+<!doctype html>
+<!-- The demo's titles, drawn over a transparent 1920x1080 page: a lower-third
+     per beat and the end card. Nothing animates on its own: render.js calls
+     window.renderAt(seconds) for every frame, so a frame is a pure function of
+     its time and the track renders the same on every run. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk.ttf"); font-weight: 300 700; }
+  @font-face { font-family: "Orbitron"; src: url("fonts/Orbitron.ttf"); font-weight: 400 900; }
+  @font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono.ttf"); font-weight: 100 800; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
+  * { box-sizing: border-box; }
+
+  /* Lower third */
+  #third { position: absolute; left: 84px; bottom: 64px; display: flex; align-items: stretch; will-change: transform, opacity; }
+  #third .bar { width: 8px; border-radius: 4px; background: linear-gradient(180deg, #7dd3fc 0%, #38bdf8 45%, #6366f1 100%);
+    box-shadow: 0 0 24px rgba(56, 189, 248, 0.75), 0 0 2px rgba(255, 255, 255, 0.6); transform-origin: 50% 100%; }
+  #third .plate { margin-left: 14px; padding: 20px 40px 24px 30px; border-radius: 6px 20px 20px 6px;
+    background: linear-gradient(100deg, rgba(6, 10, 20, 0.94) 0%, rgba(10, 18, 36, 0.9) 60%, rgba(14, 28, 60, 0.84) 100%);
+    border: 1px solid rgba(125, 211, 252, 0.26); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+  #third .kicker { font: 600 21px/1 "JetBrains Mono", monospace; letter-spacing: 0.24em; color: #7dd3fc; text-transform: uppercase; white-space: nowrap; }
+  #third .kicker b { color: #f8fafc; font-weight: 700; }
+  #third .kicker i { display: inline-block; width: 44px; height: 2px; margin: 0 14px 6px; background: rgba(125, 211, 252, 0.55); vertical-align: middle; }
+  #third .head { margin-top: 14px; font: 600 60px/1.08 "Space Grotesk", sans-serif; letter-spacing: -0.012em; color: #f8fafc; white-space: nowrap;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6); }
+  #third .head span { display: inline-block; white-space: pre; }
+
+  /* End card */
+  #end { position: absolute; inset: 0; opacity: 0; }
+  #end .dim { position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 60% at 50% 46%, rgba(20, 52, 120, 0.82) 0%, rgba(6, 12, 28, 0.94) 55%, rgba(3, 6, 14, 0.98) 100%); }
+  #end svg { position: absolute; left: 50%; top: 46%; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; }
+  #end .grid { position: absolute; inset: 0; opacity: 0.16;
+    background-image: linear-gradient(rgba(125, 211, 252, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(125, 211, 252, 0.5) 1px, transparent 1px);
+    background-size: 80px 80px; -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 46%, #000 0%, transparent 75%); }
+  #end .stack { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 70px; }
+  #end .eyebrow { font: 600 24px/1 "JetBrains Mono", monospace; letter-spacing: 0.42em; color: #7dd3fc; text-transform: uppercase; }
+  #end .mark { position: relative; margin-top: 30px; font: 800 212px/1 "Orbitron", sans-serif; letter-spacing: 0.02em; white-space: nowrap; }
+  #end .mark span { display: inline-block; background: linear-gradient(180deg, #ffffff 0%, #e0f2fe 38%, #38bdf8 72%, #6366f1 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 34px rgba(56, 189, 248, 0.55)); }
+  #end .mark .two span, #end .mark span.two { background: linear-gradient(180deg, #fff7ed 0%, #fdba74 45%, #f97316 100%); -webkit-background-clip: text; background-clip: text;
+    filter: drop-shadow(0 0 34px rgba(249, 115, 22, 0.5)); }
+  #end .sweep { position: absolute; top: -10%; bottom: -10%; width: 240px; left: 0; transform: skewX(-18deg);
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%); mix-blend-mode: overlay; filter: blur(6px); }
+  #end .rule { margin-top: 26px; height: 4px; width: 760px; border-radius: 2px; transform-origin: 50% 50%;
+    background: linear-gradient(90deg, transparent 0%, #38bdf8 20%, #f8fafc 50%, #6366f1 80%, transparent 100%); box-shadow: 0 0 22px rgba(56, 189, 248, 0.8); }
+  #end .chips { margin-top: 46px; display: flex; gap: 16px; }
+  #end .chips div { padding: 12px 22px; border-radius: 999px; font: 600 22px/1 "JetBrains Mono", monospace; letter-spacing: 0.1em; color: #cbd5e1;
+    border: 1px solid rgba(125, 211, 252, 0.35); background: rgba(8, 16, 34, 0.7); text-transform: uppercase; }
+  #end .url { position: absolute; left: 0; right: 0; bottom: 92px; text-align: center; font: 600 34px/1 "JetBrains Mono", monospace; color: #f8fafc; letter-spacing: 0.02em; }
+  #end .url b { color: #7dd3fc; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="third"><div class="bar"></div><div class="plate"><div class="kicker"></div><div class="head"></div></div></div>
+
+<div id="end">
+  <div class="dim"></div>
+  <div class="grid"></div>
+  <!-- Rings after the dome's own plan view: a ring of panels round a hub. -->
+  <svg viewBox="-750 -750 1500 1500" fill="none" stroke-linecap="round">
+    <g id="ring1" stroke="#38bdf8" stroke-opacity="0.34" stroke-width="2"><circle r="700" stroke-dasharray="4 26"/><circle r="610" stroke-dasharray="150 34"/></g>
+    <g id="ring2" stroke="#7dd3fc" stroke-opacity="0.26" stroke-width="2"><circle r="520" stroke-dasharray="64 18"/><circle r="430" stroke-dasharray="3 14"/></g>
+    <g id="ring3" stroke="#818cf8" stroke-opacity="0.3" stroke-width="3"><circle r="340" stroke-dasharray="210 40"/></g>
+  </svg>
+  <div class="stack">
+    <div class="eyebrow">Open-source droid firmware</div>
+    <div class="mark"><span>p</span><span>r</span><span>o</span><span>t</span><span>o</span><span class="two">R</span><span class="two">2</span><div class="sweep"></div></div>
+    <div class="rule"></div>
+    <div class="chips"><div>ESP32</div><div>Foot Drive</div><div>Dome</div><div>Sequences</div><div>RC + Web</div></div>
+  </div>
+  <div class="url"><b>github.com/</b>mattiasbrandt/protoR2</div>
+</div>
+
+<script>
+  // Seconds on the exported video's own clock. `end` is where the end card
+  // begins; the video is held on its last frame under it until `total`.
+  const CUES = [
+    { from: 0.3, to: 11.7, n: '01', kicker: 'Dashboard', head: 'Your droid, in a browser' },
+    { from: 12.5, to: 21.8, n: '02', kicker: 'Configuration', head: 'Say which droid you built' },
+    { from: 22.3, to: 34.9, n: '02', kicker: 'Configuration', head: 'Pick the hardware you fitted' },
+    { from: 35.7, to: 45.4, n: '03', kicker: 'Wiring', head: 'Every wire, one table' },
+    { from: 46.2, to: 52.4, n: '04', kicker: 'Parts', head: 'See where each part sits' },
+    { from: 53.2, to: 60.3, n: '05', kicker: 'Sequences', head: 'Build Sequences on a timeline' },
+    { from: 61.0, to: 70.9, n: '05', kicker: 'Sequences', head: 'Put steps on the beat' },
+    { from: 71.4, to: 78.5, n: '06', kicker: 'Console', head: "Watch the droid's own log" },
+    { from: 78.9, to: 82.6, n: '06', kicker: 'Console', head: 'Type a command, read the answer' },
+  ];
+  const END = { from: 82.9, total: 89.5 };
+  const IN = 0.7;
+  const OUT = 0.4;
+
+  const clamp = (v) => Math.min(1, Math.max(0, v));
+  const outCubic = (v) => 1 - Math.pow(1 - clamp(v), 3);
+  const outBack = (v) => { const c = 1.70158; const x = clamp(v) - 1; return 1 + (c + 1) * x * x * x + c * x * x; };
+  const inCubic = (v) => Math.pow(clamp(v), 3);
+
+  const third = document.getElementById('third');
+  const bar = third.querySelector('.bar');
+  const plate = third.querySelector('.plate');
+  const kicker = third.querySelector('.kicker');
+  const head = third.querySelector('.head');
+  const end = document.getElementById('end');
+  let shown = null;
+
+  const setCue = (cue) => {
+    if (shown === cue) return;
+    shown = cue;
+    kicker.innerHTML = `<b>${cue.n}</b><i></i>${cue.kicker}`;
+    head.innerHTML = cue.head.split(' ').map((word, i, all) => `<span>${word}${i < all.length - 1 ? ' ' : ''}</span>`).join('');
+  };
+
+  const drawThird = (t) => {
+    const cue = CUES.find((c) => t >= c.from && t < c.to);
+    if (!cue) { third.style.opacity = '0'; return; }
+    setCue(cue);
+    const a = t - cue.from;
+    const left = cue.to - t;
+    const leave = 1 - inCubic(1 - left / OUT);
+    third.style.opacity = String(Math.min(outCubic(a / 0.25), left < OUT ? leave : 1));
+    third.style.transform = `translateY(${left < OUT ? (1 - leave) * 26 : 0}px)`;
+    bar.style.transform = `scaleY(${outBack(a / 0.45)})`;
+    // The plate wipes in from the bar, then the words rise one after another.
+    const wipe = outCubic((a - 0.08) / 0.5);
+    plate.style.clipPath = `inset(0 ${(1 - wipe) * 100}% 0 0 round 6px 20px 20px 6px)`;
+    plate.style.transform = `translateX(${(1 - wipe) * -18}px)`;
+    kicker.style.opacity = String(outCubic((a - 0.2) / 0.35));
+    [...head.children].forEach((word, i) => {
+      const p = outCubic((a - 0.24 - i * 0.07) / 0.42);
+      word.style.opacity = String(p);
+      word.style.transform = `translateY(${(1 - p) * 34}px)`;
+    });
+  };
+
+  const drawEnd = (t) => {
+    const a = t - END.from;
+    if (a < 0) { end.style.opacity = '0'; return; }
+    end.style.opacity = String(outCubic(a / 0.6));
+    const q = (sel) => end.querySelector(sel);
+    q('#ring1').setAttribute('transform', `rotate(${a * 7}) scale(${0.86 + 0.14 * outCubic(a / 1.6)})`);
+    q('#ring2').setAttribute('transform', `rotate(${-a * 11}) scale(${0.8 + 0.2 * outCubic(a / 1.6)})`);
+    q('#ring3').setAttribute('transform', `rotate(${a * 17}) scale(${0.7 + 0.3 * outCubic(a / 1.6)})`);
+    const eyebrow = q('.eyebrow');
+    const pe = outCubic((a - 0.35) / 0.5);
+    eyebrow.style.opacity = String(pe);
+    eyebrow.style.letterSpacing = `${0.42 + (1 - pe) * 0.5}em`;
+    [...end.querySelectorAll('.mark > span')].forEach((letter, i) => {
+      const p = clamp((a - 0.5 - i * 0.075) / 0.5);
+      letter.style.opacity = String(outCubic(p * 1.6));
+      letter.style.transform = `translateY(${(1 - outBack(p)) * 90}px) scale(${0.6 + 0.4 * outBack(p)})`;
+    });
+    // One pass of light across the wordmark once it has landed, and a second later.
+    const sweep = q('.sweep');
+    const pass = (start) => clamp((a - start) / 0.9);
+    const s = a < 3.4 ? pass(1.5) : pass(4.2);
+    sweep.style.opacity = s > 0 && s < 1 ? '1' : '0';
+    sweep.style.left = `${-20 + s * 130}%`;
+    q('.rule').style.transform = `scaleX(${outCubic((a - 1.25) / 0.7)})`;
+    [...end.querySelectorAll('.chips div')].forEach((chip, i) => {
+      const p = outBack((a - 1.7 - i * 0.09) / 0.4);
+      chip.style.opacity = String(clamp((a - 1.7 - i * 0.09) / 0.2));
+      chip.style.transform = `scale(${0.7 + 0.3 * p})`;
+    });
+    const url = q('.url');
+    const pu = outCubic((a - 2.3) / 0.5);
+    url.style.opacity = String(pu);
+    url.style.transform = `translateY(${(1 - pu) * 18}px)`;
+  };
+
+  // ?solo: the end card on its own dark ground, with no video under it, for the
+  // looping splash and the logo. ?mark: the wordmark and its line alone, on nothing.
+  const mode = new URLSearchParams(location.search);
+  if (mode.has('solo')) document.body.style.background = '#050a16';
+  if (mode.has('mark')) for (const sel of ['.dim', '.grid', 'svg', '.chips', '.url', '.sweep']) end.querySelector(sel).style.display = 'none';
+  window.CUES = CUES;
+  window.END = END;
+  window.renderAt = (t) => { drawThird(t); drawEnd(t); };
+  window.renderAt(0);
+</script>
+</body>
+</html>
