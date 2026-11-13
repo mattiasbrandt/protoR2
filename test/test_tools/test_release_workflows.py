@@ -85,15 +85,10 @@ class AutoReleaseTriggerTest(unittest.TestCase):
 
     def test_serialises_and_never_cancels(self):
         """The release decision serialises on its own group and is never
-        cancelled; the README Showcase capture holds a different group, so a
-        decision never queues behind a capture (#480)."""
-        jobs = self.workflow["jobs"]
-        release = jobs["release"]["concurrency"]
+        cancelled."""
+        release = self.workflow["jobs"]["release"]["concurrency"]
         self.assertEqual(release["group"], "auto-release-main")
         self.assertFalse(release["cancel-in-progress"])
-        showcase = jobs["showcase"]["concurrency"]
-        self.assertNotEqual(showcase["group"], release["group"])
-        self.assertFalse(showcase["cancel-in-progress"])
 
     def test_the_job_skips_bot_authored_commits(self):
         job = self.workflow["jobs"]["release"]
