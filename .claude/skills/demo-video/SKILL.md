@@ -1,6 +1,6 @@
 ---
 name: demo-video
-description: Recreate protoR2's project demo video and README GIF - scripted takes of the web UI on a real board, recorded and cut with OpenScreen's MCP tools, titles composited with ffmpeg. Use when asked to remake, update or extend the demo video or showcase GIF, or to add a page or feature to it.
+description: Recreate protoR2's project demo video and README GIF - scripted takes of the web UI on a real board, recorded and cut with OpenScreen's MCP tools, titles composited with ffmpeg. Use when asked to remake, update or extend the demo video or its GIF, or to add a page or feature to it.
 ---
 
 # protoR2 demo video
@@ -115,7 +115,7 @@ private text, and no jump at a cut.
 
 5. The GIF is cut from that MP4: `trim` three beats and the end card, `concat`,
    `fps=15,scale=852:480`, `palettegen=max_colors=200` and
-   `paletteuse=dither=bayer`. Keep it under the 40 MB cap from #480.
+   `paletteuse=dither=bayer`. Keep it near 10 MB: it loads on every visit to the README.
 
 Done when a contact sheet of the MP4 shows every title readable and clear of
 the action, the end card complete on the last frame, and both files' sizes and
@@ -134,7 +134,8 @@ its own ground: the splash's frames, `protoR2-logo.png` and
       -loop 0 docs/images/brand/protoR2-splash.gif
 
 `docs/images/brand/` holds those three and `protoR2-demo.gif`, the README GIF.
-The README opens with the logo, then the GIF as a link to the MP4. The MP4 is
+The README shows the GIF first under its title, as a link to the MP4; the
+logo is kept as a file and is not in the README (operator, 2026-11-13). The MP4 is
 hosted by GitHub, not git: `gh issue comment 509 --body-file <file> --attach
 ./protoR2-launch.mp4` with `![](./protoR2-launch.mp4)` in the body, then read
 the comment back for its `user-attachments` address and put that in the README.
