@@ -5,9 +5,9 @@
 //   NODE_PATH=$HOME/.npm/_npx/e41f203b7505f1fb/node_modules \
 //     BEAT=all node .claude/skills/demo-video/drive.js
 //
-// BEAT is all (beats 1-6 in one take), one beat's number, or 7 (the console
-// beat, a take of its own). DRY=1 plays headless with no window and no take,
-// and shoots each beat's last frame. BASE_URL is the board.
+// BEAT is all (every beat, in the order of ORDER, in one take), one beat's
+// name, or several with commas between. DRY=1 plays headless with no window and no take, and shoots each
+// beat's last frame. BASE_URL is the board.
 //
 // Opens Chromium as an app window (no browser chrome) on the board, floats it
 // at 2000x1250 device pixels (1600x1000 CSS at scale 1.25) on Hyprland
@@ -20,10 +20,11 @@
 // The take records the system pointer, which a script never moves, so the page
 // draws its own pointer and a ring on each press.
 //
-// Beats 1-6 write nothing to the board: every request that is not a GET is
-// refused in the browser and listed in the log. Beat 7 lets three through and
-// lists them: the Console's own reads, the status question it types, and the
-// log level set to Debug.
+// The board is written to only by what ALLOWED lists, each line a beat's own
+// press: a servo opened and closed, a light's mode and colour, a dome
+// calibrate hold, the log level to Debug, and the pages' own reads. Every
+// other request that is not a GET is refused in the browser and listed in the
+// log. Nothing is connected to the board, so none of it moves anything.
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -43,6 +44,16 @@ const DONE = path.join(HERE, 'done');
 const WAIT_GO_MS = 10 * 60 * 1000;
 const WAIT_DONE_MS = 5 * 60 * 1000;
 const WIN = { width: 2000, height: 1250, scale: 1.25 };
+
+// Every write a beat may make, as [path, the shape of its decoded body].
+const ALLOWED = [
+  ['/api/console', /^command=(operations|system\.status\.health|help)$/], // the Console's reads
+  ['/api/rc/debug', /^\{"enabled":(true|false)\}$/], // RC Control's live monitor, the page's own
+  ['/api/servo', /^arm=GPIO 49&action=(open|close)$/], // servos beat
+  ['/api/dome/cmd', /^cmd=DL:(FLD|RLD):(ALARM|RAINBOW):(DEFAULT|RED)$/], // lights beat
+  ['/api/dome', /^speed=(1\.0|1|0)&durationMs=30000$/], // dome beat: a calibrate hold, then neutral
+  ['/api/config', /^logLevel=4$/], // console beat
+];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -147,14 +158,11 @@ const placeWindow = async (pid) => {
     await context.route('**/*', (route) => {
       const request = route.request();
       if (request.method() === 'GET') return route.continue();
-      // The console beat's own traffic, and nothing else: the Console's reads
-      // (what the page asks on load, and the status question the beat types),
-      // and the one Setting the beat changes, the log level to Debug.
       const where = new URL(request.url()).pathname;
-      const body = request.postData() || '';
-      const consoleRead = where === '/api/console' && /^command=(operations|system\.status\.health|help)$/.test(decodeURIComponent(body));
-      const debugLevel = where === '/api/config' && body === 'logLevel=4' && !DRY;
-      if (BEAT === '7' && (consoleRead || debugLevel)) {
+      const body = decodeURIComponent((request.postData() || '').replace(/\+/g, ' '));
+      const wanted = ALLOWED.some(([path_, shape]) => path_ === where && shape.test(body));
+      // A dry run leaves the log level alone, so the take still finds it at Info.
+      if (wanted && !(DRY && where === '/api/config')) {
         allowed.push(`${request.method()} ${where} ${body}`);
         return route.continue();
       }
@@ -242,8 +250,11 @@ const placeWindow = async (pid) => {
       const landed = await page.evaluate(() => scrollY);
       if (Math.abs(landed - y) > 4) await page.mouse.wheel(0, y - landed);
     };
-    const open = async (hash, ready) => {
+    const open = async (hash, ready, { fresh = false } = {}) => {
       await page.goto(`${BASE}/${hash}`);
+      // A page opened from another page waits for the next status frame before
+      // it knows what the droid last sent; a fresh load asks at once.
+      if (fresh) await page.reload();
       await page.locator(ready).first().waitFor({ state: 'visible', timeout: 20000 });
       await sleep(2500);
     };
@@ -259,7 +270,7 @@ const placeWindow = async (pid) => {
     // click of a take comes after 2.8 s, since OpenScreen keeps the opening wide.
     const BEATS = {
       // Dashboard: the droid picture, front then rear, then the Status Plate.
-      1: {
+      dashboard: {
         stage: () => open('#home', '.app-shell, body[data-page="home"]'),
         play: async () => {
           await log(at.x, at.y);
@@ -272,25 +283,24 @@ const placeWindow = async (pid) => {
           await sleep(1500);
         },
       },
-      // Configuration: what was set, then down to the board and the Droid Build.
-      2: {
+      // Configuration: one stop per category, top to bottom: the board, the
+      // Droid Build (dome, then body), then every hardware category's products.
+      configuration: {
         stage: () => open('#configuration', 'body[data-page="configuration"]'),
         play: async () => {
           await log(at.x, at.y);
           await sleep(2800);
           await moveTo(760, 520, 800);
           await sleep(700);
-          // One stop per category, top to bottom: the board, the Droid Build
-          // (dome, then body), then every hardware category with its products.
-          for (const [y, hold] of [[680, 1500], [1130, 1700], [1620, 1500], [2170, 1700], [2590, 1400], [2950, 1500], [3490, 1700], [3900, 1400], [4167, 1900]]) {
+          for (const [y, hold] of [[680, 1400], [1130, 1600], [1620, 1400], [2170, 1500], [2590, 1300], [2998, 1400], [3538, 1500], [3948, 1300], [4290, 1700]]) {
             await scrollToY(y);
-            marks.push({ beat: `2@${y}`, from: Date.now(), to: Date.now() + hold });
+            marks.push({ beat: `configuration@${y}`, from: Date.now(), to: Date.now() + hold });
             await sleep(hold);
           }
         },
       },
       // Wiring: the wires on the board, then the one table.
-      3: {
+      wiring: {
         stage: () => open('#wiring', 'body[data-page="wiring"]'),
         play: async () => {
           await log(at.x, at.y);
@@ -304,7 +314,7 @@ const placeWindow = async (pid) => {
         },
       },
       // Parts: pick a part in the list and see it on the picture.
-      4: {
+      parts: {
         stage: () => open('#parts', 'body[data-page="parts"]'),
         play: async () => {
           await log(at.x, at.y);
@@ -315,8 +325,65 @@ const placeWindow = async (pid) => {
           await sleep(1900);
         },
       },
-      // Sequences: drag a block on the timeline, then one Undo.
-      5: {
+      // Servos: the first Output told to open, then to close.
+      servos: {
+        stage: () => open('#servo', '.outputs-go[data-action="open"]'),
+        play: async () => {
+          await log(at.x, at.y);
+          await sleep(2800);
+          await click(page.locator('.outputs-go[data-action="open"]').first(), 900);
+          await sleep(2200);
+          await click(page.locator('.outputs-go[data-action="close"]').first(), 600);
+          await sleep(2200);
+        },
+      },
+      // Lights: a mode and a colour on the Front Logic Displays, a mode on the rear.
+      lights: {
+        stage: () => open('#lights', '.light-mode'),
+        play: async () => {
+          await log(at.x, at.y);
+          await sleep(2800);
+          await click(page.locator('.light-mode', { hasText: 'Alarm' }).first(), 900);
+          await sleep(1500);
+          await click(page.locator('.light-color[data-color="red"]').first(), 600);
+          await sleep(1600);
+          await click(page.locator('.light-mode', { hasText: 'Rainbow' }).nth(1), 800);
+          await sleep(1900);
+        },
+      },
+      // Dome Rotation: a calibrate hold and back to neutral, then its settings.
+      dome: {
+        // Fresh: opened from another page, the calibrate row stays hidden (no
+        // status frame yet says the droid sends a pulse).
+        stage: () => open('#dome', '#dome-calibrate-holds button', { fresh: true }),
+        play: async () => {
+          await log(at.x, at.y);
+          await sleep(2800);
+          await click(page.locator('#dome-calibrate-holds button').first(), 900);
+          await sleep(2000);
+          await click(page.locator('#dome-calibrate-holds button', { hasText: 'Neutral' }), 500);
+          await sleep(1300);
+          await moveTo(760, 620, 500);
+          await scrollBy(330, 1500);
+          await sleep(2200);
+        },
+      },
+      // RC Control: the radio, the RC Receiver, the bindings, the sticks, the sources.
+      rc: {
+        stage: () => open('#rc', 'body[data-page="rc"]'),
+        play: async () => {
+          await log(at.x, at.y);
+          await sleep(2800);
+          await moveTo(760, 560, 600);
+          for (const [y, hold] of [[440, 1500], [900, 1700], [1230, 1700], [1650, 2000]]) {
+            await scrollToY(y);
+            marks.push({ beat: `rc@${y}`, from: Date.now(), to: Date.now() + hold });
+            await sleep(hold);
+          }
+        },
+      },
+      // Sequences: drag a block on the timeline, then one Undo. Nothing is saved.
+      sequences: {
         stage: tuned,
         play: async () => {
           await log(at.x, at.y);
@@ -327,50 +394,36 @@ const placeWindow = async (pid) => {
           await sleep(1600);
         },
       },
-      // Sequences: a Sequence Tempo, then what the Rehearsal says.
-      6: {
-        stage: tuned,
-        play: async () => {
-          await log(at.x, at.y);
-          await sleep(2800);
-          await click('#seq-editor-bpm', 800);
-          await page.keyboard.type('120', { delay: 220 });
-          await page.keyboard.press('Tab');
-          await sleep(1900);
-          await click('#seq-editor-tab-rehearsal', 900);
-          await sleep(900);
-          await scrollBy(420, 1800);
-          await sleep(1900);
-        },
-      },
       // Dashboard Console: the log level to Debug, lines arriving, then a
-      // question typed to the droid and its answer. Its own take (BEAT=7): it is
-      // the one beat that writes, and only the log level.
-      7: {
+      // question typed to the droid and its answer. Set the level to Info before
+      // the take: the pill cycles, and from Debug the next press is Error.
+      console: {
         stage: () => open('#home', '#log-console'),
         play: async () => {
           await log(at.x, at.y);
           await sleep(1200);
           await moveTo(760, 600, 500);
           await scrollToY(885);
-          await sleep(1400);
+          await sleep(1300);
           const level = (await page.locator('#log-level-pill').textContent()).trim();
-          marks.push({ beat: `7 level was ${level}`, from: Date.now(), to: Date.now() });
+          marks.push({ beat: `console level was ${level}`, from: Date.now(), to: Date.now() });
           if (level === 'Info' && !DRY) await click('#log-level-pill', 800);
           else await hover('#log-level-pill', 800);
-          await sleep(4200);
-          await click('#log-command-input', 900);
-          await page.keyboard.type('system.status.health', { delay: 85 });
-          await sleep(500);
+          await sleep(2600);
+          await click('#log-command-input', 800);
+          await page.keyboard.type('system.status.health', { delay: 70 });
+          await sleep(400);
           await page.keyboard.press('Enter');
-          marks.push({ beat: '7 command sent', from: Date.now(), to: Date.now() });
-          await sleep(4200);
+          marks.push({ beat: 'console command sent', from: Date.now(), to: Date.now() });
+          await sleep(3400);
         },
       },
     };
+    // The video's order. The console is last: its end is what the end card covers.
+    const ORDER = ['dashboard', 'configuration', 'wiring', 'parts', 'servos', 'lights', 'dome', 'rc', 'sequences', 'console'];
     // BEAT=all plays every beat in one take, so the picker is answered once;
     // the staging between two beats is trimmed out by the times logged here.
-    const order = BEAT === 'all' ? ['1', '2', '3', '4', '5', '6'] : [BEAT];
+    const order = BEAT === 'all' ? ORDER : BEAT.split(',');
     for (const id of order) if (!BEATS[id]) throw new Error(`no beat ${id} (${Object.keys(BEATS).join(', ')}, all)`);
 
     await BEATS[order[0]].stage();
@@ -379,8 +432,7 @@ const placeWindow = async (pid) => {
     if (!DRY) await waitForFile(GO, WAIT_GO_MS);
     const startedAt = Date.now();
     for (const id of order) {
-      // Beat 6 carries on in the editor beat 5 left, back at "No edits".
-      if (id !== order[0] && !(id === '6' && order.includes('5'))) await BEATS[id].stage();
+      if (id !== order[0]) await BEATS[id].stage();
       const from = Date.now();
       await BEATS[id].play();
       marks.push({ beat: id, from, to: Date.now() });

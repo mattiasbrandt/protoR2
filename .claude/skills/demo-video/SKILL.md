@@ -10,8 +10,8 @@ clean app window, OpenScreen records and cuts it, and `overlay/` draws the title
 that ffmpeg lays on top. A remake is the same pipeline with new beats, so every
 run gives the same video for the same UI.
 
-First made 2026-11-13 (issue #509): 89.5 s MP4, 1920x1080, 60 fps, 21 MB, and a
-24.7 s README GIF, 852x480, 10 MB. Status and the hosted video are on #509.
+Made 2026-11-13 (issue #509): 115 s MP4, ten pages, 1920x1080, 60 fps, 24 MB,
+and a 25 s README GIF, 852x480, 10 MB. Status and the hosted video are on #509.
 
 ## What you need
 
@@ -19,7 +19,17 @@ First made 2026-11-13 (issue #509): 89.5 s MP4, 1920x1080, 60 fps, 21 MB, and a
   `getFrames`). Missing: follow `.agents/skills/openscreen-demo/SKILL.md` step 1,
   which ends in a new session.
 - A board on the network in Bench-Mode. Read `GET /api/identity`,
-  `/api/status` and `/api/seq/builtins` first, and never flash it for this.
+  `/api/status` and `/api/seq/builtins` first.
+- **The board's web pages as new as its firmware.** `/api/status` gives
+  `firmwareVersion` and `fsVersion`; an older `fsVersion` means the take shows
+  old pages (the first cut showed pages five weeks old). `make uploadfs
+  BUILD_ENV=firebeetle2` in a pane puts the current ones on, with the operator's
+  yes. The firmware itself is never flashed for this.
+- **The board set up to have something on every page:** Dome Rotation on and a
+  radio picked in Configuration, then a restart (2026-11-13: ISDT ESC70, HotRC
+  DS-650). The board keeps it; say so.
+- The log level at Info before the take (`POST /api/config logLevel=3`): the
+  console beat presses the pill once, and from Debug the next press is Error.
 - Playwright (`NODE_PATH=$HOME/.npm/_npx/e41f203b7505f1fb/node_modules`), ffmpeg
   with libx264, and `overlay/fetch_fonts.sh` run once.
 - The operator at the screen for each take: the portal picker asks him for the
@@ -43,7 +53,6 @@ First made 2026-11-13 (issue #509): 89.5 s MP4, 1920x1080, 60 fps, 21 MB, and a
 ### 1. Dry run
 
     DRY=1 BEAT=all node .claude/skills/demo-video/drive.js
-    DRY=1 BEAT=7   node .claude/skills/demo-video/drive.js
 
 Headless, no window, no take. Done when every beat prints `played`, the log
 lists no refused write you did not expect, and each
@@ -52,9 +61,9 @@ the board (default `http://firebeetle2.local`).
 
 ### 2. Takes
 
-Two takes, each the same way. Tell the operator before each one.
+One take of every beat, about 2 min 40 s. Tell the operator before it.
 
-1. Start `BEAT=all` (or `BEAT=7`) in the background, output to a **new** file,
+1. Start `BEAT=all` in the background, output to a **new** file,
    and wait for `Waiting for go`. A reused output file carries the last run's
    error and reads as a failure.
 2. `startRecording` with `cursor: "system"`. It returns when he has picked.
@@ -63,15 +72,15 @@ Two takes, each the same way. Tell the operator before each one.
 4. Wait for `Waiting for done` in **that** output file, then `stopRecording`,
    then `touch done`.
 
-Done when `getFrames` on each `videoPath` shows the app window, the right
+Done when `getFrames` on the `videoPath` shows the app window, the right
 workspace, and every beat. A wrong take is recorded again, not fixed in the edit.
 
-Beat 7 sets the board's log level to Debug. Leave it and say so.
+The console beat sets the board's log level to Debug. Leave it and say so.
 
 ### 3. Edit in OpenScreen
 
-Work in the `BEAT=all` take's project; `importMedia` the console take and
-`insertClip` it last. Times come from `log-<BEAT>.json`: `marks` are each beat's
+Work in the take's project. A beat retaken on its own joins it with
+`importMedia` and `insertClip`. Times come from `log-<BEAT>.json`: `marks` are each beat's
 start and end, `events` the pointer actions, both on `recordingStartedAt`'s
 clock, which matches the video's own seconds.
 
@@ -81,14 +90,16 @@ clock, which matches the video's own seconds.
   `cursor.show: false`, wallpaper
   `linear-gradient(135deg, #0b1220 0%, #12305c 55%, #1d4ed8 100%)`.
 - **Trims**: the pre-roll, each gap between two beats' marks plus the beat's
-  first 1.5 s of waiting, and the tail. A trim on the second clip needs its
+  first 1.5 s of waiting, and the tail. A trim on a second clip needs its
   `assetId` as well as its `clipId`.
 - **Zooms**, one per result, held 1.5 s or more, clear of every trim by the
   0.8 s the camera takes to move. What worked: 1.5x on the droid picture, the
-  wires, the timeline and the tempo; 1.25x across the Configuration walk, the
-  Parts list and the Rehearsal.
+  wires, the servo row, the light cards, the dome's calibrate row, the timeline
+  and the Console; 1.25x across the Configuration walk, the Parts list and
+  the RC Control walk.
 - **Blur what is private.** The Console's boot log shows the WiFi name and the
-  IP, and the lines climb as new ones arrive. A blur's box is percent of the
+  IP while those lines are still in view (they were in the first cut, not in
+  the second), and the lines climb as new ones arrive. A blur's box is percent of the
   **cropped** clip, not of the take. Find each line's position per moment by
   matching a strip of the take frame by frame, then cover each run of positions
   with one box. Check every step with `getFrames`.
@@ -109,7 +120,7 @@ private text, and no jump at a cut.
 
        node .claude/skills/demo-video/overlay/render.js $W/frames
        ffmpeg -y -i $W/protoR2-clean.mp4 -framerate 30 -i $W/frames/f_%05d.png \
-         -filter_complex "[0:v]tpad=stop_mode=clone:stop_duration=4[v];[v][1:v]overlay=eof_action=repeat,trim=duration=<END.total>,format=yuv420p[o]" \
+         -filter_complex "[0:v]tpad=stop_mode=clone:stop_duration=6[v];[v][1:v]overlay=eof_action=repeat,trim=duration=<END.total>,format=yuv420p[o]" \
          -map "[o]" -an -c:v libx264 -preset medium -crf 18 -r 60 -movflags +faststart \
          ~/Videos/protoR2-demo/protoR2-launch.mp4
 
@@ -151,10 +162,13 @@ during it) and a cue in `overlay.html`. Take selectors and waits from the
 surface's script under `test/playwright/`, and try it with `DRY=1` first.
 
 - Start each `play` with a 2.8 s wait, and pause a second after each result.
-- A beat that must write gets its own take and its own allow-list in the route
-  handler, as beat 7 has. Everything else stays refused.
+- A beat that must write gets a line in `ALLOWED` for exactly what it sends.
+  Everything else stays refused, and the log lists both.
+- A page opened from another page can lack what a fresh load has: the Dome
+  page hides its Calibrate row until a status frame arrives. `open(..., {
+  fresh: true })` reloads it.
 - Bench means the board alone: no beat claims a servo moved or a light lit.
 - Titles are six words or fewer, in GLOSSARY.md's terms.
 
-Not in the video yet, wanted by the operator (2026-11-13): Servos, Dome
-Rotation, Lights, RC Control.
+Cut by the operator for length (2026-11-13): the Sequence Tempo and the
+Rehearsal in the Sequences beat. Not shown yet: Foot Drive, Sound, Maintenance.
