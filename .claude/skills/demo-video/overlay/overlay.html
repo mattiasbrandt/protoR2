@@ -40,8 +40,10 @@
   #end .mark { position: relative; margin-top: 30px; font: 800 212px/1 "Orbitron", sans-serif; letter-spacing: 0.02em; white-space: nowrap; }
   #end .mark span { display: inline-block; background: linear-gradient(180deg, #ffffff 0%, #e0f2fe 38%, #38bdf8 72%, #6366f1 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 34px rgba(56, 189, 248, 0.55)); }
-  #end .mark .two span, #end .mark span.two { background: linear-gradient(180deg, #fff7ed 0%, #fdba74 45%, #f97316 100%); -webkit-background-clip: text; background-clip: text;
-    filter: drop-shadow(0 0 34px rgba(249, 115, 22, 0.5)); }
+  /* The "R2": its three stops and its glow, so a trial colour is one query (?two=hi,mid,lo). */
+  #end { --two-hi: #f0fff0; --two-mid: #7dff5a; --two-lo: #39ff14; }
+  #end .mark span.two { background: linear-gradient(180deg, var(--two-hi) 0%, var(--two-mid) 45%, var(--two-lo) 100%); -webkit-background-clip: text; background-clip: text;
+    filter: drop-shadow(0 0 34px color-mix(in srgb, var(--two-lo) 55%, transparent)); }
   #end .sweep { position: absolute; top: -10%; bottom: -10%; width: 240px; left: 0; transform: skewX(-18deg);
     background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%); mix-blend-mode: overlay; filter: blur(6px); }
   #end .rule { margin-top: 26px; height: 4px; width: 760px; border-radius: 2px; transform-origin: 50% 50%;
@@ -173,6 +175,7 @@
   // looping splash and the logo. ?mark: the wordmark and its line alone, on nothing.
   const mode = new URLSearchParams(location.search);
   if (mode.has('solo')) document.body.style.background = '#050a16';
+  if (mode.has('two')) mode.get('two').split(',').forEach((colour, i) => end.style.setProperty(['--two-hi', '--two-mid', '--two-lo'][i], `#${colour}`));
   if (mode.has('mark')) for (const sel of ['.dim', '.grid', 'svg', '.chips', '.url', '.sweep']) end.querySelector(sel).style.display = 'none';
   window.CUES = CUES;
   window.END = END;
