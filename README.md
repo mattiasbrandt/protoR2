@@ -1,9 +1,11 @@
-[![Verification](https://github.com/mattiasbrandt/protoR2/actions/workflows/verification.yml/badge.svg?branch=main)](https://github.com/mattiasbrandt/protoR2/actions/workflows/verification.yml)
-[![Release](https://github.com/mattiasbrandt/protoR2/actions/workflows/release.yml/badge.svg)](https://github.com/mattiasbrandt/protoR2/actions/workflows/release.yml)
-[![Latest release](https://img.shields.io/github/v/release/mattiasbrandt/protoR2)](https://github.com/mattiasbrandt/protoR2/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Platform: ESP32, PlatformIO](https://img.shields.io/badge/platform-ESP32%20%7C%20PlatformIO-orange)](#what-it-supports)
-[![Last commit](https://img.shields.io/github/last-commit/mattiasbrandt/protoR2/main)](https://github.com/mattiasbrandt/protoR2/commits/main)
+<p align="center">
+  <a href="https://github.com/mattiasbrandt/protoR2/actions/workflows/verification.yml"><img src="https://github.com/mattiasbrandt/protoR2/actions/workflows/verification.yml/badge.svg?branch=main" alt="Verification"></a>
+  <a href="https://github.com/mattiasbrandt/protoR2/actions/workflows/release.yml"><img src="https://github.com/mattiasbrandt/protoR2/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/mattiasbrandt/protoR2/releases/latest"><img src="https://img.shields.io/github/v/release/mattiasbrandt/protoR2" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+  <a href="#what-it-supports"><img src="https://img.shields.io/badge/platform-ESP32%20%7C%20PlatformIO-orange" alt="Platform: ESP32, PlatformIO"></a>
+  <a href="https://github.com/mattiasbrandt/protoR2/commits/main"><img src="https://img.shields.io/github/last-commit/mattiasbrandt/protoR2/main" alt="Last commit"></a>
+</p>
 
 # protoR2
 
