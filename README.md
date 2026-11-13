@@ -1,3 +1,15 @@
+<p align="center">
+  <img src="docs/images/brand/protoR2-logo.png" alt="protoR2. Open-source droid firmware." width="820">
+</p>
+
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/b742ec64-1bab-459e-be03-396f3bf6899a">
+    <img src="docs/images/brand/protoR2-demo.gif" alt="protoR2 in a browser: the Dashboard, Wiring, and a Sequence on the timeline. Press for the full video." width="820">
+  </a>
+  <br>
+  <sub>Press the picture for the full video, 90 seconds at 1080p.</sub>
+</p>
+
 # protoR2
 
 **Open-source ESP32 body-controller firmware for R2D2 (astromech) droids: build
