@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "skills": {
+    "openscreen-demo": {
+      "source": "getopenscreen/openscreen",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/openscreen-demo/SKILL.md",
+      "computedHash": "096e6578cf1200e99fb488c4d66dcffb15b00ccd2b03aaaa44ea90fc8db62827"
+    }
+  }
+}
