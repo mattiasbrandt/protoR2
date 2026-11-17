@@ -144,6 +144,7 @@ test-web: ## Run web behavioral tests (node:test)
 # the target. CI runs this target, so the two cannot drift.
 test-tools: ## Run tooling tests: Python unittest (incl. slice gate self-tests), then the JS files
 	python3 -m unittest discover -s test/test_tools -q
+	python3 -m unittest discover -s tests/hooks -q
 	@for f in test/test_tools/*.js; do \
 		[ -e "$$f" ] || continue; \
 		echo "node $$f"; \
@@ -161,7 +162,7 @@ check-protocol-mirror: ## Browser half of the protocol-check corpus (firmware ha
 check: ## Static analysis with cppcheck (fails on a HIGH defect, as CI does)
 	$(FLOCK) pio check -e artoo_esp32 --fail-on-defect=high
 
-check-action-drift: ## Ad hoc check that action YAML, C++, and RC fallback metadata align
+check-action-drift: ## CI-gated check that action YAML, C++, and RC fallback metadata align
 	python3 tools/check_action_registry_drift.py
 
 # Every Setting the firmware declares has words in the browser (ADR 0068).
