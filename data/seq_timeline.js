@@ -114,12 +114,7 @@
     ALL: ["FLD", "RLD", "FPSI", "RPSI"],
   });
 
-  const esc = (value) =>
-    String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+  const esc = (value) => window.PAUtils.escapeHtml(value);
 
   const seconds = (ms) => `${(ms / 1000).toFixed(2)} s`;
 

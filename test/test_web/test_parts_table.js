@@ -184,6 +184,8 @@ const bootPicker = async ({ outputs = freshOutputs(), catalogSource = readData("
       // mini_dom decodes no entities, so escaping here would put "&amp;" in the
       // text a test reads; the catalog carries nothing that needs it.
       escapeHtml: (value) => String(value),
+      // data/wiring.js calls escapeAttr unguarded, as the shipped PAUtils has it.
+      escapeAttr: (value) => String(value),
       showFeedback: (el, text, level = "") => {
         if (!el) return;
         el.textContent = text;
