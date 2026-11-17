@@ -40,6 +40,10 @@ _SCHEMA_PATTERNS = ("compile json schema", "no schema with key or ref")
 
 def _classify_error(error_text: str) -> str:
     low = error_text.lower()
+    # A Bash result that opens with "Exit code" ran: any "permission denied"
+    # in it is the command's own EACCES, not the operator's settings.
+    if low.startswith("exit code"):
+        return "tool_failure"
     if "denied" in low or "permission" in low:
         return "permission_denied"
     if any(p in low for p in _SCHEMA_PATTERNS):
