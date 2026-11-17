@@ -26,7 +26,7 @@ Implementation guidance:
 - Use pill-style context/status boxes for concise state and mode communication.
 - NEVER an emoji on an operator surface. ADR 0066 retired it and `tools/check_surface_anatomy.py` fails the build on one. Where a glyph earns its place it is an icon from the project's own SVG sprite, inheriting the text color, with its label still beside it.
 - Prefer modern segmented/chip/radio-card option selectors over classic dropdowns when choices are small and known. Sized by how many there are:
-  - up to about five: a segmented bar (`segmented()`, `data/output_settings.js`);
+  - up to about five: a segmented bar (`segmented()`, `data/parts_mapping.js`);
   - more than that: small pills that WRAP onto two or three lines, never a wider bar and never a menu;
   - a color: SWATCHES showing the color itself, named once beneath the picked one. A color named in a menu is a word doing a swatch's job.
   - A token with no color of its own (`DEFAULT`) gets a neutral dot. Never invent one for it.
