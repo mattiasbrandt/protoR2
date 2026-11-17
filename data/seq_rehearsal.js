@@ -105,12 +105,7 @@
     },
   });
 
-  const escapeHtml = (value) =>
-    String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+  const escapeHtml = (value) => window.PAUtils.escapeHtml(value);
 
   const seconds = (ms) => `${Number((ms / 1000).toFixed(2))} s`;
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;

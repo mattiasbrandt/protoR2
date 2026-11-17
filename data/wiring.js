@@ -111,8 +111,8 @@
     protor2link: "Dome link",
   };
 
-  const esc = (value) => window.PAUtils?.escapeHtml?.(value) ?? String(value ?? "");
-  const escAttr = (value) => window.PAUtils?.escapeAttr?.(value) ?? String(value ?? "");
+  const esc = (value) => window.PAUtils.escapeHtml(value);
+  const escAttr = (value) => window.PAUtils.escapeAttr(value);
 
   const plural = (count, [one, many]) => `${count} ${count === 1 ? one : many}`;
 
