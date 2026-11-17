@@ -43,6 +43,20 @@ class PostToolFailureDiagnosticsHookTests(unittest.TestCase):
         self.assertIn("Tool failure diagnostics [permission_denied]", context)
         self.assertIn("Failed tool call: Bash", context)
 
+    def test_shell_permission_error_in_a_command_that_ran_is_not_a_denial(self):
+        # The command ran and exited non-zero; "permission denied" is the shell's
+        # own EACCES text (an unset $TMPDIR redirected to /tw.log), not the
+        # operator's permission settings, so no "ask the operator" packet.
+        payload = {
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Bash",
+            "tool_input": {"command": "make test-web > $TMPDIR/tw.log 2>&1"},
+            "error": "Exit code 2\n(eval):1: permission denied: /tw.log\nexit=1",
+        }
+        proc = self.run_hook(payload)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "")
+
     def test_playwright_schema_crash_emits_fallback_guidance(self):
         payload = {
             "hook_event_name": "PostToolUseFailure",
