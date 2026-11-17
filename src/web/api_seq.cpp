@@ -127,13 +127,6 @@ constexpr size_t kSeqNameBufSize = 64;
 // Shared response shapes
 // -----------------------------------------------------------------------------
 
-void sendJsonError(WebRequest& req, int code, const char* message) {
-    JsonDocument doc;
-    doc["ok"] = false;
-    doc["error"] = message;
-    webSendJsonDocument(req, doc, kSeqErrorMaxBytes, TAG, code);
-}
-
 // A Protocol Check / store failure, as a field-level 400. The message is
 // generated text rather than operator input, but it goes out through the JSON
 // serializer regardless so quoting can never depend on that staying true.
@@ -158,17 +151,17 @@ void sendCheckError(WebRequest& req, const ProtocolCheckResult& r) {
 const char* requireBody(WebRequest& req, size_t maxBytes) {
     const size_t declared = req.contentLength();
     if (declared == 0) {
-        sendJsonError(req, 400, "missing JSON body");
+        webSendJsonError(req, 400, "missing JSON body");
         return nullptr;
     }
     if (declared > maxBytes) {
-        sendJsonError(req, 413, "payload too large");
+        webSendJsonError(req, 413, "payload too large");
         return nullptr;
     }
     const char* body = req.body();
     if (body == nullptr) {
         PA_LOG_WARN(TAG, "declared %u byte body did not survive buffering", (unsigned)declared);
-        sendJsonError(req, 500, "request buffer alloc failed");
+        webSendJsonError(req, 500, "request buffer alloc failed");
         return nullptr;
     }
     return body;
@@ -382,7 +375,7 @@ void handleSeqBuiltinsGet(WebRequest& req) {
         // definition, even if a Retrained Learned Sequence shadows the name.
         const SequenceEntry* e = sequenceCatalogFind(name);
         if (e == nullptr) {
-            sendJsonError(req, 404, "not found");
+            webSendJsonError(req, 404, "not found");
             return;
         }
         JsonDocument doc;
@@ -412,14 +405,14 @@ void handleSeqBuiltinsGet(WebRequest& req) {
 void handleSeqGet(WebRequest& req) {
     char name[kSeqNameBufSize];
     if (!req.param("name", name, sizeof(name)) || name[0] == '\0') {
-        sendJsonError(req, 400, "missing name parameter");
+        webSendJsonError(req, 400, "missing name parameter");
         return;
     }
     // Look up before starting the response so a miss is a clean 404: once a
     // chunked body is on the wire there is no status code left to change.
     const SeqIndexEntry* entry = seqStoreIndexFind(name);
     if (entry == nullptr) {
-        sendJsonError(req, 404, "not found");
+        webSendJsonError(req, 404, "not found");
         return;
     }
     // Copied from the matched index entry rather than from the request buffer:
@@ -432,7 +425,7 @@ void handleSeqGet(WebRequest& req) {
     memcpy(s_streamName, entry->name, sizeof(s_streamName));
     s_streamName[sizeof(s_streamName) - 1] = '\0';
     if (!req.sendChunked("application/json", seqFileFiller)) {
-        sendJsonError(req, 500, "read failed");
+        webSendJsonError(req, 500, "read failed");
     }
 }
 
@@ -460,15 +453,15 @@ void handleSeqPost(WebRequest& req) {
 void handleSeqDelete(WebRequest& req) {
     char name[kSeqNameBufSize];
     if (!req.param("name", name, sizeof(name)) || name[0] == '\0') {
-        sendJsonError(req, 400, "missing name parameter");
+        webSendJsonError(req, 400, "missing name parameter");
         return;
     }
     if (seqStoreIndexFind(name) == nullptr) {
-        sendJsonError(req, 404, "not found");
+        webSendJsonError(req, 404, "not found");
         return;
     }
     if (!seqStoreDelete(name)) {
-        sendJsonError(req, 500, "delete failed");
+        webSendJsonError(req, 500, "delete failed");
         return;
     }
     PA_LOG_INFO(TAG, "[WEB] Memory Wipe %s", name);
@@ -516,7 +509,7 @@ void handleSeqTestPost(WebRequest& req) {
     char name[kSeqNameBufSize] = {};
     if (!req.param("name", name, sizeof(name)) || name[0] == '\0') {
         if (req.contentLength() == 0) {
-            sendJsonError(req, 400, "missing or invalid DM:* name");
+            webSendJsonError(req, 400, "missing or invalid DM:* name");
             return;
         }
         const char* body = requireBody(req, SEQ_TEST_BODY_MAX);
@@ -525,7 +518,7 @@ void handleSeqTestPost(WebRequest& req) {
         }
         JsonDocument doc;
         if (deserializeJson(doc, body)) {
-            sendJsonError(req, 400, "invalid json body");
+            webSendJsonError(req, 400, "invalid json body");
             return;
         }
         snprintf(name, sizeof(name), "%s", (const char*)(doc["name"] | ""));
@@ -533,17 +526,17 @@ void handleSeqTestPost(WebRequest& req) {
 
     trimAsciiWhitespace(name);
     if (name[0] == '\0' || strncmp(name, "DM:", 3) != 0) {
-        sendJsonError(req, 400, "missing or invalid DM:* name");
+        webSendJsonError(req, 400, "missing or invalid DM:* name");
         return;
     }
     // Refused under either halt, and the answer says why (#502). The
     // Coordinator asks the same rule again when the request reaches it.
     if (const char* refusal = sequenceRunRefusalNow(name)) {
-        sendJsonError(req, 409, refusal);
+        webSendJsonError(req, 409, refusal);
         return;
     }
     if (!sequenceStart(name, SRC_WEB_API)) {
-        sendJsonError(req, 503, "sequence queue full");
+        webSendJsonError(req, 503, "sequence queue full");
         return;
     }
     PA_LOG_INFO(TAG, "[WEB] test %s", name);
@@ -573,14 +566,14 @@ void handleSeqPosePost(WebRequest& req) {
     }
     JsonDocument doc;
     if (deserializeJson(doc, body)) {
-        sendJsonError(req, 400, "invalid json body");
+        webSendJsonError(req, 400, "invalid json body");
         return;
     }
     char name[kSeqNameBufSize] = {};
     snprintf(name, sizeof(name), "%s", (const char*)(doc["name"] | ""));
     trimAsciiWhitespace(name);
     if (name[0] == '\0' || strncmp(name, "DM:", 3) != 0) {
-        sendJsonError(req, 400, "missing or invalid DM:* name");
+        webSendJsonError(req, 400, "missing or invalid DM:* name");
         return;
     }
     // Whole milliseconds from the start, read wide and signed so a negative or
@@ -589,7 +582,7 @@ void handleSeqPosePost(WebRequest& req) {
     JsonVariantConst t = doc["t"];
     const long long atMs = t.is<long long>() ? t.as<long long>() : -1LL;
     if (atMs < 0 || atMs > 0x7FFFFFFFLL) {
-        sendJsonError(req, 400, "t must be whole milliseconds from the start");
+        webSendJsonError(req, 400, "t must be whole milliseconds from the start");
         return;
     }
     bool estopLatched = false;
@@ -600,12 +593,12 @@ void handleSeqPosePost(WebRequest& req) {
     taskEXIT_CRITICAL(&robotStateMux);
     const char* refusal = sequencePoseRefusal(estopLatched, sleepMode);
     if (refusal != nullptr) {
-        sendJsonError(req, 409, refusal);
+        webSendJsonError(req, 409, refusal);
         return;
     }
 
     if (!sequencePoseRequest(name, (uint32_t)atMs, SRC_WEB_API)) {
-        sendJsonError(req, 404, "not a saved or factory sequence");
+        webSendJsonError(req, 404, "not a saved or factory sequence");
         return;
     }
     PA_LOG_INFO(TAG, "[WEB] pose %s at %u ms", name, (unsigned)atMs);
@@ -625,7 +618,7 @@ void handleSeqLastRunGet(WebRequest& req) {
     // prices; it holds its bytes only while a request is being answered (#428).
     WebRequestScratch<SeqRunEvidence> scratch;
     if (!scratch) {
-        sendJsonError(req, 500, "request scratch unavailable");
+        webSendJsonError(req, 500, "request scratch unavailable");
         return;
     }
     SeqRunEvidence& ev = *scratch;
@@ -633,7 +626,7 @@ void handleSeqLastRunGet(WebRequest& req) {
 
     JsonDocument doc;
     if (!populateSeqLastRunJson(doc, ev, have)) {
-        sendJsonError(req, 500, "last-run response overflow");
+        webSendJsonError(req, 500, "last-run response overflow");
         return;
     }
     webSendJsonDocument(req, doc, kSeqDocumentMaxBytes, TAG);
@@ -659,7 +652,7 @@ void handleSeqStopPost(WebRequest& req) {
 void handleSeqPinsGet(WebRequest& req) {
     SeqPins pins;
     if (!seqPinsRead(pins)) {
-        sendJsonError(req, 500, "pins not read");
+        webSendJsonError(req, 500, "pins not read");
         return;
     }
     sendSeqPins(req, pins);
@@ -676,26 +669,26 @@ void handleSeqPinsPost(WebRequest& req) {
     }
     JsonDocument doc;
     if (deserializeJson(doc, body)) {
-        sendJsonError(req, 400, "invalid json body");
+        webSendJsonError(req, 400, "invalid json body");
         return;
     }
     JsonVariantConst pinned = doc["pinned"];
     if (!pinned.is<bool>()) {
-        sendJsonError(req, 400, "pinned must be true or false");
+        webSendJsonError(req, 400, "pinned must be true or false");
         return;
     }
     char name[kSeqNameBufSize] = {};
     snprintf(name, sizeof(name), "%s", (const char*)(doc["name"] | ""));
     trimAsciiWhitespace(name);
     if (!protocolCheckSeqNameValid(name)) {
-        sendJsonError(req, 400, "missing or invalid DM:* name");
+        webSendJsonError(req, 400, "missing or invalid DM:* name");
         return;
     }
 
     SeqPins pins;
     if (!seqPinsRead(pins)) {
         // Never written over: a list that could not be read is not an empty one.
-        sendJsonError(req, 500, "pins not read; nothing changed");
+        webSendJsonError(req, 500, "pins not read; nothing changed");
         return;
     }
     const bool has = seqPinsHas(pins, name);
@@ -707,7 +700,7 @@ void handleSeqPinsPost(WebRequest& req) {
         seqPinsDrop(pins, name);
     } else {
         if (pins.count >= kSeqPinsMax) {
-            sendJsonError(req, 409, "8 are pinned. Unpin one first.");
+            webSendJsonError(req, 409, "8 are pinned. Unpin one first.");
             return;
         }
         const size_t used = strlen(pins.stored);
@@ -716,7 +709,7 @@ void handleSeqPinsPost(WebRequest& req) {
     }
     if (!seqPinsWrite(pins)) {
         PA_LOG_WARN(TAG, "pins not written: NVS refused %s", kSeqPinsKey);
-        sendJsonError(req, 500, "pins not saved");
+        webSendJsonError(req, 500, "pins not saved");
         return;
     }
     PA_LOG_INFO(TAG, "[WEB] %s %s", has ? "unpin" : "pin", name);

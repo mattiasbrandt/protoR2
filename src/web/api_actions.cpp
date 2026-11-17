@@ -52,13 +52,6 @@ const char* actionDomainForId(RobotActionId id) {
     return entry != nullptr ? entry->domain : "unknown";
 }
 
-void sendJsonError(WebRequest& req, int code, const char* message) {
-    JsonDocument doc;
-    doc["ok"] = false;
-    doc["error"] = message;
-    webSendJsonDocument(req, doc, kResponseMaxBytes, TAG, code);
-}
-
 }  // namespace
 
 void handleActionsTestPost(WebRequest& req) {
@@ -73,12 +66,12 @@ void handleActionsTestPost(WebRequest& req) {
         if (body != nullptr) {
             JsonDocument bodyDoc;
             if (deserializeJson(bodyDoc, body)) {
-                sendJsonError(req, 400, "invalid json body");
+                webSendJsonError(req, 400, "invalid json body");
                 return;
             }
             JsonVariantConst tokenVar = bodyDoc["token"];
             if (!tokenVar.is<const char*>()) {
-                sendJsonError(req, 400, "invalid_action_token");
+                webSendJsonError(req, 400, "invalid_action_token");
                 return;
             }
             snprintf(token, sizeof(token), "%s", tokenVar.as<const char*>());
@@ -87,25 +80,25 @@ void handleActionsTestPost(WebRequest& req) {
 
     trimAsciiWhitespace(token);
     if (token[0] == '\0') {
-        sendJsonError(req, 400, "invalid_action_token");
+        webSendJsonError(req, 400, "invalid_action_token");
         return;
     }
 
     RobotActionId target = ROBOT_ACTION_NONE;
     if (!parseRobotActionId(token, &target)) {
-        sendJsonError(req, 400, "invalid_action_token");
+        webSendJsonError(req, 400, "invalid_action_token");
         return;
     }
 
     switch (evaluateActionTestGuard(target, webControlEnabledForActionTest())) {
         case ACTION_TEST_SAFETY_CRITICAL_BLOCKED:
-            sendJsonError(req, 403, "safety_critical_blocked");
+            webSendJsonError(req, 403, "safety_critical_blocked");
             return;
         case ACTION_TEST_WEB_CONTROL_DISABLED:
-            sendJsonError(req, 423, "web_control_disabled");
+            webSendJsonError(req, 423, "web_control_disabled");
             return;
         case ACTION_TEST_ACTION_NOT_TESTABLE:
-            sendJsonError(req, 422, "action_not_testable");
+            webSendJsonError(req, 422, "action_not_testable");
             return;
         case ACTION_TEST_ALLOWED:
         default:
