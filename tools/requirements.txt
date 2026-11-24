@@ -9,7 +9,7 @@ pyserial>=3.5
 questionary>=2.1.1
 
 # PyYAML: required for action catalog generation from docs/action-registry.yaml.
-PyYAML>=6.0.3
+PyYAML>=6.0.4
 
 # rich: required by tools/soak.py. A hard dependency, not optional -- the
 # harness imports it at module scope so there is one presentation path rather
